@@ -366,7 +366,7 @@ Common::Matrix44 VRCameraController::GetView() const
   // For now, let's assume direct inverse is okay, or adjust later.
   // world_pose = world_pose * Common::Matrix44::Scale(Common::Vec3(1.0f, 1.0f, -1.0f)); // If Z needs flipping
 
-  return world_pose.Inverse();
+  return world_pose.Inverted();
 }
 
 void VRCameraController::UpdateHMDPose(const Common::Matrix44& new_pose)
