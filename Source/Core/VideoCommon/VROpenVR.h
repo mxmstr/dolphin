@@ -2,16 +2,17 @@
 
 #include <memory>
 #include "Common/Matrix.h" // For Common::Matrix44
+#include <openvr.h>
 
 // Forward declare OpenVR types to avoid including openvr.h in this header if possible,
 // though for IVRSystem and IVRCompositor we might need the full definition.
 // For now, let's assume openvr.h will be included in VROpenVR.cpp.
-namespace vr
-{
-  class IVRSystem;
-  class IVRCompositor;
-  enum EVREye;
-} // namespace vr
+//namespace vr
+//{
+//  class IVRSystem;
+//  class IVRCompositor;
+//  enum EVREye;
+//} // namespace vr
 
 class VROpenVR
 {

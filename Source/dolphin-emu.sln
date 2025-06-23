@@ -25,7 +25,7 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Languages", "..\Languages\L
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "LZO", "..\Externals\LZO\LZO.vcxproj", "{AB993F38-C31D-4897-B139-A620C42BC565}"
 EndProject
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "lz4", "..\Externals\LZ4\LZ4.vcxproj", "{9092C5CC-3E71-41B3-BF68-4A7BDD8A5476}"
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "LZ4", "..\Externals\LZ4\LZ4.vcxproj", "{9092C5CC-3E71-41B3-BF68-4A7BDD8A5476}"
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "miniupnpc", "..\Externals\miniupnpc\miniupnpc.vcxproj", "{31643FDB-1BB8-4965-9DE7-000FC88D35AE}"
 EndProject
@@ -90,6 +90,15 @@ EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "rcheevos", "..\Externals\rcheevos\rcheevos.vcxproj", "{CC99A910-3752-4465-95AA-7DC240D92A99}"
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "tinygltf", "..\Externals\tinygltf\tinygltf.vcxproj", "{8BDA3693-4999-4D11-9E52-8D08C30B643A}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "OpenVR", "OpenVR", "{8A7489BC-D201-4E5C-BA85-861FFB60034A}"
+	ProjectSection(SolutionItems) = preProject
+		..\Externals\OpenVR\headers\openvr.h = ..\Externals\OpenVR\headers\openvr.h
+		..\Externals\OpenVR\headers\openvr_api.cs = ..\Externals\OpenVR\headers\openvr_api.cs
+		..\Externals\OpenVR\headers\openvr_api.json = ..\Externals\OpenVR\headers\openvr_api.json
+		..\Externals\OpenVR\headers\openvr_capi.h = ..\Externals\OpenVR\headers\openvr_capi.h
+		..\Externals\OpenVR\headers\openvr_driver.h = ..\Externals\OpenVR\headers\openvr_driver.h
+	EndProjectSection
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -477,6 +486,7 @@ Global
 		{447B7B1E-1D74-4AEF-B2B9-6EB41C5D5313} = {87ADDFF9-5768-4DA2-A33B-2477593D6677}
 		{CC99A910-3752-4465-95AA-7DC240D92A99} = {87ADDFF9-5768-4DA2-A33B-2477593D6677}
 		{8BDA3693-4999-4D11-9E52-8D08C30B643A} = {87ADDFF9-5768-4DA2-A33B-2477593D6677}
+		{8A7489BC-D201-4E5C-BA85-861FFB60034A} = {87ADDFF9-5768-4DA2-A33B-2477593D6677}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {64B0A343-3B94-4522-9C24-6937FE5EFB22}
