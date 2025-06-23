@@ -187,6 +187,10 @@ enum Hotkey
   HK_SKYLANDERS_PORTAL,
   HK_INFINITY_BASE,
 
+  // VR Hotkeys
+  HK_VR_RECENTER,
+  HK_VR_TOGGLE_MODE,
+
   NUM_HOTKEYS,
 };
 
@@ -219,6 +223,7 @@ enum HotkeyGroup : int
   HKGP_GBA_VOLUME,
   HKGP_GBA_SIZE,
   HKGP_USB_EMU,
+  HKGP_VR,
 
   NUM_HOTKEY_GROUPS,
 };

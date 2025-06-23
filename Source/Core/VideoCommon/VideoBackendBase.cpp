@@ -62,6 +62,7 @@
 #include "VideoCommon/VertexManagerBase.h"
 #include "VideoCommon/VertexShaderManager.h"
 #include "VideoCommon/VROpenVR.h" // Added for VR
+#include "VideoCommon/FreeLookCamera.h" // Added for VR UpdateVRView
 #include "VideoCommon/VideoConfig.h"
 #include "VideoCommon/VideoState.h"
 #include "VideoCommon/Widescreen.h"
@@ -396,4 +397,34 @@ void VideoBackendBase::ShutdownShared()
   auto& system = Core::System::GetInstance();
   VertexLoaderManager::Clear();
   system.GetFifo().Shutdown();
+}
+
+void VideoBackendBase::UpdateVRView(FreeLookCamera& camera) {
+  // Ensure VROpenVR is available and initialized
+  if (!m_vr_openvr || !m_vr_openvr->IsInitialized()) {
+    return;
+  }
+
+  // Ensure the camera controller is set
+  CameraController* current_controller = camera.GetController();
+  if (!current_controller) {
+    return;
+  }
+
+  // Check if the current controller is VRCameraController
+  // This requires FreeLookCamera.h to be included, and VRCameraController to be defined there.
+  // It might be better to include "VideoCommon/FreeLookCamera.h" specifically.
+  auto* vr_controller = dynamic_cast<VRCameraController*>(current_controller);
+  if (!vr_controller) {
+    // Only update if the VR controller is active
+    return;
+  }
+
+  Common::Matrix44 hmd_pose_matrix;
+  // Predict slightly into the future (e.g., 16ms for 60Hz, adjust as needed)
+  // This value might need tuning or be made configurable.
+  float predicted_display_time = 0.016f;
+  if (m_vr_openvr->GetHMDPose(predicted_display_time, hmd_pose_matrix)) {
+    vr_controller->UpdateHMDPose(hmd_pose_matrix);
+  }
 }

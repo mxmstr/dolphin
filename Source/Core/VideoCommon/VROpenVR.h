@@ -40,6 +40,8 @@ public:
   // TODO: Add methods for submitting frames to the compositor later.
   // TODO: Add methods for getting recommended render target size later.
 
+  bool IsInitialized() const;
+
 private:
   vr::IVRSystem* m_ivr_system;
   vr::IVRCompositor* m_ivr_compositor;

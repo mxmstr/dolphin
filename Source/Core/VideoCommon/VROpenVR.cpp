@@ -159,3 +159,8 @@ bool VROpenVR::GetEyeProjectionMatrix(vr::EVREye eye, float near_clip, float far
   out_projection = ConvertHmdMatrix44ToMatrix44(mat);
   return true;
 }
+
+bool VROpenVR::IsInitialized() const
+{
+  return m_initialized;
+}

@@ -95,3 +95,29 @@ private:
 };
 
 extern FreeLookCamera g_freelook_camera;
+
+class VRCameraController final : public CameraControllerInput
+{
+public:
+  VRCameraController();
+
+  Common::Matrix44 GetView() const override;
+
+  void UpdateHMDPose(const Common::Matrix44& new_pose);
+  void Recenter();
+
+  // No-op for basic 6DOF, input handled by HMD
+  void MoveVertical(float amt) override {}
+  void MoveHorizontal(float amt) override {}
+  void MoveForward(float amt) override {}
+  void Rotate(const Common::Vec3& amt) override {}
+  void Rotate(const Common::Quaternion& quat) override {}
+
+  void Reset() override;
+
+  void DoState(PointerWrap& p) override;
+
+private:
+  Common::Matrix44 m_hmd_pose;
+  Common::Matrix44 m_recenter_offset;
+};

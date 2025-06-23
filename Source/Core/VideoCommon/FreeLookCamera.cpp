@@ -30,6 +30,8 @@ std::string to_string(FreeLook::ControlType type)
     return "First Person";
   case FreeLook::ControlType::Orbital:
     return "Orbital";
+  case FreeLook::ControlType::VR:
+    return "VR";
   }
 
   return "";
@@ -282,6 +284,10 @@ void FreeLookCamera::SetControlType(FreeLook::ControlType type)
   {
     m_camera_controller = std::make_unique<FPSController>();
   }
+  else if (type == FreeLook::ControlType::VR)
+  {
+    m_camera_controller = std::make_unique<VRCameraController>();
+  }
 
   m_current_type = type;
 }
@@ -336,4 +342,63 @@ bool FreeLookCamera::IsActive() const
 CameraController* FreeLookCamera::GetController() const
 {
   return m_camera_controller.get();
+}
+
+// VRCameraController Implementation
+VRCameraController::VRCameraController()
+{
+  m_hmd_pose = Common::Matrix44::Identity();
+  m_recenter_offset = Common::Matrix44::Identity();
+  // Ensure the base class sets itself as dirty to save initial state if needed.
+  CameraControllerInput::Reset();
+}
+
+Common::Matrix44 VRCameraController::GetView() const
+{
+  // The view matrix is the inverse of the camera's world pose.
+  // HMD pose is typically reported in world space.
+  // Recenter_offset is also in world space, applied before HMD pose.
+  Common::Matrix44 world_pose = m_recenter_offset * m_hmd_pose;
+
+  // It's common for VR systems to use a right-handed coordinate system
+  // where +X is right, +Y is up, and -Z is forward.
+  // If Dolphin's camera expects +Z forward, we might need to flip.
+  // For now, let's assume direct inverse is okay, or adjust later.
+  // world_pose = world_pose * Common::Matrix44::Scale(Common::Vec3(1.0f, 1.0f, -1.0f)); // If Z needs flipping
+
+  return world_pose.Inverse();
+}
+
+void VRCameraController::UpdateHMDPose(const Common::Matrix44& new_pose)
+{
+  m_hmd_pose = new_pose;
+  m_dirty = true; // Mark as dirty so savestates can pick it up
+}
+
+void VRCameraController::Recenter()
+{
+  // Set the recenter offset to counteract the current HMD pose,
+  // making the current HMD orientation the new "forward" and origin.
+  m_recenter_offset = m_hmd_pose.Inverse();
+  // Optional: if a specific "forward" direction is desired that's not identity
+  // (e.g. always face +Z in tracking space after recenter), apply that transform here.
+  // For example, if HMD's natural forward is -Z and we want game's forward to be +Z after recenter:
+  // m_recenter_offset = m_recenter_offset * Common::Matrix44::RotateY(MathUtil::PI);
+
+  m_dirty = true;
+}
+
+void VRCameraController::Reset()
+{
+  CameraControllerInput::Reset(); // Handles fov, speed, and m_dirty
+  m_hmd_pose = Common::Matrix44::Identity();
+  m_recenter_offset = Common::Matrix44::Identity();
+  m_dirty = true;
+}
+
+void VRCameraController::DoState(PointerWrap& p)
+{
+  CameraControllerInput::DoState(p); // Save/load base members like FOV multipliers
+  p.Do(m_hmd_pose);
+  p.Do(m_recenter_offset);
 }
