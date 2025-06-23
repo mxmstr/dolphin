@@ -90,3 +90,6 @@
 [submodule "Externals/zstd/zstd"]
 	path = Externals/zstd/zstd
 	url = https://github.com/facebook/zstd.git
+[submodule "Externals/OpenVR"]
+	path = Externals/OpenVR
+	url = https://github.com/ValveSoftware/openvr.git

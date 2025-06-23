@@ -784,6 +784,9 @@ if (USE_RETRO_ACHIEVEMENTS)
 	add_subdirectory(Externals/rcheevos)
 endif()
 
+# Add OpenVR SDK
+add_subdirectory(Externals/OpenVR)
+
 ########################################
 # Pre-build events: Define configuration variables and write SCM info header
 #

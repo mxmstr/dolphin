@@ -150,6 +150,7 @@ LogManager::LogManager()
   m_log[LogType::VIDEOINTERFACE] = {"VI", "Video Interface"};
   m_log[LogType::WIIMOTE] = {"Wiimote", "Wii Remote"};
   m_log[LogType::WII_IPC] = {"WII_IPC", "WII IPC"};
+  m_log[LogType::VR] = {"VR", "Virtual Reality"};
 
   RegisterListener(LogListener::FILE_LISTENER,
                    std::make_unique<FileLogListener>(File::GetUserPath(F_MAINLOG_IDX)));
