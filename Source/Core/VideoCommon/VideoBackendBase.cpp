@@ -349,11 +349,11 @@ bool VideoBackendBase::InitializeShared(std::unique_ptr<AbstractGfx> gfx,
   {
     if (m_vr_openvr->Init())
     {
-      LOG_NOTICE(DS_VR, "OpenVR initialized successfully via VideoBackendBase. (Placeholder Test Point)");
+      NOTICE_LOG_FMT(VR, "OpenVR initialized successfully via VideoBackendBase. (Placeholder Test Point)");
     }
     else
     {
-      LOG_ERROR(DS_VR, "OpenVR failed to initialize via VideoBackendBase. (Placeholder Test Point)");
+      ERROR_LOG_FMT(VR, "OpenVR failed to initialize via VideoBackendBase. (Placeholder Test Point)");
       m_vr_openvr.reset(); // Clear if initialization failed
     }
   }
@@ -366,7 +366,7 @@ void VideoBackendBase::ShutdownShared()
   // Shutdown VR
   if (m_vr_openvr)
   {
-    LOG_INFO(DS_VR, "Shutting down OpenVR via VideoBackendBase.");
+    INFO_LOG_FMT(VR, "Shutting down OpenVR via VideoBackendBase.");
     m_vr_openvr->Shutdown();
     m_vr_openvr.reset();
   }

@@ -86,50 +86,38 @@ void VROpenVR::Shutdown()
 
 namespace
 {
-// Helper function to convert OpenVR HmdMatrix34_t to Common::Matrix4x4f
-Common::Matrix4x4f ConvertHmdMatrix34ToMatrix4x4f(const vr::HmdMatrix34_t& mat34)
+// Helper function to convert OpenVR HmdMatrix34_t to Common::Matrix44
+Common::Matrix44 ConvertHmdMatrix34ToMatrix44(const vr::HmdMatrix34_t& mat34)
 {
-  Common::Matrix4x4f mat44;
-  mat44.mData[0][0] = mat34.m[0][0];
-  mat44.mData[0][1] = mat34.m[0][1];
-  mat44.mData[0][2] = mat34.m[0][2];
-  mat44.mData[0][3] = mat34.m[0][3];
-  mat44.mData[1][0] = mat34.m[1][0];
-  mat44.mData[1][1] = mat34.m[1][1];
-  mat44.mData[1][2] = mat34.m[1][2];
-  mat44.mData[1][3] = mat34.m[1][3];
-  mat44.mData[2][0] = mat34.m[2][0];
-  mat44.mData[2][1] = mat34.m[2][1];
-  mat44.mData[2][2] = mat34.m[2][2];
-  mat44.mData[2][3] = mat34.m[2][3];
-  mat44.mData[3][0] = 0.0f;
-  mat44.mData[3][1] = 0.0f;
-  mat44.mData[3][2] = 0.0f;
-  mat44.mData[3][3] = 1.0f;
-  return mat44;
+  return Common::Matrix44::FromArray({{
+    mat34.m[0][0], mat34.m[0][1], mat34.m[0][2], mat34.m[0][3],
+    mat34.m[1][0], mat34.m[1][1], mat34.m[1][2], mat34.m[1][3],
+    mat34.m[2][0], mat34.m[2][1], mat34.m[2][2], mat34.m[2][3],
+    0.0f,          0.0f,          0.0f,          1.0f
+  }});
 }
 
-// Helper function to convert OpenVR HmdMatrix44_t to Common::Matrix4x4f
-Common::Matrix4x4f ConvertHmdMatrix44ToMatrix4x4f(const vr::HmdMatrix44_t& mat44_openvr)
+// Helper function to convert OpenVR HmdMatrix44_t to Common::Matrix44
+Common::Matrix44 ConvertHmdMatrix44ToMatrix44(const vr::HmdMatrix44_t& mat44_openvr)
 {
-  Common::Matrix4x4f mat44_dolphin;
-  for (int i = 0; i < 4; ++i)
-  {
-    for (int j = 0; j < 4; ++j)
-    {
-      mat44_dolphin.mData[i][j] = mat44_openvr.m[i][j];
+  // Common::Matrix44 data is std::array<float, 16> which can be initialized directly
+  // from the float m[4][4] if we copy element by element in row-major order.
+  std::array<float, 16> arr;
+  for (int i = 0; i < 4; ++i) {
+    for (int j = 0; j < 4; ++j) {
+      arr[i * 4 + j] = mat44_openvr.m[i][j];
     }
   }
-  return mat44_dolphin;
+  return Common::Matrix44::FromArray(arr);
 }
 } // anonymous namespace
 
-bool VROpenVR::GetHMDPose(float predicted_seconds_to_photon, Common::Matrix4x4f& out_pose)
+bool VROpenVR::GetHMDPose(float predicted_seconds_to_photon, Common::Matrix44& out_pose)
 {
   if (!m_initialized || !m_ivr_system)
   {
-    LOG_ERROR(DS_VR, "VROpenVR not initialized or IVRSystem not available for GetHMDPose.");
-    out_pose.Identity();
+    ERROR_LOG_FMT(VR, "VROpenVR not initialized or IVRSystem not available for GetHMDPose.");
+    out_pose = Common::Matrix44::Identity();
     return false;
   }
 
@@ -141,28 +129,28 @@ bool VROpenVR::GetHMDPose(float predicted_seconds_to_photon, Common::Matrix4x4f&
 
   if (tracked_device_pose[vr::k_unTrackedDeviceIndex_Hmd].bPoseIsValid)
   {
-    out_pose = ConvertHmdMatrix34ToMatrix4x4f(
+    out_pose = ConvertHmdMatrix34ToMatrix44(
         tracked_device_pose[vr::k_unTrackedDeviceIndex_Hmd].mDeviceToAbsoluteTracking);
     return true;
   }
   else
   {
-    LOG_WARNING(DS_VR, "HMD pose is not valid.");
-    out_pose.Identity(); // Return identity if pose is not valid
+    WARN_LOG_FMT(VR, "HMD pose is not valid.");
+    out_pose = Common::Matrix44::Identity(); // Return identity if pose is not valid
     return false;
   }
 }
 
-bool VROpenVR::GetEyeProjectionMatrix(vr::EVREye eye, float near_clip, float far_clip, Common::Matrix4x4f& out_projection)
+bool VROpenVR::GetEyeProjectionMatrix(vr::EVREye eye, float near_clip, float far_clip, Common::Matrix44& out_projection)
 {
   if (!m_initialized || !m_ivr_system)
   {
-    LOG_ERROR(DS_VR, "VROpenVR not initialized or IVRSystem not available for GetEyeProjectionMatrix.");
-    out_projection.Identity();
+    ERROR_LOG_FMT(VR, "VROpenVR not initialized or IVRSystem not available for GetEyeProjectionMatrix.");
+    out_projection = Common::Matrix44::Identity();
     return false;
   }
 
   vr::HmdMatrix44_t mat = m_ivr_system->GetProjectionMatrix(eye, near_clip, far_clip);
-  out_projection = ConvertHmdMatrix44ToMatrix4x4f(mat);
+  out_projection = ConvertHmdMatrix44ToMatrix44(mat);
   return true;
 }
