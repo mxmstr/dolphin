@@ -1,6 +1,5 @@
 #include "VROpenVR.h"
 #include "Common/Logging/Log.h" // For logging
-#include "Externals/OpenVR/include/openvr.h" // Actual OpenVR header
 
 VROpenVR::VROpenVR() : m_ivr_system(nullptr), m_ivr_compositor(nullptr), m_initialized(false)
 {
@@ -19,11 +18,11 @@ bool VROpenVR::Init()
 {
   if (m_initialized)
   {
-    LOG_INFO(DS_VR, "VROpenVR already initialized.");
+    GENERIC_LOG_FMT(Common::Log::LogType::VR, Common::Log::LogLevel::LINFO, "VROpenVR already initialized, skipping re-initialization.");
     return true;
   }
 
-  LOG_INFO(DS_VR, "Initializing VROpenVR...");
+  GENERIC_LOG_FMT(Common::Log::LogType::VR, Common::Log::LogLevel::LINFO, "VROpenVR initialization started.");
 
   vr::EVRInitError eError = vr::VRInitError_None;
   m_ivr_system = vr::VR_Init(&eError, vr::VRApplication_Scene); // Using VRApplication_Scene for now
@@ -31,32 +30,35 @@ bool VROpenVR::Init()
   if (eError != vr::VRInitError_None)
   {
     m_ivr_system = nullptr;
-    LOG_ERROR(DS_VR, "Unable to init VR runtime: %s", vr::VR_GetVRInitErrorAsEnglishDescription(eError));
+    GENERIC_LOG_FMT(Common::Log::LogType::VR, Common::Log::LogLevel::LERROR,
+                     "VROpenVR initialization failed: {}", vr::VR_GetVRInitErrorAsEnglishDescription(eError));
     return false;
   }
 
-  LOG_INFO(DS_VR, "VR_Init successful.");
+  GENERIC_LOG_FMT(Common::Log::LogType::VR, Common::Log::LogLevel::LINFO, "VR_Init successful");
 
   if (!vr::VRCompositor())
   {
-    LOG_ERROR(DS_VR, "Failed to initialize VR Compositor.");
+    GENERIC_LOG_FMT(Common::Log::LogType::VR, Common::Log::LogLevel::LERROR,
+                     "Failed to initialize VR Compositor.");
     vr::VR_Shutdown();
     m_ivr_system = nullptr;
     return false;
   }
   m_ivr_compositor = vr::VRCompositor();
-  LOG_INFO(DS_VR, "VRCompositor successful.");
+  GENERIC_LOG_FMT(Common::Log::LogType::VR, Common::Log::LogLevel::LINFO, "VRCompositor successful.");
 
-  if (!m_ivr_system->IsHmdPresent())
-  {
-    LOG_WARNING(DS_VR, "HMD not detected. VR features may be limited or unavailable.");
-    // Depending on desired behavior, we might still want to run without an HMD for testing.
-    // For now, we'll consider it a non-fatal issue but log a warning.
-  }
-  else
-  {
-    LOG_INFO(DS_VR, "HMD detected.");
-  }
+  //if (!m_ivr_system->IsHmdPresent())
+  //{
+  //  GENERIC_LOG_FMT(Common::Log::LogType::VR, Common::Log::LogLevel::LWARNING,
+  //                   "HMD not detected. VR features may be limited or unavailable.");
+  //  // Depending on desired behavior, we might still want to run without an HMD for testing.
+  //  // For now, we'll consider it a non-fatal issue but log a warning.
+  //}
+  //else
+  //{
+  //  GENERIC_LOG_FMT(Common::Log::LogType::VR, Common::Log::LogLevel::LINFO, "HMD detected.");
+  //}
 
   // TODO: Get recommended render target size here if needed immediately.
   // uint32_t render_width, render_height;
@@ -64,7 +66,8 @@ bool VROpenVR::Init()
   // LOG_INFO(DS_VR, "Recommended render target size: %u x %u", render_width, render_height);
 
   m_initialized = true;
-  LOG_INFO(DS_VR, "VROpenVR initialized successfully.");
+  GENERIC_LOG_FMT(Common::Log::LogType::VR, Common::Log::LogLevel::LINFO,
+                     "VROpenVR initialized successfully.");
   return true;
 }
 
@@ -72,16 +75,18 @@ void VROpenVR::Shutdown()
 {
   if (!m_initialized)
   {
-    LOG_INFO(DS_VR, "VROpenVR not initialized, nothing to shut down.");
+    GENERIC_LOG_FMT(Common::Log::LogType::VR, Common::Log::LogLevel::LINFO,
+                     "VROpenVR not initialized, skipping shutdown.");
     return;
   }
 
-  LOG_INFO(DS_VR, "Shutting down VROpenVR...");
+  GENERIC_LOG_FMT(Common::Log::LogType::VR, Common::Log::LogLevel::LINFO, "Shutting down VROpenVR...");
   vr::VR_Shutdown();
   m_ivr_system = nullptr;
   m_ivr_compositor = nullptr;
   m_initialized = false;
-  LOG_INFO(DS_VR, "VROpenVR shut down.");
+  GENERIC_LOG_FMT(Common::Log::LogType::VR, Common::Log::LogLevel::LINFO,
+                     "VROpenVR shut down.");
 }
 
 namespace
