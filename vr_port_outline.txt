@@ -1,0 +1,36 @@
+1.  **Project Setup and Initial Exploration (2506a branch):**
+    *   Familiarize with the current Dolphin (2506a) codebase structure, particularly the video backend (OpenGL/Vulkan) and input handling.
+    *   Identify key files for rendering (e.g., `VideoCommon`, `OpenGL`, `Vulkan`) and camera control.
+    *   Set up a new branch for VR integration.
+2.  **Integrate OpenVR SDK:**
+    *   Add CMake configuration to find and link against the OpenVR SDK.
+    *   Create a core VR management class (e.g., `VROpenVR.cpp/h` or integrate into existing `VR.cpp/h` if a similar structure from the old fork is adopted).
+    *   Implement HMD detection, initialization, and shutdown procedures.
+    *   Implement functions to retrieve HMD pose (position and orientation) and eye projection matrices.
+3.  **Implement Basic 6DOF Head Tracking:**
+    *   Modify the main game loop or rendering pipeline to fetch the HMD pose each frame.
+    *   Update the game's view matrix based on the HMD's orientation and position. This will likely involve modifying how camera matrices are calculated in `VideoCommon` or backend-specific code.
+    *   Implement a basic "recenter HMD" function.
+4.  **Implement Stereoscopic Rendering (Targeting one backend initially, e.g., OpenGL):**
+    *   Modify the chosen graphics backend (`Source/Core/VideoCommon/Src/OpenGL.cpp` or similar) to support stereo rendering.
+    *   This involves:
+        *   Setting up separate render targets (textures) for the left and right eyes.
+        *   Rendering the scene twice per frame:
+            *   Once with the left eye's view and projection matrix.
+            *   Once with the right eye's view and projection matrix.
+        *   Submitting the rendered eye textures to the OpenVR compositor.
+    *   Handle EFB copies appropriately for stereo rendering.
+5.  **Shader Adjustments (if necessary):**
+    *   Review and potentially adapt existing shaders or add new ones if required for VR (e.g., for lens distortion if not handled by OpenVR, or for specific VR rendering techniques). The `lens_distortion.glsl` from the old fork might be a reference, but OpenVR often handles this.
+6.  **Basic Configuration:**
+    *   Add a simple toggle in the UI (e.g., graphics settings) to enable/disable VR mode.
+    *   Expose essential OpenVR settings if needed (e.g., render scale, though defaults are often fine).
+7.  **Testing and Refinement:**
+    *   Test with a compatible OpenVR HMD.
+    *   Debug rendering issues (e.g., incorrect eye separation, depth perception problems, performance).
+    *   Refine head tracking implementation for smoothness and responsiveness.
+8.  **Documentation and Code Cleanup:**
+    *   Document the new VR implementation details.
+    *   Clean up code, add comments, and ensure adherence to Dolphin's coding standards.
+9.  **Save Outline:**
+    *   Save this plan/outline to a file named `vr_port_outline.txt` in the repository root.
