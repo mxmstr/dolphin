@@ -1,0 +1,115 @@
+## Summary of VR Features in Dolphin VR (VR-Hydra branch vs. 5.0 base)
+
+This document summarizes the key modifications made to the Dolphin emulator to implement Virtual Reality (VR) support, including 6DOF head tracking, stereoscopic 3D, and motion controller input. The analysis is based on a diff between the VR-Hydra branch and the Dolphin 5.0 release.
+
+### 1. VR SDK Integration
+
+The emulator was modified to support multiple VR SDKs:
+
+*   **Oculus SDK:**
+    *   Direct integration for Oculus Rift HMDs (likely supporting versions from DK2 up to CV1, given the code structure handling different SDK generations like 0.5.x, 0.6.x-0.8.x, and 1.x+).
+    *   Handles HMD presence detection, tracking (orientation and position), rendering setup (texture swap chains/sets), and input from Oculus Remote and Touch controllers.
+    *   `CMakeLists.txt` includes `FindOculusSDK.cmake` to link against the SDK.
+    *   Specific files like `Source/Core/VideoCommon/VROculus.h` and parts of `VR.cpp`, `VROGL.cpp`, `VRD3D.cpp` manage Oculus interaction.
+    *   Includes logic to fetch the Rift's audio device for correct audio output.
+
+*   **OpenVR (SteamVR):**
+    *   Integration for HMDs supporting SteamVR, such as the HTC Vive and potentially others (including Oculus Rift via SteamVR).
+    *   Handles HMD detection, tracking, rendering submission to the OpenVR compositor, and input from Vive controllers.
+    *   `Source/Core/VideoCommon/VROpenVR.h` and relevant sections in `VR.cpp`, `VROGL.cpp`, `VRD3D.cpp` manage OpenVR interactions.
+    *   Button definitions for Vive controllers are present in `VR.h`.
+
+*   **Razer Hydra SDK (Sixense):**
+    *   Integrated for 6DOF motion controller support using the Razer Hydra.
+    *   `Source/Core/InputCommon/ControllerInterface/Sixense/RazerHydra.cpp` handles reading Hydra controller data (position, orientation, buttons, joysticks, triggers).
+    *   This data is then used to emulate various Dolphin input devices (Wiimote, Nunchuk, Classic Controller, GameCube Pad).
+    *   `Source/Core/HW/WiimoteEmu/HydraTLayer.cpp` likely acts as a translation layer.
+    *   3D models and textures for the Hydra controllers are included in `Data/Sys/Resources/`.
+
+*   **Vuzix VR920:**
+    *   Support for this older HMD is included, primarily for head tracking and stereoscopic display.
+    *   `Source/Core/VideoCommon/VR920.cpp` and `VR920.h` manage its specific integration.
+
+### 2. Stereoscopic 3D Rendering
+
+*   **Backend Modifications:**
+    *   Both Direct3D (`VRD3D.cpp`) and OpenGL (`VROGL.cpp`) backends were significantly modified to support stereo rendering.
+    *   This involves rendering the scene twice (once for each eye) with appropriate projection and view matrix adjustments based on HMD eye poses and IPD.
+*   **Lens Distortion Correction:**
+    *   A GLSL shader (`Data/Sys/Shaders/lens_distortion.glsl`) was added to apply lens distortion correction, necessary for most HMDs. It includes parameters similar to those used for Google Cardboard and allows adjustment of distortion factor, eye offset, and zoom.
+*   **Asynchronous Timewarp / Reprojection (Opcode Replay):**
+    *   A sophisticated "Opcode Replay Buffer" system (`VR.cpp`, `OpcodeDecoding.cpp`) was implemented. This system appears to record graphics commands for a frame and then can replay them multiple times with updated head tracking information.
+    *   This is likely used to achieve smoother visuals in VR by decoupling game rendering framerate from HMD display refresh rate, effectively implementing a form of asynchronous timewarp or reprojection.
+    *   Includes logic for "pull-up" (e.g., 20fps to 75/90fps, 30fps to 75/90fps) to match HMD refresh rates.
+*   **EFB Copy Handling:**
+    *   Adjustments were likely made to how Emulator Frame Buffer (EFB) copies are handled to work correctly with stereo rendering and VR compositing.
+
+### 3. 6DOF Head Tracking
+
+*   **Tracking Data Acquisition:**
+    *   The core VR system (`VR.cpp`, `VR.h`) reads head orientation and position data from the active SDK (Oculus, OpenVR, VR920).
+    *   This data updates a global head tracking matrix (`g_head_tracking_matrix`) and position (`g_head_tracking_position`).
+*   **Camera Control:**
+    *   The game's camera is modified based on the head tracking data. This involves adjusting view matrices before rendering each eye's view.
+    *   `Source/Core/VideoCommon/VRGameMatrices.cpp` likely handles adjustments to game-specific camera projection and view matrices.
+*   **Recenter Functionality:**
+    *   A function `VR_RecenterHMD()` allows the user to reset the forward-facing orientation and neutral position of the HMD.
+
+### 4. Motion Controller Support
+
+*   **Razer Hydra:**
+    *   As mentioned, full 6DOF tracking for both Hydra controllers.
+    *   Input data is mapped to emulate standard Dolphin controllers, enabling VR interaction in many games.
+*   **Oculus Touch & Vive Controllers:**
+    *   Input from Oculus Touch (buttons, thumbsticks, triggers, touch sensors) and Vive controllers (buttons, touchpad, trigger) is read.
+    *   `VR.h` defines button masks for these controllers.
+    *   `VR.cpp` contains logic to process these inputs, including complex touchpad interpretation for Vive to emulate D-pads or analog sticks.
+    *   Haptic feedback is supported for Vive (`VR_ViveHapticPulse`) and Oculus Touch (`VR_SetTouchVibration`).
+*   **Controller Emulation:**
+    *   The system provides an abstraction layer allowing VR controller inputs to be mapped to emulated GameCube pads, Wiimotes (with IR, accelerometer), Nunchuks, Classic Controllers, etc.
+    *   Game-specific default controller styles are chosen based on the game ID (e.g., GC games default to emulated GC pad using VR controllers).
+
+### 5. User Interface and Configuration
+
+*   **VR Configuration Dialog:**
+    *   A dedicated VR configuration dialog (`Source/Core/DolphinWX/ConfigVR.cpp`, `ConfigVR.h`) was added.
+    *   Allows users to adjust settings related to:
+        *   Timewarp/Opcode Replay (enable, pull-up modes).
+        *   Head tracking axes enable/disable.
+        *   "Keyhole" mode (a comfort feature to dynamically reduce FOV).
+        *   Other VR-specific tweaks.
+*   **Video Configuration:**
+    *   `Source/Core/VideoCommon/VideoConfig.cpp/h` were updated to include numerous VR-specific settings (e.g., HUD depth, screen distance/size for virtual cinema mode, motion sickness reduction options).
+*   **Input Profiles:**
+    *   Many new input profiles were added in `Data/Sys/Profiles/` for Vive and Oculus controllers, pre-configured for various emulated controllers.
+
+### 6. Game-Specific Enhancements (Metroid Prime Focus)
+
+*   **Metroid Prime VR (`Source/Core/VideoCommon/MetroidVR.cpp`):**
+    *   Extensive, highly specific code was written to enhance the VR experience in Metroid Prime 1 & 2 (and some elements for MP3, Zelda TP, NES VC).
+    *   This system heuristically identifies different rendering layers of the game (HUD, helmet visor, gun, world, scan visor elements, morphball view, etc.) by analyzing viewport dimensions, FOV, Z-ranges, and draw order.
+    *   Based on the identified layer, it applies transformations:
+        *   **Depth and Scale:** Adjusts the perceived depth and size of UI elements (e.g., placing the HUD at a comfortable viewing distance, scaling the helmet visor).
+        *   **Head-Locking:** Attaches certain elements (like the HUD and helmet) to the player's head, while others remain world-locked.
+        *   **Hiding/Altering Elements:** Can hide or modify elements that don't translate well to VR (e.g., full-screen visor effects).
+    *   The goal is to create a more immersive and comfortable "cockpit" experience by correctly positioning in-game UI and effects relative to the player's viewpoint in VR.
+    *   This demonstrates a deep level of per-game customization beyond generic VR rendering.
+
+### 7. Motion Sickness Reduction
+
+*   **Dynamic FOV / Blackout:**
+    *   Options to dynamically reduce Field of View (FOV) or black out the screen during fast game-induced motion (e.g., from D-pad/stick movement, freelook).
+*   **"Keyhole" Mode:**
+    *   A comfort feature, likely reducing peripheral vision during movement.
+
+### Overall Architecture
+
+The VR implementation is deeply integrated into Dolphin's core rendering and input systems. It uses a combination of:
+*   A central VR abstraction layer.
+*   Specific handlers for different VR SDKs.
+*   Backend-specific rendering code for D3D and OpenGL.
+*   A flexible input mapping system.
+*   Advanced techniques like opcode replay for performance enhancement.
+*   Highly tailored game-specific hacks for popular titles.
+
+This represents a substantial engineering effort to bring robust and feature-rich VR support to the Dolphin emulator.
