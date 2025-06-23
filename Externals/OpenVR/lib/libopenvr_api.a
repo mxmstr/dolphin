@@ -1,0 +1,4 @@
+// This is a placeholder for the actual OpenVR library.
+// In a real build, this would be a compiled static or shared library.
+// For CMake to successfully link, a file needs to exist.
+void openvr_dummy_function() {}

@@ -65,6 +65,7 @@ enum class LogType : int
   VIDEOINTERFACE,
   WII_IPC,
   WIIMOTE,
+  VR, // New log channel for Virtual Reality
 
   NUMBER_OF_LOGS  // Must be last
 };

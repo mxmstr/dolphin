@@ -61,6 +61,7 @@
 #include "VideoCommon/VertexLoaderManager.h"
 #include "VideoCommon/VertexManagerBase.h"
 #include "VideoCommon/VertexShaderManager.h"
+#include "VideoCommon/VROpenVR.h" // Added for VR
 #include "VideoCommon/VideoConfig.h"
 #include "VideoCommon/VideoState.h"
 #include "VideoCommon/Widescreen.h"
@@ -342,11 +343,34 @@ bool VideoBackendBase::InitializeShared(std::unique_ptr<AbstractGfx> gfx,
 
   g_shader_cache->InitializeShaderCache();
 
+  // Initialize VR
+  m_vr_openvr = std::make_unique<VROpenVR>();
+  if (m_vr_openvr)
+  {
+    if (m_vr_openvr->Init())
+    {
+      LOG_NOTICE(DS_VR, "OpenVR initialized successfully via VideoBackendBase. (Placeholder Test Point)");
+    }
+    else
+    {
+      LOG_ERROR(DS_VR, "OpenVR failed to initialize via VideoBackendBase. (Placeholder Test Point)");
+      m_vr_openvr.reset(); // Clear if initialization failed
+    }
+  }
+
   return true;
 }
 
 void VideoBackendBase::ShutdownShared()
 {
+  // Shutdown VR
+  if (m_vr_openvr)
+  {
+    LOG_INFO(DS_VR, "Shutting down OpenVR via VideoBackendBase.");
+    m_vr_openvr->Shutdown();
+    m_vr_openvr.reset();
+  }
+
   g_frame_dumper.reset();
   g_presenter.reset();
 

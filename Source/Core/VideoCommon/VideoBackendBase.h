@@ -11,6 +11,7 @@
 #include "Common/CommonTypes.h"
 #include "Common/WindowSystemInfo.h"
 #include "VideoCommon/PerfQueryBase.h"
+#include "VideoCommon/VROpenVR.h" // Added for VR support
 
 namespace MMIO
 {
@@ -81,6 +82,7 @@ protected:
   void ShutdownShared();
 
   bool m_initialized = false;
+  std::unique_ptr<VROpenVR> m_vr_openvr; // Added for VR support
 };
 
 extern VideoBackendBase* g_video_backend;
