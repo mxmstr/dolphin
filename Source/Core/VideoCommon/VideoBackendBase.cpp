@@ -65,6 +65,7 @@
 #include "VideoCommon/FreeLookCamera.h" // Added for VR UpdateVRView
 #include "VideoCommon/VideoConfig.h"
 #include "VideoCommon/VideoState.h"
+#include "Common/Logging/Log.h" // For logging
 #include "VideoCommon/Widescreen.h"
 #include "VideoCommon/XFStateManager.h"
 
@@ -400,25 +401,40 @@ void VideoBackendBase::ShutdownShared()
 }
 
 void VideoBackendBase::UpdateVRView(FreeLookCamera& camera) {
+  DEBUG_LOG_FMT(VR, "UpdateVRView called.");
+
   // Ensure VROpenVR is available and initialized
-  if (!m_vr_openvr || !m_vr_openvr->IsInitialized()) {
+  if (!m_vr_openvr) {
+    DEBUG_LOG_FMT(VR, "UpdateVRView: m_vr_openvr is null. Skipping.");
+    return;
+  }
+  if (!m_vr_openvr->IsInitialized()) {
+    DEBUG_LOG_FMT(VR, "UpdateVRView: m_vr_openvr not initialized. Skipping.");
     return;
   }
 
   // Ensure the camera controller is set
   CameraController* current_controller = camera.GetController();
   if (!current_controller) {
+    ERROR_LOG_FMT(VR, "UpdateVRView: camera.GetController() returned nullptr! Skipping.");
     return;
   }
 
+  // Log raw pointer value for debugging
+  DEBUG_LOG_FMT(VR, "UpdateVRView: current_controller pointer: %p", static_cast<void*>(current_controller));
+
   // Check if the current controller is VRCameraController
-  // This requires FreeLookCamera.h to be included, and VRCameraController to be defined there.
-  // It might be better to include "VideoCommon/FreeLookCamera.h" specifically.
+  DEBUG_LOG_FMT(VR, "UpdateVRView: Attempting dynamic_cast to VRCameraController...");
   auto* vr_controller = dynamic_cast<VRCameraController*>(current_controller);
+
   if (!vr_controller) {
     // Only update if the VR controller is active
+    // Log what type it actually is, if RTTI is working.
+    // This might not print a useful name if RTTI is part of the issue or type is unknown.
+    DEBUG_LOG_FMT(VR, "UpdateVRView: dynamic_cast to VRCameraController failed. current_controller is type: %s. Skipping VR HMD pose update.", typeid(*current_controller).name());
     return;
   }
+  DEBUG_LOG_FMT(VR, "UpdateVRView: dynamic_cast to VRCameraController succeeded.");
 
   Common::Matrix44 hmd_pose_matrix;
   // Predict slightly into the future (e.g., 16ms for 60Hz, adjust as needed)
@@ -426,5 +442,7 @@ void VideoBackendBase::UpdateVRView(FreeLookCamera& camera) {
   float predicted_display_time = 0.016f;
   if (m_vr_openvr->GetHMDPose(predicted_display_time, hmd_pose_matrix)) {
     vr_controller->UpdateHMDPose(hmd_pose_matrix);
+  } else {
+    WARN_LOG_FMT(VR, "UpdateVRView: GetHMDPose failed.");
   }
 }
