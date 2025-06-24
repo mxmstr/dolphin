@@ -404,6 +404,7 @@ void ShaderCache::ClearCaches()
   m_efb_copy_to_ram_pipelines.clear();
   m_copy_rgba8_pipeline.reset();
   m_rgba8_stereo_copy_pipeline.reset();
+  m_screen_quad_layer_copy_pipeline.reset();
   for (auto& pipeline : m_palette_conversion_pipelines)
     pipeline.reset();
   m_texture_reinterpret_pipelines.clear();
@@ -1499,6 +1500,29 @@ bool ShaderCache::CompileSharedPipelines()
     if (!m_rgba8_stereo_copy_pipeline)
       return false;
   }
+
+  // Screen Quad Layer Copy pipeline (for VR mirror and EFB layer copies to intermediate VR targets)
+  // Vertex shader uses its own UBO for source_layer, pixel shader is the generic texture copy.
+  std::unique_ptr<AbstractShader> sq_layer_copy_vs = g_gfx->CreateShaderFromSource(
+      ShaderStage::Vertex, FramebufferShaderGen::GenerateScreenQuadLayerCopyVertexShader(),
+      "ScreenQuadLayerCopyVS");
+  RETURN_IF(!sq_layer_copy_vs, false, "Failed to create ScreenQuadLayerCopyVS");
+
+  // Use the already compiled generic texture copy pixel shader.
+  // The config for this pipeline will be similar to m_copy_rgba8_pipeline but with the new VS.
+  AbstractPipelineConfig layer_copy_config = {};
+  layer_copy_config.vertex_format = nullptr; // Uses vertex ID generated quads
+  layer_copy_config.vertex_shader = sq_layer_copy_vs.get();
+  layer_copy_config.geometry_shader = nullptr; // No GS needed for this simple layer copy
+  layer_copy_config.pixel_shader = m_texture_copy_pixel_shader.get();
+  layer_copy_config.rasterization_state = RenderState::GetNoCullRasterizationState(PrimitiveType::Triangles);
+  layer_copy_config.depth_state = RenderState::GetNoDepthTestingDepthState();
+  layer_copy_config.blending_state = RenderState::GetNoBlendingBlendState();
+  // This pipeline will render to targets matching EFB format (e.g., RGBA8)
+  layer_copy_config.framebuffer_state = RenderState::GetColorFramebufferState(FramebufferManager::GetEFBColorFormat());
+  layer_copy_config.usage = AbstractPipelineUsage::Utility;
+  m_screen_quad_layer_copy_pipeline = g_gfx->CreatePipeline(layer_copy_config);
+  RETURN_IF(!m_screen_quad_layer_copy_pipeline, false, "Failed to create screen quad layer copy pipeline");
 
   if (m_host_config.backend_palette_conversion)
   {

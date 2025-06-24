@@ -99,5 +99,14 @@ private:
 
   // Keep a copy of sampler states to avoid cache lookups every draw
   std::array<SamplerState, VideoCommon::MAX_PIXEL_SHADER_SAMPLERS> m_sampler_states = {};
+
+  // For OpenVR submission - intermediate single-layer textures for each eye
+  std::unique_ptr<VKTexture> m_vr_left_eye_target;
+  std::unique_ptr<VKTexture> m_vr_right_eye_target;
+  std::unique_ptr<AbstractFramebuffer> m_vr_left_eye_framebuffer;
+  std::unique_ptr<AbstractFramebuffer> m_vr_right_eye_framebuffer;
+
+  void InitVRResources();
+  void DestroyVRResources();
 };
 }  // namespace Vulkan

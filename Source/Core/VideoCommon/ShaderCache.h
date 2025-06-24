@@ -102,6 +102,10 @@ public:
   {
     return m_rgba8_stereo_copy_pipeline.get();
   }
+  const AbstractPipeline* GetScreenQuadLayerCopyPipeline() const
+  {
+    return m_screen_quad_layer_copy_pipeline.get();
+  }
 
   // Palette texture conversion pipelines
   const AbstractPipeline* GetPaletteConversionPipeline(TLUTFormat format);
@@ -240,6 +244,7 @@ private:
   // Copy pipeline for RGBA8 textures
   std::unique_ptr<AbstractPipeline> m_copy_rgba8_pipeline;
   std::unique_ptr<AbstractPipeline> m_rgba8_stereo_copy_pipeline;
+  std::unique_ptr<AbstractPipeline> m_screen_quad_layer_copy_pipeline;
 
   // Palette conversion pipelines
   std::array<std::unique_ptr<AbstractPipeline>, NUM_PALETTE_CONVERSION_SHADERS>
