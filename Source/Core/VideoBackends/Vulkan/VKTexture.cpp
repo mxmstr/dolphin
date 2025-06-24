@@ -167,6 +167,59 @@ bool VKTexture::CreateView(VkImageViewType type)
   return true;
 }
 
+// Static helper method for creating a VkImageView
+  static VkImageView CreateView(VkImage image, VkImageViewType view_type, VkFormat format,
+                                VkImageAspectFlags aspect_flags, uint32_t base_mip_level,
+                                uint32_t mip_levels, uint32_t base_array_layer,
+                                uint32_t array_layers)
+  {
+    VkImageViewCreateInfo view_info = {};
+    view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+    view_info.image = image;
+    view_info.viewType = view_type;
+    view_info.format = format;
+    view_info.subresourceRange.aspectMask = aspect_flags;
+    view_info.subresourceRange.baseMipLevel = base_mip_level;
+    view_info.subresourceRange.levelCount = mip_levels;
+    view_info.subresourceRange.baseArrayLayer = base_array_layer;
+    view_info.subresourceRange.layerCount = array_layers;
+
+    VkImageView image_view;
+    if (vkCreateImageView(g_vulkan_context->GetDevice(), &view_info, nullptr, &image_view) != VK_SUCCESS)
+    {
+      ERROR_LOG_FMT(VIDEO, "Failed to create image view");
+      return VK_NULL_HANDLE;
+    }
+
+    return image_view;
+  }
+
+  VkImageViewType VKTexture::GetVkImageViewType() const
+  {
+    const TextureConfig& tex_config = GetConfig();
+    VkImageViewType image_view_type = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
+
+    if (tex_config.type == AbstractTextureType::Texture_CubeMap)
+    {
+      image_view_type = VK_IMAGE_VIEW_TYPE_CUBE;
+    }
+    else if (tex_config.type == AbstractTextureType::Texture_2D)
+    {
+      image_view_type = VK_IMAGE_VIEW_TYPE_2D;
+    }
+    else if (tex_config.type == AbstractTextureType::Texture_2DArray)
+    {
+      image_view_type = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
+    }
+    else
+    {
+      PanicAlertFmt("Unhandled texture type.");
+    }
+
+    return image_view_type;
+
+  }
+
 VkFormat VKTexture::GetLinearFormat(VkFormat format)
 {
   switch (format)

@@ -160,6 +160,21 @@ bool VROpenVR::GetEyeProjectionMatrix(vr::EVREye eye, float near_clip, float far
   return true;
 }
 
+vr::IVRCompositor* VROpenVR::GetCompositor() const
+{
+  if (!m_initialized || !m_ivr_compositor)
+  {
+    ERROR_LOG_FMT(VR, "VROpenVR not initialized or IVRCompositor not available.");
+    return nullptr;
+  }
+  return m_ivr_compositor;
+}
+
+vr::IVRSystem* VROpenVR::GetIVRSystem() const
+{
+  return m_ivr_system;
+}
+
 bool VROpenVR::IsInitialized() const
 {
   return m_initialized;

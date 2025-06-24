@@ -54,6 +54,11 @@ public:
   VkImageView GetView() const { return m_view; }
   VkImageLayout GetLayout() const { return m_layout; }
   VkFormat GetVkFormat() const { return GetVkFormatForHostTextureFormat(m_config.format); }
+  VkImageViewType GetVkImageViewType() const;
+  /*{
+    return m_config.view_type == VK_IMAGE_VIEW_TYPE_2D_ARRAY ? VK_IMAGE_VIEW_TYPE_2D_ARRAY
+                                                             : VK_IMAGE_VIEW_TYPE_2D;
+  }*/
   bool IsAdopted() const { return m_alloc != VmaAllocation(VK_NULL_HANDLE); }
 
   static std::unique_ptr<VKTexture> Create(const TextureConfig& tex_config, std::string_view name);
@@ -69,6 +74,11 @@ public:
 
   void TransitionToLayout(VkCommandBuffer command_buffer, VkImageLayout new_layout) const;
   void TransitionToLayout(VkCommandBuffer command_buffer, ComputeImageLayout new_layout) const;
+
+  static VkImageView CreateView(VkImage image, VkImageViewType view_type, VkFormat format,
+                                VkImageAspectFlags aspect_flags, uint32_t base_mip_level,
+                                uint32_t mip_levels, uint32_t base_array_layer,
+                                uint32_t array_layers);
 
 private:
   bool CreateView(VkImageViewType type);

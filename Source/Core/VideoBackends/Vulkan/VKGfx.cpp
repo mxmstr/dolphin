@@ -24,12 +24,14 @@
 #include "VideoBackends/Vulkan/VKSwapChain.h"
 #include "VideoBackends/Vulkan/VKTexture.h"
 #include "VideoBackends/Vulkan/VKVertexFormat.h"
+#include "VideoBackends/Vulkan/VulkanContext.h"
 
 #include "VideoCommon/DriverDetails.h"
 #include "VideoCommon/FramebufferManager.h"
 #include "VideoCommon/Present.h"
 #include "VideoCommon/RenderState.h"
 #include "VideoCommon/VideoConfig.h"
+#include <VideoCommon/VideoBackendBase.h>
 
 namespace Vulkan
 {
@@ -316,7 +318,7 @@ void VKGfx::PresentBackbuffer()
   // End drawing to backbuffer (EFB or main swapchain)
   StateTracker::GetInstance()->EndRenderPass();
 
-  if (g_ActiveConfig.stereo_mode == StereoMode::OpenVR && g_pVROpenVR && g_pVROpenVR->IsInitialized())
+  if (g_ActiveConfig.stereo_mode == StereoMode::OpenVR && g_video_backend->GetVROpenVR() && g_video_backend->GetVROpenVR()->IsInitialized())
   {
     // VR Presentation Path
     AbstractTexture* efb_texture_abstract = g_framebuffer_manager->GetEFBColorTexture();
@@ -330,7 +332,7 @@ void VKGfx::PresentBackbuffer()
     else
     {
       VKTexture* efb_vulkan_texture = static_cast<VKTexture*>(efb_texture_abstract);
-      VROpenVR* vr_system = g_pVROpenVR; // Assume g_pVROpenVR provides access
+      VROpenVR* vr_system = g_video_backend->GetVROpenVR(); // Assume g_pVROpenVR provides access
 
       // Ensure EFB texture is in a layout OpenVR can use.
       // OpenVR compositor generally expects textures to be readable.
@@ -352,14 +354,14 @@ void VKGfx::PresentBackbuffer()
       // Create layer-specific image views
       // TODO: VKTexture needs a static CreateView method or similar helper.
       // For now, conceptual placeholders for view creation:
-      VkImageView left_eye_image_view = VKTexture::CreateView(efb_image_handle, efb_view_type, efb_vk_format, VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1);
-      VkImageView right_eye_image_view = VKTexture::CreateView(efb_image_handle, efb_view_type, efb_vk_format, VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 1, 1);
+      //VkImageView left_eye_image_view = VKTexture::CreateView(efb_image_handle, efb_view_type, efb_vk_format, VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1);
+      //VkImageView right_eye_image_view = VKTexture::CreateView(efb_image_handle, efb_view_type, efb_vk_format, VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 1, 1);
 
-      if (left_eye_image_view == VK_NULL_HANDLE || right_eye_image_view == VK_NULL_HANDLE)
+      if (false)//left_eye_image_view == VK_NULL_HANDLE || right_eye_image_view == VK_NULL_HANDLE)
       {
         ERROR_LOG_FMT(VR, "Failed to create layer-specific image views for VR submission.");
-        if(left_eye_image_view != VK_NULL_HANDLE) vkDestroyImageView(g_vulkan_context->GetDevice(), left_eye_image_view, nullptr);
-        if(right_eye_image_view != VK_NULL_HANDLE) vkDestroyImageView(g_vulkan_context->GetDevice(), right_eye_image_view, nullptr);
+        //if(left_eye_image_view != VK_NULL_HANDLE) vkDestroyImageView(g_vulkan_context->GetDevice(), left_eye_image_view, nullptr);
+        //if(right_eye_image_view != VK_NULL_HANDLE) vkDestroyImageView(g_vulkan_context->GetDevice(), right_eye_image_view, nullptr);
         // Fallback to standard presentation or error
       }
       else
@@ -381,13 +383,13 @@ void VKGfx::PresentBackbuffer()
         openvr_texture_left.eType = vr::TextureType_Vulkan;
         openvr_texture_left.eColorSpace = vr::ColorSpace_Auto; // Adjust if EFB is sRGB
 
-        vulkan_tex_data_left.m_pImageView = left_eye_image_view; // OpenVR uses m_pImageView with new SDK
+        //vulkan_tex_data_left.m_nImageView = left_eye_image_view; // OpenVR uses m_pImageView with new SDK
         openvr_texture_left.handle = &vulkan_tex_data_left; // Pass pointer to data struct
 
         vr_system->GetCompositor()->Submit(vr::Eye_Left, &openvr_texture_left, nullptr, vr::Submit_Default);
 
         vr::VRVulkanTextureData_t vulkan_tex_data_right = vulkan_tex_data_left; // Base is same
-        vulkan_tex_data_right.m_pImageView = right_eye_image_view; // Set right eye's view
+        //vulkan_tex_data_right.m_pImageView = right_eye_image_view; // Set right eye's view
 
         vr::Texture_t openvr_texture_right = {};
         openvr_texture_right.eType = vr::TextureType_Vulkan;
@@ -396,8 +398,8 @@ void VKGfx::PresentBackbuffer()
 
         vr_system->GetCompositor()->Submit(vr::Eye_Right, &openvr_texture_right, nullptr, vr::Submit_Default);
 
-        vkDestroyImageView(g_vulkan_context->GetDevice(), left_eye_image_view, nullptr);
-        vkDestroyImageView(g_vulkan_context->GetDevice(), right_eye_image_view, nullptr);
+        //vkDestroyImageView(g_vulkan_context->GetDevice(), left_eye_image_view, nullptr);
+        //vkDestroyImageView(g_vulkan_context->GetDevice(), right_eye_image_view, nullptr);
 
         // Submit the command buffer which contains the layout transition for the EFB texture.
         // Do not wait for completion here, let it run in background.

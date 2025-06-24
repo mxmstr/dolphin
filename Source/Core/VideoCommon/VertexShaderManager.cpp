@@ -21,10 +21,12 @@
 #include "VideoCommon/GraphicsModSystem/Runtime/GraphicsModManager.h"
 #include "VideoCommon/Statistics.h"
 #include "VideoCommon/VertexManagerBase.h"
+#include <VideoCommon/VideoBackendBase.h>
 #include "VideoCommon/VideoCommon.h"
 #include "VideoCommon/VideoConfig.h"
 #include "VideoCommon/XFMemory.h"
 #include "VideoCommon/XFStateManager.h"
+#include <openvr.h>
 
 void VertexShaderManager::Init()
 {
@@ -119,11 +121,6 @@ Common::Matrix44 VertexShaderManager::LoadProjectionMatrix()
   return corrected_matrix;
 }
 
-void VertexShaderManager::SetProjectionMatrix(XFStateManager& xf_state_manager)
-{
-// Helper function (potentially move to a common matrix utility or VROpenVR class)
-// This was defined in VROpenVR.cpp in the initial exploration.
-// For now, duplicating here for clarity during this step.
 static Common::Matrix44 ConvertHmdMatrix34ToMatrix44(const vr::HmdMatrix34_t& mat34)
 {
   return Common::Matrix44::FromArray({{
@@ -133,7 +130,6 @@ static Common::Matrix44 ConvertHmdMatrix34ToMatrix44(const vr::HmdMatrix34_t& ma
     0.0f,          0.0f,          0.0f,          1.0f
   }});
 }
-
 
 void VertexShaderManager::SetProjectionMatrix(XFStateManager& xf_state_manager)
 {
@@ -153,9 +149,9 @@ void VertexShaderManager::SetProjectionMatrix(XFStateManager& xf_state_manager)
     // This matrix is effectively Projection_Game * View_FreeLook (if freelook active)
     Common::Matrix44 game_final_mono_projection = LoadProjectionMatrix();
 
-    if (g_ActiveConfig.stereo_mode == StereoMode::OpenVR && g_pVROpenVR && g_pVROpenVR->IsInitialized())
+    if (g_ActiveConfig.stereo_mode == StereoMode::OpenVR && g_video_backend->GetVROpenVR() && g_video_backend->GetVROpenVR()->IsInitialized())
     {
-      VROpenVR* vr_system = g_pVROpenVR; // Assume g_pVROpenVR is how we access it
+      VROpenVR* vr_system = g_video_backend->GetVROpenVR(); // Assume g_pVROpenVR is how we access it
       Common::Matrix44 hmd_pose_matrix;
 
       // TODO: Determine actual prediction time. Using 0.0f for now.
@@ -165,8 +161,22 @@ void VertexShaderManager::SetProjectionMatrix(XFStateManager& xf_state_manager)
 
         // Get near/far from xfmem for OpenVR projection matrices
         // xfmem.projection.nearz and farz are positive values.
-        float near_clip = xfmem.projection.nearz;
-        float far_clip = xfmem.projection.farz;
+        float near_clip = 0.0f;
+        float far_clip = 0.0f;
+
+        if (xfmem.projection.type == ProjectionType::Perspective)
+        {
+          // Assuming rawProjection[4] and rawProjection[5] encode near and far planes
+          near_clip = xfmem.projection.rawProjection[4];
+          far_clip = xfmem.projection.rawProjection[5];
+        }
+        else
+        {
+          // For orthographic projections, near and far planes might be encoded differently
+          near_clip = xfmem.projection.rawProjection[4];
+          far_clip = xfmem.projection.rawProjection[5];
+        }
+
         if (near_clip <= 0.0f) near_clip = 0.01f; // OpenVR requires positive near clip
         if (far_clip <= near_clip) far_clip = near_clip + 100.0f;
 

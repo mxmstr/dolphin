@@ -37,6 +37,9 @@ public:
   // Returns true if the matrix was successfully retrieved.
   bool GetEyeProjectionMatrix(vr::EVREye eye, float near_clip, float far_clip, Common::Matrix44& out_projection);
 
+  vr::IVRCompositor* GetCompositor() const;
+  vr::IVRSystem* GetIVRSystem() const;
+
   // TODO: Add methods for submitting frames to the compositor later.
   // TODO: Add methods for getting recommended render target size later.
 
