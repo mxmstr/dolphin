@@ -26,6 +26,16 @@ APIType GetAPIType()
 void EmitUniformBufferDeclaration(ShaderCode& code)
 {
   code.Write("UBO_BINDING(std140, 1) uniform PSBlock\n");
+  code.Write("{{\n");
+  code.Write("  // Existing PSBlock members might be here, e.g., for clear colors, etc.\n");
+  code.Write("  // Adding u_source_layer for texture copying from a specific layer.\n");
+  code.Write("  float u_source_layer;\n");
+  // If PSBlock is structured with named members, it would be:
+  // code.Write("  float4 clear_color;\n");
+  // code.Write("  float clear_depth;\n");
+  // code.Write("  float u_source_layer; // Added here\n");
+  // code.Write("  // padding etc.\n");
+  code.Write("}};\n");
 }
 
 void EmitSamplerDeclarations(ShaderCode& code, u32 start = 0, u32 end = 1,
@@ -194,6 +204,30 @@ std::string GenerateScreenQuadVertexShader()
 
   code.Write("}}\n");
 
+  return code.GetBuffer();
+}
+
+std::string GenerateScreenQuadLayerCopyVertexShader()
+{
+  ShaderCode code;
+  // Define a specific UBO for this shader
+  code.Write("UBO_BINDING(std140, 1) uniform LayerCopyParamsUBO\n"); // Assuming binding 1 is okay for utility
+  code.Write("{{\n");
+  code.Write("  float u_source_layer;\n");
+  code.Write("}};\n\n");
+
+  EmitVertexMainDeclaration(code, 0, 0, false, 1, 0, "#define id gl_VertexID\n");
+  code.Write(
+      "{{\n"
+      // v_tex0.xy are screen quad coords (0 or 1 for texture sampling)
+      // v_tex0.z is the layer to sample from the source array texture
+      "  v_tex0 = float3(float((id << 1) & 2), float(id & 2), u_source_layer);\n"
+      "  opos = float4(v_tex0.xy * float2(2.0f, -2.0f) + float2(-1.0f, 1.0f), 0.0f, 1.0f);\n");
+
+  if (GetAPIType() == APIType::Vulkan || GetAPIType() == APIType::OpenGL)
+    code.Write("  opos.y = -opos.y;\n");
+
+  code.Write("}}\n");
   return code.GetBuffer();
 }
 
