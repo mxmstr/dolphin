@@ -449,8 +449,14 @@ ShaderCode GenerateVertexShaderCode(APIType api_type, const ShaderHostConfig& ho
   if ((uid_data->components & VB_HAS_BINORMAL) == 0)
     out.Write("\tvec3 rawbinormal = " I_CACHED_BINORMAL ".xyz;\n");
 
-  out.Write("o.pos = float4(dot(" I_PROJECTION "[0], pos), dot(" I_PROJECTION
-            "[1], pos), dot(" I_PROJECTION "[2], pos), dot(" I_PROJECTION "[3], pos));\n");
+  if (host_config.openvr_stereo) {
+    // When OpenVR stereo is active, o.pos will carry the model-view transformed position.
+    // The actual projection (projection_left/projection_right) will be applied in the Geometry Shader.
+    out.Write("o.pos = pos;\n");
+  } else {
+    // Standard path: apply the main projection matrix.
+    out.Write("o.pos = float4(dot(" I_PROJECTION "[0], pos), dot(" I_PROJECTION "[1], pos), dot(" I_PROJECTION "[2], pos), dot(" I_PROJECTION "[3], pos));\n");
+  }
 
   out.Write("int4 lacc;\n"
             "float3 ldir, h, cosAttn, distAttn;\n"

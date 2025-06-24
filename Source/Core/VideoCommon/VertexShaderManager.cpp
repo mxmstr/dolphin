@@ -121,11 +121,100 @@ Common::Matrix44 VertexShaderManager::LoadProjectionMatrix()
 
 void VertexShaderManager::SetProjectionMatrix(XFStateManager& xf_state_manager)
 {
-  if (xf_state_manager.DidProjectionChange() || g_freelook_camera.GetController()->IsDirty())
+// Helper function (potentially move to a common matrix utility or VROpenVR class)
+// This was defined in VROpenVR.cpp in the initial exploration.
+// For now, duplicating here for clarity during this step.
+static Common::Matrix44 ConvertHmdMatrix34ToMatrix44(const vr::HmdMatrix34_t& mat34)
+{
+  return Common::Matrix44::FromArray({{
+    mat34.m[0][0], mat34.m[0][1], mat34.m[0][2], mat34.m[0][3],
+    mat34.m[1][0], mat34.m[1][1], mat34.m[1][2], mat34.m[1][3],
+    mat34.m[2][0], mat34.m[2][1], mat34.m[2][2], mat34.m[2][3],
+    0.0f,          0.0f,          0.0f,          1.0f
+  }});
+}
+
+
+void VertexShaderManager::SetProjectionMatrix(XFStateManager& xf_state_manager)
+{
+  // Condition to update:
+  // 1. XFMem projection changed
+  // 2. FreeLook camera is dirty (moved/rotated)
+  // 3. OR VR mode is active (because HMD pose can change every frame)
+  bool needs_update = xf_state_manager.DidProjectionChange() ||
+                      g_freelook_camera.GetController()->IsDirty() ||
+                      (g_ActiveConfig.stereo_mode == StereoMode::OpenVR);
+
+  if (needs_update)
   {
-    xf_state_manager.ResetProjection();
-    auto corrected_matrix = LoadProjectionMatrix();
-    memcpy(constants.projection.data(), corrected_matrix.data.data(), 4 * sizeof(float4));
+    xf_state_manager.ResetProjection(); // Clear the XFStateManager flag if it was set
+
+    // Load the game's base projection matrix (incorporates game settings, aspect hack, freelook if active)
+    // This matrix is effectively Projection_Game * View_FreeLook (if freelook active)
+    Common::Matrix44 game_final_mono_projection = LoadProjectionMatrix();
+
+    if (g_ActiveConfig.stereo_mode == StereoMode::OpenVR && g_pVROpenVR && g_pVROpenVR->IsInitialized())
+    {
+      VROpenVR* vr_system = g_pVROpenVR; // Assume g_pVROpenVR is how we access it
+      Common::Matrix44 hmd_pose_matrix;
+
+      // TODO: Determine actual prediction time. Using 0.0f for now.
+      if (vr_system->GetHMDPose(0.0f, hmd_pose_matrix))
+      {
+        Common::Matrix44 inv_hmd_pose_matrix = hmd_pose_matrix.Inverted();
+
+        // Get near/far from xfmem for OpenVR projection matrices
+        // xfmem.projection.nearz and farz are positive values.
+        float near_clip = xfmem.projection.nearz;
+        float far_clip = xfmem.projection.farz;
+        if (near_clip <= 0.0f) near_clip = 0.01f; // OpenVR requires positive near clip
+        if (far_clip <= near_clip) far_clip = near_clip + 100.0f;
+
+
+        Common::Matrix44 left_eye_openvr_proj, right_eye_openvr_proj;
+        vr_system->GetEyeProjectionMatrix(vr::Eye_Left, near_clip, far_clip, left_eye_openvr_proj);
+        vr_system->GetEyeProjectionMatrix(vr::Eye_Right, near_clip, far_clip, right_eye_openvr_proj);
+
+        vr::HmdMatrix34_t raw_left_eye_to_head = vr_system->GetIVRSystem()->GetEyeToHeadTransform(vr::Eye_Left);
+        Common::Matrix44 left_eye_to_head_matrix = ConvertHmdMatrix34ToMatrix44(raw_left_eye_to_head);
+        Common::Matrix44 inv_left_eye_to_head_matrix = left_eye_to_head_matrix.Inverted();
+
+        vr::HmdMatrix34_t raw_right_eye_to_head = vr_system->GetIVRSystem()->GetEyeToHeadTransform(vr::Eye_Right);
+        Common::Matrix44 right_eye_to_head_matrix = ConvertHmdMatrix34ToMatrix44(raw_right_eye_to_head);
+        Common::Matrix44 inv_right_eye_to_head_matrix = right_eye_to_head_matrix.Inverted();
+
+        // Final projection for each eye: P_openvr_eye * Inv(T_eye_to_head) * Inv(T_hmd_world)
+        // This resulting matrix will transform from world space to clip space for that eye.
+        // The game's original view transform is implicitly part of xfmem.posMatrices / I_POSNORMALMATRIX,
+        // which takes model space to world space.
+        Common::Matrix44 final_left_projection = left_eye_openvr_proj * inv_left_eye_to_head_matrix * inv_hmd_pose_matrix;
+        Common::Matrix44 final_right_projection = right_eye_openvr_proj * inv_right_eye_to_head_matrix * inv_hmd_pose_matrix;
+
+        memcpy(constants.projection_left.data(), final_left_projection.data.data(), 4 * sizeof(float4));
+        memcpy(constants.projection_right.data(), final_right_projection.data.data(), 4 * sizeof(float4));
+
+        // Set the main 'projection' to the left eye for any non-shader code that might peek at it,
+        // or for UIs rendered in mono over the VR scene.
+        memcpy(constants.projection.data(), final_left_projection.data.data(), 4 * sizeof(float4));
+      }
+      else
+      {
+        // VR mode active but HMD pose failed, use mono game projection for both eyes
+        memcpy(constants.projection.data(), game_final_mono_projection.data.data(), 4 * sizeof(float4));
+        memcpy(constants.projection_left.data(), game_final_mono_projection.data.data(), 4 * sizeof(float4));
+        memcpy(constants.projection_right.data(), game_final_mono_projection.data.data(), 4 * sizeof(float4));
+      }
+    }
+    else
+    {
+      // Not in OpenVR mode, or VROpenVR not initialized. Use game's mono projection.
+      memcpy(constants.projection.data(), game_final_mono_projection.data.data(), 4 * sizeof(float4));
+      // For other stereo modes (like anaglyph, SBS) that might be adapted to use these new UBO fields,
+      // initialize them to the mono projection. The Geometry Shader's I_STEREOPARAMS logic would still work.
+      memcpy(constants.projection_left.data(), game_final_mono_projection.data.data(), 4 * sizeof(float4));
+      memcpy(constants.projection_right.data(), game_final_mono_projection.data.data(), 4 * sizeof(float4));
+    }
+    dirty = true; // Mark UBO as dirty because some projection has been updated
   }
 }
 

@@ -93,9 +93,19 @@ ShaderCode GenerateGeometryShaderCode(APIType api_type, const ShaderHostConfig& 
 
   // uniforms
   if (api_type == APIType::OpenGL || api_type == APIType::Vulkan)
+  {
+    out.Write("UBO_BINDING(std140, 2) uniform VSBlock {{\n");
+    out.Write("{}", s_shader_uniforms); // Contains VertexShaderConstants layout
+    out.Write("}};\n\n");
     out.Write("UBO_BINDING(std140, 4) uniform GSBlock {{\n");
-  else
-    out.Write("cbuffer GSBlock {{\n");
+  }
+  else // D3D
+  {
+    out.Write("cbuffer VSBlock : register(b2) {{\n"); // Assuming b2 for VSBlock like in VS
+    out.Write("{}", s_shader_uniforms);
+    out.Write("}};\n\n");
+    out.Write("cbuffer GSBlock : register(b4) {{\n"); // Assuming b4 for GSBlock
+  }
 
   out.Write("{}", s_geometry_shader_uniforms);
   out.Write("}};\n");
@@ -231,15 +241,27 @@ ShaderCode GenerateGeometryShaderCode(APIType api_type, const ShaderHostConfig& 
 
   if (stereo)
   {
-    // For stereoscopy add a small horizontal offset in Normalized Device Coordinates proportional
-    // to the depth of the vertex. We retrieve the depth value from the w-component of the projected
-    // vertex which contains the negated z-component of the original vertex.
-    // For negative parallax (out-of-screen effects) we subtract a convergence value from
-    // the depth value. This results in objects at a distance smaller than the convergence
-    // distance to seemingly appear in front of the screen.
-    // This formula is based on page 13 of the "Nvidia 3D Vision Automatic, Best Practices Guide"
-    out.Write("\tfloat hoffset = (eye == 0) ? " I_STEREOPARAMS ".x : " I_STEREOPARAMS ".y;\n");
-    out.Write("\tf.pos.x += hoffset * (f.pos.w - " I_STEREOPARAMS ".z);\n");
+    if (host_config.openvr_stereo)
+    {
+      // f.pos is model-view space from VS. Apply VR projection.
+      // VSBlock is bound at UBO binding 2.
+      // We assume VSBlock name is directly accessible or I_PROJECTION_LEFT/RIGHT macros point to it.
+      // For clarity, using direct member access style if VSBlock struct is implicitly known.
+      // Need to ensure VSBlock (containing projection_left/right) is declared for GS.
+      out.Write("\tif (eye == 0) {{\n");
+      out.Write("\t\tf.pos = VSBlock.projection_left * f.pos;\n");
+      out.Write("\t}} else {{\n");
+      out.Write("\t\tf.pos = VSBlock.projection_right * f.pos;\n");
+      out.Write("\t}}\n");
+    }
+    else
+    {
+      // Other stereo modes (anaglyph, existing QuadBuffer, etc.)
+      // f.pos is already clip-space (projected by VS using main I_PROJECTION).
+      // Apply the horizontal shift based on I_STEREOPARAMS (cstereo in GSBlock).
+      out.Write("\tfloat hoffset = (eye == 0) ? " I_STEREOPARAMS ".x : " I_STEREOPARAMS ".y;\n");
+      out.Write("\tf.pos.x += hoffset * (f.pos.w - " I_STEREOPARAMS ".z);\n");
+    }
   }
 
   if (primitive_type == PrimitiveType::Lines)

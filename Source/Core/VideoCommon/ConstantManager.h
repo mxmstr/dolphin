@@ -72,6 +72,8 @@ struct alignas(16) VertexShaderConstants
 
   std::array<float4, 6> posnormalmatrix;
   std::array<float4, 4> projection;
+  std::array<float4, 4> projection_left;
+  std::array<float4, 4> projection_right;
   std::array<int4, 4> materials;
   struct Light
   {

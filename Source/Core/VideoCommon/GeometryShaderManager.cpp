@@ -48,25 +48,60 @@ void GeometryShaderManager::SetVSExpand(VSExpand expand)
 
 void GeometryShaderManager::SetConstants(PrimitiveType prim)
 {
-  if (m_projection_changed && g_ActiveConfig.stereo_mode != StereoMode::Off)
+  bool stereo_params_updated = false;
+  if (m_projection_changed)
   {
-    m_projection_changed = false;
-
-    if (xfmem.projection.type == ProjectionType::Perspective)
+    if (g_ActiveConfig.stereo_mode != StereoMode::Off &&
+        g_ActiveConfig.stereo_mode != StereoMode::OpenVR)
     {
-      float offset = (g_ActiveConfig.iStereoDepth / 1000.0f) *
-                     (g_ActiveConfig.iStereoDepthPercentage / 100.0f);
-      constants.stereoparams[0] = g_ActiveConfig.bStereoSwapEyes ? offset : -offset;
-      constants.stereoparams[1] = g_ActiveConfig.bStereoSwapEyes ? -offset : offset;
+      // Calculate traditional stereo params (offset, convergence)
+      if (xfmem.projection.type == ProjectionType::Perspective)
+      {
+        float offset = (g_ActiveConfig.iStereoDepth / 1000.0f) *
+                       (g_ActiveConfig.iStereoDepthPercentage / 100.0f);
+        constants.stereoparams[0] = g_ActiveConfig.bStereoSwapEyes ? offset : -offset;
+        constants.stereoparams[1] = g_ActiveConfig.bStereoSwapEyes ? -offset : offset;
+      }
+      else
+      {
+        constants.stereoparams[0] = constants.stereoparams[1] = 0;
+      }
+      constants.stereoparams[2] = (float)(g_ActiveConfig.iStereoConvergence *
+                                          (g_ActiveConfig.iStereoConvergencePercentage / 100.0f));
+      constants.stereoparams[3] = 0.0f; // Ensure W is defined, though not used by current shader logic
+      stereo_params_updated = true;
     }
-    else
+    else if (g_ActiveConfig.stereo_mode == StereoMode::OpenVR)
     {
-      constants.stereoparams[0] = constants.stereoparams[1] = 0;
+      // Zero out traditional stereo params as they are not used for projection in OpenVR mode.
+      if (constants.stereoparams[0] != 0.0f || constants.stereoparams[1] != 0.0f ||
+          constants.stereoparams[2] != 0.0f || constants.stereoparams[3] != 0.0f)
+      {
+        constants.stereoparams[0] = 0.0f;
+        constants.stereoparams[1] = 0.0f;
+        constants.stereoparams[2] = 0.0f;
+        constants.stereoparams[3] = 0.0f;
+        stereo_params_updated = true;
+      }
     }
+    else // StereoMode::Off or other unhandled cases related to m_projection_changed
+    {
+      // Ensure params are zero if stereo is off and projection changed
+      if (constants.stereoparams[0] != 0.0f || constants.stereoparams[1] != 0.0f ||
+          constants.stereoparams[2] != 0.0f || constants.stereoparams[3] != 0.0f)
+      {
+        constants.stereoparams[0] = 0.0f;
+        constants.stereoparams[1] = 0.0f;
+        constants.stereoparams[2] = 0.0f;
+        constants.stereoparams[3] = 0.0f;
+        stereo_params_updated = true;
+      }
+    }
+    m_projection_changed = false; // Projection related updates are handled
+  }
 
-    constants.stereoparams[2] = (float)(g_ActiveConfig.iStereoConvergence *
-                                        (g_ActiveConfig.iStereoConvergencePercentage / 100.0f));
-
+  if (stereo_params_updated)
+  {
     dirty = true;
   }
 

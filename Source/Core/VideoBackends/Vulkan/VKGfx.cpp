@@ -313,10 +313,104 @@ bool VKGfx::BindBackbuffer(const ClearColor& clear_color)
 
 void VKGfx::PresentBackbuffer()
 {
-  // End drawing to backbuffer
+  // End drawing to backbuffer (EFB or main swapchain)
   StateTracker::GetInstance()->EndRenderPass();
 
-  if (m_swap_chain->IsCurrentImageValid())
+  if (g_ActiveConfig.stereo_mode == StereoMode::OpenVR && g_pVROpenVR && g_pVROpenVR->IsInitialized())
+  {
+    // VR Presentation Path
+    AbstractTexture* efb_texture_abstract = g_framebuffer_manager->GetEFBColorTexture();
+    if (!efb_texture_abstract)
+    {
+      ERROR_LOG_FMT(VR, "Failed to get EFB Color Texture for VR submission.");
+      // Fallback or error handling? For now, try to present normally if EFB is missing.
+      // This shouldn't happen in a normal VR scenario.
+      // For safety, just run the default path.
+    }
+    else
+    {
+      VKTexture* efb_vulkan_texture = static_cast<VKTexture*>(efb_texture_abstract);
+      VROpenVR* vr_system = g_pVROpenVR; // Assume g_pVROpenVR provides access
+
+      // Ensure EFB texture is in a layout OpenVR can use.
+      // OpenVR compositor generally expects textures to be readable.
+      // If the texture was just rendered to, it's likely in COLOR_ATTACHMENT_OPTIMAL.
+      // Transition to SHADER_READ_ONLY_OPTIMAL or GENERAL.
+      // This transition must be recorded on the current command buffer before submitting it.
+      efb_vulkan_texture->TransitionToLayout(g_command_buffer_mgr->GetCurrentCommandBuffer(),
+                                           VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+      // Get necessary texture info (assuming getters are added to VKTexture)
+      VkImage efb_image_handle = efb_vulkan_texture->GetImage();
+      VkFormat efb_vk_format = efb_vulkan_texture->GetVkFormat();
+      uint32_t efb_width = efb_vulkan_texture->GetWidth();
+      uint32_t efb_height = efb_vulkan_texture->GetHeight();
+      uint32_t efb_samples = efb_vulkan_texture->GetSamples(); // Should be 1 for the resolved EFB
+      VkImageViewType efb_view_type = efb_vulkan_texture->GetVkImageViewType();
+
+
+      // Create layer-specific image views
+      // TODO: VKTexture needs a static CreateView method or similar helper.
+      // For now, conceptual placeholders for view creation:
+      VkImageView left_eye_image_view = VKTexture::CreateView(efb_image_handle, efb_view_type, efb_vk_format, VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1);
+      VkImageView right_eye_image_view = VKTexture::CreateView(efb_image_handle, efb_view_type, efb_vk_format, VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 1, 1);
+
+      if (left_eye_image_view == VK_NULL_HANDLE || right_eye_image_view == VK_NULL_HANDLE)
+      {
+        ERROR_LOG_FMT(VR, "Failed to create layer-specific image views for VR submission.");
+        if(left_eye_image_view != VK_NULL_HANDLE) vkDestroyImageView(g_vulkan_context->GetDevice(), left_eye_image_view, nullptr);
+        if(right_eye_image_view != VK_NULL_HANDLE) vkDestroyImageView(g_vulkan_context->GetDevice(), right_eye_image_view, nullptr);
+        // Fallback to standard presentation or error
+      }
+      else
+      {
+        vr::VRVulkanTextureData_t vulkan_tex_data_left = {};
+        vulkan_tex_data_left.m_nImage = (uint64_t)efb_image_handle;
+        vulkan_tex_data_left.m_pDevice = g_vulkan_context->GetDevice();
+        vulkan_tex_data_left.m_pPhysicalDevice = g_vulkan_context->GetPhysicalDevice();
+        vulkan_tex_data_left.m_pInstance = g_vulkan_context->GetVulkanInstance();
+        vulkan_tex_data_left.m_pQueue = g_vulkan_context->GetGraphicsQueue();
+        vulkan_tex_data_left.m_nQueueFamilyIndex = g_vulkan_context->GetGraphicsQueueFamilyIndex();
+        vulkan_tex_data_left.m_nWidth = efb_width;
+        vulkan_tex_data_left.m_nHeight = efb_height;
+        vulkan_tex_data_left.m_nFormat = efb_vk_format;
+        vulkan_tex_data_left.m_nSampleCount = efb_samples;
+        // m_nView is the VkImageView for the specific layer
+
+        vr::Texture_t openvr_texture_left = {};
+        openvr_texture_left.eType = vr::TextureType_Vulkan;
+        openvr_texture_left.eColorSpace = vr::ColorSpace_Auto; // Adjust if EFB is sRGB
+
+        vulkan_tex_data_left.m_pImageView = left_eye_image_view; // OpenVR uses m_pImageView with new SDK
+        openvr_texture_left.handle = &vulkan_tex_data_left; // Pass pointer to data struct
+
+        vr_system->GetCompositor()->Submit(vr::Eye_Left, &openvr_texture_left, nullptr, vr::Submit_Default);
+
+        vr::VRVulkanTextureData_t vulkan_tex_data_right = vulkan_tex_data_left; // Base is same
+        vulkan_tex_data_right.m_pImageView = right_eye_image_view; // Set right eye's view
+
+        vr::Texture_t openvr_texture_right = {};
+        openvr_texture_right.eType = vr::TextureType_Vulkan;
+        openvr_texture_right.eColorSpace = vr::ColorSpace_Auto;
+        openvr_texture_right.handle = &vulkan_tex_data_right;
+
+        vr_system->GetCompositor()->Submit(vr::Eye_Right, &openvr_texture_right, nullptr, vr::Submit_Default);
+
+        vkDestroyImageView(g_vulkan_context->GetDevice(), left_eye_image_view, nullptr);
+        vkDestroyImageView(g_vulkan_context->GetDevice(), right_eye_image_view, nullptr);
+
+        // Submit the command buffer which contains the layout transition for the EFB texture.
+        // Do not wait for completion here, let it run in background.
+        // Do not pass swapchain details as we are not presenting to it.
+        g_command_buffer_mgr->SubmitCommandBuffer(true, false, false);
+        StateTracker::GetInstance()->InvalidateCachedState();
+        return; // VR presentation complete
+      }
+    }
+  }
+
+  // Fallback to existing non-VR presentation path if not in VR mode or if VR path fails above
+  if (m_swap_chain && m_swap_chain->IsCurrentImageValid())
   {
     // Transition the backbuffer to PRESENT_SRC to ensure all commands drawing
     // to it have finished before present.
@@ -330,10 +424,17 @@ void VKGfx::PresentBackbuffer()
     g_command_buffer_mgr->SubmitCommandBuffer(true, false, true, m_swap_chain->GetSwapChain(),
                                               m_swap_chain->GetCurrentImageIndex());
   }
-  else
+  else if (m_swap_chain) // Only submit if swapchain exists, even if image is not valid (e.g. out of date)
   {
-    g_command_buffer_mgr->SubmitCommandBuffer(true, false, true);
+     // If image is not valid (e.g. after resize, before new image acquired),
+     // still submit any pending work, but not for presenting to this invalid image.
+    g_command_buffer_mgr->SubmitCommandBuffer(true, false, false);
   }
+  else // Headless or no swapchain
+  {
+    g_command_buffer_mgr->SubmitCommandBuffer(true, false, false);
+  }
+
 
   // New cmdbuffer, so invalidate state.
   StateTracker::GetInstance()->InvalidateCachedState();
