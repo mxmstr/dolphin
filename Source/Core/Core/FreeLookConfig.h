@@ -14,7 +14,8 @@ enum class ControlType : int
 {
   SixAxis,
   FPS,
-  Orbital
+  Orbital,
+  VR
 };
 
 struct CameraConfig

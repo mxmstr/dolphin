@@ -434,6 +434,7 @@ public:
   Vec3 Transform(const Vec3& point, float w) const;
 
   float Determinant() const;
+  Matrix44 Inverted() const;
 
   Matrix44& operator*=(const Matrix44& rhs)
   {
@@ -444,6 +445,144 @@ public:
   // Note: Row-major storage order.
   std::array<float, 16> data;
 };
+
+inline Matrix44 Matrix44::Inverted() const
+{
+  // Based on https://github.com/niswegmann/small-matrix-inverse/blob/master/invert4x4_adj.h
+  // And https://stackoverflow.com/questions/1148309/inverting-a-4x4-matrix
+  // Using adjugate method.
+
+  Matrix44 inv;
+  const float* m = data.data(); // Pointer to our matrix data
+
+  inv.data[0] = m[5]  * m[10] * m[15] -
+                m[5]  * m[11] * m[14] -
+                m[9]  * m[6]  * m[15] +
+                m[9]  * m[7]  * m[14] +
+                m[13] * m[6]  * m[11] -
+                m[13] * m[7]  * m[10];
+
+  inv.data[4] = -m[4]  * m[10] * m[15] +
+                 m[4]  * m[11] * m[14] +
+                 m[8]  * m[6]  * m[15] -
+                 m[8]  * m[7]  * m[14] -
+                 m[12] * m[6]  * m[11] +
+                 m[12] * m[7]  * m[10];
+
+  inv.data[8] = m[4]  * m[9] * m[15] -
+                m[4]  * m[11] * m[13] -
+                m[8]  * m[5] * m[15] +
+                m[8]  * m[7] * m[13] +
+                m[12] * m[5] * m[11] -
+                m[12] * m[7] * m[9];
+
+  inv.data[12] = -m[4]  * m[9] * m[14] +
+                  m[4]  * m[10] * m[13] +
+                  m[8]  * m[5] * m[14] -
+                  m[8]  * m[6] * m[13] -
+                  m[12] * m[5] * m[10] +
+                  m[12] * m[6] * m[9];
+
+  inv.data[1] = -m[1]  * m[10] * m[15] +
+                 m[1]  * m[11] * m[14] +
+                 m[9]  * m[2] * m[15] -
+                 m[9]  * m[3] * m[14] -
+                 m[13] * m[2] * m[11] +
+                 m[13] * m[3] * m[10];
+
+  inv.data[5] = m[0]  * m[10] * m[15] -
+                m[0]  * m[11] * m[14] -
+                m[8]  * m[2] * m[15] +
+                m[8]  * m[3] * m[14] +
+                m[12] * m[2] * m[11] -
+                m[12] * m[3] * m[10];
+
+  inv.data[9] = -m[0]  * m[9] * m[15] +
+                 m[0]  * m[11] * m[13] +
+                 m[8]  * m[1] * m[15] -
+                 m[8]  * m[3] * m[13] -
+                 m[12] * m[1] * m[11] +
+                 m[12] * m[3] * m[9];
+
+  inv.data[13] = m[0]  * m[9] * m[14] -
+                 m[0]  * m[10] * m[13] -
+                 m[8]  * m[1] * m[14] +
+                 m[8]  * m[2] * m[13] +
+                 m[12] * m[1] * m[10] -
+                 m[12] * m[2] * m[9];
+
+  inv.data[2] = m[1]  * m[6] * m[15] -
+                m[1]  * m[7] * m[14] -
+                m[5]  * m[2] * m[15] +
+                m[5]  * m[3] * m[14] +
+                m[13] * m[2] * m[7] -
+                m[13] * m[3] * m[6];
+
+  inv.data[6] = -m[0]  * m[6] * m[15] +
+                 m[0]  * m[7] * m[14] +
+                 m[4]  * m[2] * m[15] -
+                 m[4]  * m[3] * m[14] -
+                 m[12] * m[2] * m[7] +
+                 m[12] * m[3] * m[6];
+
+  inv.data[10] = m[0]  * m[5] * m[15] -
+                 m[0]  * m[7] * m[13] -
+                 m[4]  * m[1] * m[15] +
+                 m[4]  * m[3] * m[13] +
+                 m[12] * m[1] * m[7] -
+                 m[12] * m[3] * m[5];
+
+  inv.data[14] = -m[0]  * m[5] * m[14] +
+                  m[0]  * m[6] * m[13] +
+                  m[4]  * m[1] * m[14] -
+                  m[4]  * m[2] * m[13] -
+                  m[12] * m[1] * m[6] +
+                  m[12] * m[2] * m[5];
+
+  inv.data[3] = -m[1] * m[6] * m[11] +
+                 m[1] * m[7] * m[10] +
+                 m[5] * m[2] * m[11] -
+                 m[5] * m[3] * m[10] -
+                 m[9] * m[2] * m[7] +
+                 m[9] * m[3] * m[6];
+
+  inv.data[7] = m[0] * m[6] * m[11] -
+                m[0] * m[7] * m[10] -
+                m[4] * m[2] * m[11] +
+                m[4] * m[3] * m[10] +
+                m[8] * m[2] * m[7] -
+                m[8] * m[3] * m[6];
+
+  inv.data[11] = -m[0] * m[5] * m[11] +
+                  m[0] * m[7] * m[9] +
+                  m[4] * m[1] * m[11] -
+                  m[4] * m[3] * m[9] -
+                  m[8] * m[1] * m[7] +
+                  m[8] * m[3] * m[5];
+
+  inv.data[15] = m[0] * m[5] * m[10] -
+                 m[0] * m[6] * m[9] -
+                 m[4] * m[1] * m[10] +
+                 m[4] * m[2] * m[9] +
+                 m[8] * m[1] * m[6] -
+                 m[8] * m[2] * m[5];
+
+  float det = m[0] * inv.data[0] + m[1] * inv.data[4] + m[2] * inv.data[8] + m[3] * inv.data[12];
+
+  if (det == 0)
+  {
+    // TODO: Log an error or handle non-invertible matrix case appropriately.
+    // For now, returning identity.
+    return Matrix44::Identity();
+  }
+
+  det = 1.0f / det;
+
+  for (int i = 0; i < 16; i++)
+    inv.data[i] = inv.data[i] * det;
+
+  return inv;
+}
 
 inline Matrix44 operator*(Matrix44 lhs, const Matrix44& rhs)
 {

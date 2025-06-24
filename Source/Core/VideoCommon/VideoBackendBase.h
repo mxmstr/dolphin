@@ -12,6 +12,7 @@
 #include "Common/WindowSystemInfo.h"
 #include "VideoCommon/PerfQueryBase.h"
 #include "VideoCommon/VROpenVR.h" // Added for VR support
+#include "FreeLookCamera.h"
 
 namespace MMIO
 {
@@ -83,6 +84,10 @@ protected:
 
   bool m_initialized = false;
   std::unique_ptr<VROpenVR> m_vr_openvr; // Added for VR support
+
+public:
+  void UpdateVRView(FreeLookCamera& camera);
+  VROpenVR* GetVROpenVR() const { return m_vr_openvr.get(); }
 };
 
 extern VideoBackendBase* g_video_backend;

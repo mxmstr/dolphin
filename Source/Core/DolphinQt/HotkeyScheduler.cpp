@@ -46,6 +46,8 @@
 #include "VideoCommon/OnScreenDisplay.h"
 #include "VideoCommon/VertexShaderManager.h"
 #include "VideoCommon/VideoConfig.h"
+#include "VideoCommon/FreeLookCamera.h" // For VR Recenter
+#include "VideoCommon/VideoBackendBase.h"
 
 constexpr const char* DUBOIS_ALGORITHM_SHADER = "dubois";
 
@@ -626,14 +628,61 @@ void HotkeyScheduler::Run()
     // Free Look
     if (IsHotkey(HK_FREELOOK_TOGGLE))
     {
-      const bool new_value = !Config::Get(Config::FREE_LOOK_ENABLED);
-      Config::SetCurrent(Config::FREE_LOOK_ENABLED, new_value);
+        const bool new_value = !Config::Get(Config::FREE_LOOK_ENABLED);
+        Config::SetCurrent(Config::FREE_LOOK_ENABLED, new_value);
 
-      const bool hardcore = AchievementManager::GetInstance().IsHardcoreModeActive();
-      if (hardcore)
-        OSD::AddMessage("Free Look is Disabled in Hardcore Mode");
-      else
-        OSD::AddMessage(fmt::format("Free Look: {}", new_value ? "Enabled" : "Disabled"));
+        const bool hardcore = AchievementManager::GetInstance().IsHardcoreModeActive();
+        if (hardcore)
+          OSD::AddMessage("Free Look is Disabled in Hardcore Mode");
+        else
+          OSD::AddMessage(fmt::format("Free Look: {}", new_value ? "Enabled" : "Disabled"));
+      }
+
+      // VR Hotkeys
+      if (IsHotkey(HK_VR_RECENTER))
+      {
+        if (g_freelook_camera.GetController())
+        {
+          if (auto* vr_controller =
+                  dynamic_cast<VRCameraController*>(g_freelook_camera.GetController()))
+          {
+            vr_controller->Recenter();
+            OSD::AddMessage("VR View Recentered", OSD::Duration::SHORT);
+          }
+        }
+      }
+
+      if (IsHotkey(HK_VR_TOGGLE_MODE))
+      {
+        // This is a placeholder way to toggle VR mode.
+        // A real implementation would use a config setting.
+        if (g_freelook_camera.GetController() &&
+            dynamic_cast<VRCameraController*>(g_freelook_camera.GetController()))
+        {
+          g_freelook_camera.SetControlType(FreeLook::ControlType::SixAxis); // Revert to a default
+          OSD::AddMessage("VR Camera Mode Deactivated", OSD::Duration::SHORT);
+        }
+        else
+        {
+          // Attempt to initialize OpenVR if not already done by VideoBackendBase
+          // This is a bit of a hack for a placeholder; ideally, VROpenVR is init'd with the backend.
+          if (g_video_backend && g_video_backend->GetVROpenVR() && !g_video_backend->GetVROpenVR()->IsInitialized()) {
+            // This is risky as Init might fail or have side effects if called late.
+            // Consider if Init() should be callable here or if it must be earlier.
+            // For now, assuming it's safe or that VideoBackendBase already handled it.
+            // if (g_video_backend->GetVROpenVR()->Init()) {
+            // OSD::AddMessage("OpenVR Initialized for Toggle", OSD::Duration::SHORT);
+            // } else {
+            // OSD::AddMessage("OpenVR Failed to Initialize for Toggle", OSD::Duration::SHORT);
+            // }
+          }
+          g_freelook_camera.SetControlType(FreeLook::ControlType::VR);
+          OSD::AddMessage("VR Camera Mode Activated", OSD::Duration::SHORT);
+        }
+      }
+
+      // Savestates
+      //for (u32 i = 0; i < State::NUM_STATES; i++)
     }
 
     // Savestates
@@ -666,7 +715,7 @@ void HotkeyScheduler::Run()
 
     if (IsHotkey(HK_SAVE_STATE_FILE))
       emit StateSaveFile();
-  }
+  
 }
 
 void HotkeyScheduler::CheckDebuggingHotkeys()
