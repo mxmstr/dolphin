@@ -297,7 +297,7 @@ void CheckForConfigChanges()
   FreeLook::UpdateActiveConfig();
   g_vertex_manager->OnConfigChange();
 
-  g_freelook_camera.SetControlType(FreeLook::GetActiveConfig().camera_config.control_type);
+  //g_freelook_camera.SetControlType(FreeLook::GetActiveConfig().camera_config.control_type);
 
   if (g_ActiveConfig.bGraphicMods && !old_graphics_mods_enabled)
   {

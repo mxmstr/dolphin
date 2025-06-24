@@ -262,7 +262,7 @@ float CameraControllerInput::GetSpeed() const
 
 FreeLookCamera::FreeLookCamera()
 {
-  SetControlType(FreeLook::ControlType::SixAxis);
+  SetControlType(FreeLook::ControlType::VR);
 }
 
 void FreeLookCamera::SetControlType(FreeLook::ControlType type)

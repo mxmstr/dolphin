@@ -886,9 +886,9 @@ void Callback_NewField(Core::System& system)
   AchievementManager::GetInstance().DoFrame();
 
   // Update VR view if backend and freelook camera are available
-  //if (g_video_backend) { // g_video_backend is from VideoBackendBase.h
-  //  g_video_backend->UpdateVRView(g_freelook_camera); // g_freelook_camera is from FreeLookCamera.h
-  //}
+  if (g_video_backend) { // g_video_backend is from VideoBackendBase.h
+    g_video_backend->UpdateVRView(g_freelook_camera); // g_freelook_camera is from FreeLookCamera.h
+  }
 }
 
 void UpdateTitle(Core::System& system)
