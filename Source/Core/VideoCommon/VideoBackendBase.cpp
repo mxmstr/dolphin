@@ -421,7 +421,7 @@ void VideoBackendBase::UpdateVRView(FreeLookCamera& camera) {
   }
 
   // Log raw pointer value for debugging
-  DEBUG_LOG_FMT(VR, "UpdateVRView: current_controller pointer: %p", static_cast<void*>(current_controller));
+  DEBUG_LOG_FMT(VR, "UpdateVRView: current_controller pointer: {}", static_cast<void*>(current_controller));
 
   // Check if the current controller is VRCameraController
   DEBUG_LOG_FMT(VR, "UpdateVRView: Attempting dynamic_cast to VRCameraController...");
@@ -431,7 +431,7 @@ void VideoBackendBase::UpdateVRView(FreeLookCamera& camera) {
     // Only update if the VR controller is active
     // Log what type it actually is, if RTTI is working.
     // This might not print a useful name if RTTI is part of the issue or type is unknown.
-    DEBUG_LOG_FMT(VR, "UpdateVRView: dynamic_cast to VRCameraController failed. current_controller is type: %s. Skipping VR HMD pose update.", typeid(*current_controller).name());
+    DEBUG_LOG_FMT(VR, "UpdateVRView: dynamic_cast to VRCameraController failed. current_controller is type: {}. Skipping VR HMD pose update.", typeid(*current_controller).name());
     return;
   }
   DEBUG_LOG_FMT(VR, "UpdateVRView: dynamic_cast to VRCameraController succeeded.");

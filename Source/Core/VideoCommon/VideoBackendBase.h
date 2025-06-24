@@ -12,6 +12,7 @@
 #include "Common/WindowSystemInfo.h"
 #include "VideoCommon/PerfQueryBase.h"
 #include "VideoCommon/VROpenVR.h" // Added for VR support
+#include "FreeLookCamera.h"
 
 namespace MMIO
 {

@@ -47,6 +47,7 @@
 #include "VideoCommon/VertexShaderManager.h"
 #include "VideoCommon/VideoConfig.h"
 #include "VideoCommon/FreeLookCamera.h" // For VR Recenter
+#include "VideoCommon/VideoBackendBase.h"
 
 constexpr const char* DUBOIS_ALGORITHM_SHADER = "dubois";
 
@@ -681,7 +682,7 @@ void HotkeyScheduler::Run()
       }
 
       // Savestates
-      for (u32 i = 0; i < State::NUM_STATES; i++)
+      //for (u32 i = 0; i < State::NUM_STATES; i++)
     }
 
     // Savestates
@@ -714,7 +715,7 @@ void HotkeyScheduler::Run()
 
     if (IsHotkey(HK_SAVE_STATE_FILE))
       emit StateSaveFile();
-  }
+  
 }
 
 void HotkeyScheduler::CheckDebuggingHotkeys()

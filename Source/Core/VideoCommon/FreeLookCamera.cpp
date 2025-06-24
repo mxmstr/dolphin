@@ -372,20 +372,20 @@ Common::Matrix44 VRCameraController::GetView() const
 void VRCameraController::UpdateHMDPose(const Common::Matrix44& new_pose)
 {
   m_hmd_pose = new_pose;
-  m_dirty = true; // Mark as dirty so savestates can pick it up
+  //m_dirty = true; // Mark as dirty so savestates can pick it up
 }
 
 void VRCameraController::Recenter()
 {
   // Set the recenter offset to counteract the current HMD pose,
   // making the current HMD orientation the new "forward" and origin.
-  m_recenter_offset = m_hmd_pose.Inverse();
+  m_recenter_offset = m_hmd_pose.Inverted();
   // Optional: if a specific "forward" direction is desired that's not identity
   // (e.g. always face +Z in tracking space after recenter), apply that transform here.
   // For example, if HMD's natural forward is -Z and we want game's forward to be +Z after recenter:
   // m_recenter_offset = m_recenter_offset * Common::Matrix44::RotateY(MathUtil::PI);
 
-  m_dirty = true;
+  //m_dirty = true;
 }
 
 void VRCameraController::Reset()
@@ -393,7 +393,7 @@ void VRCameraController::Reset()
   CameraControllerInput::Reset(); // Handles fov, speed, and m_dirty
   m_hmd_pose = Common::Matrix44::Identity();
   m_recenter_offset = Common::Matrix44::Identity();
-  m_dirty = true;
+  //m_dirty = true;
 }
 
 void VRCameraController::DoState(PointerWrap& p)
