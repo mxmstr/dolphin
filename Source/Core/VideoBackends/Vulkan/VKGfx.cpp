@@ -38,7 +38,9 @@ namespace Vulkan
 VKGfx::VKGfx(std::unique_ptr<SwapChain> swap_chain, float backbuffer_scale)
     : m_swap_chain(std::move(swap_chain)), m_backbuffer_scale(backbuffer_scale)
 {
-  UpdateActiveConfig();
+  UpdateActiveConfig(); // This sets g_ActiveConfig
+  InitVRResources();      // Attempt to init VR resources based on initial config
+
   for (SamplerState& sampler_state : m_sampler_states)
     sampler_state = RenderState::GetPointSamplerState();
 
@@ -47,7 +49,102 @@ VKGfx::VKGfx(std::unique_ptr<SwapChain> swap_chain, float backbuffer_scale)
   ExecuteCommandBuffer(true, false);
 }
 
-VKGfx::~VKGfx() = default;
+VKGfx::~VKGfx()
+{
+  DestroyVRResources();
+}
+
+void VKGfx::InitVRResources()
+{
+  // Only initialize if VR mode is active and OpenVR system is available
+  if (!(g_ActiveConfig.stereo_mode == StereoMode::OpenVR && g_pVROpenVR && g_pVROpenVR->IsInitialized()))
+  {
+    DestroyVRResources(); // Ensure resources are cleaned up if VR is disabled or not ready
+    return;
+  }
+
+  // Avoid re-initialization if already done (e.g. if EFB size hasn't changed but config did)
+  // We will rely on DestroyVRResources being called if EFB size *does* change leading to this.
+  if (m_vr_left_eye_target && m_vr_right_eye_target)
+  {
+    // Optional: Check if dimensions match current EFB, if not, destroy and recreate.
+    // For now, assume if they exist, they are correct or will be handled by a full recreation trigger.
+    if (g_framebuffer_manager && g_framebuffer_manager->GetEFBColorTexture() &&
+        m_vr_left_eye_target->GetWidth() == g_framebuffer_manager->GetEFBWidth() &&
+        m_vr_left_eye_target->GetHeight() == g_framebuffer_manager->GetEFBHeight()) {
+      return;
+    }
+    DestroyVRResources(); // Dimensions mismatch, recreate
+  }
+
+  if (!g_framebuffer_manager || !g_framebuffer_manager->GetEFBColorTexture())
+  {
+    ERROR_LOG_FMT(VR, "Cannot initialize VR resources: FramebufferManager or EFB not ready.");
+    return;
+  }
+
+  u32 width = g_framebuffer_manager->GetEFBWidth();
+  u32 height = g_framebuffer_manager->GetEFBHeight();
+  AbstractTextureFormat format = FramebufferManager::GetEFBColorFormat();
+
+  if (width == 0 || height == 0) {
+    ERROR_LOG_FMT(VR, "Cannot initialize VR resources: EFB dimensions are zero (width: {}, height: {}).", width, height);
+    return;
+  }
+
+  TextureConfig vr_eye_texture_config(
+      width, height, 1, 1, 1, // Mips, Layers, Samples
+      format,
+      // Usage: RenderTarget (to copy EFB layer into), Sampler (for OpenVR to read), TransferDst (alternative to RT for copy)
+      AbstractTextureFlag_RenderTarget | AbstractTextureFlag_Sampler | AbstractTextureFlag_TransferDst,
+      AbstractTextureType::Texture_2D);
+
+  m_vr_left_eye_target = VKTexture::Create(vr_eye_texture_config, "VR Left Eye Target");
+  m_vr_right_eye_target = VKTexture::Create(vr_eye_texture_config, "VR Right Eye Target");
+
+  if (!m_vr_left_eye_target || !m_vr_right_eye_target)
+  {
+    PanicAlertFmt("Failed to create VR eye target textures.");
+    DestroyVRResources(); // Clean up partial success
+    return;
+  }
+
+  // Create framebuffers for these textures (if copying via rendering a quad)
+  // If using vkCmdCopyImage, framebuffers might not be strictly needed for the targets themselves,
+  // but having them is consistent if we use a render pass for the copy.
+  m_vr_left_eye_framebuffer = CreateFramebuffer(m_vr_left_eye_target.get(), nullptr);
+  m_vr_right_eye_framebuffer = CreateFramebuffer(m_vr_right_eye_target.get(), nullptr);
+
+  if (!m_vr_left_eye_framebuffer || !m_vr_right_eye_framebuffer)
+  {
+    PanicAlertFmt("Failed to create VR eye target framebuffers.");
+    DestroyVRResources(); // Clean up partial success
+    return;
+  }
+
+  INFO_LOG_FMT(VR, "VR eye target textures and framebuffers initialized ({}, {}).", width, height);
+}
+
+void VKGfx::DestroyVRResources()
+{
+  // It's important that the GPU is idle and no command buffers are using these resources.
+  // If called from OnConfigChanged, WaitForGPUIdle is generally safe.
+  // If called from destructor, GPU should be idle or resources released by then.
+  // Adding a check to ensure command buffer manager is still valid before waiting.
+  if (g_command_buffer_mgr && g_vulkan_context) { // Ensure context is also valid for vkDeviceWaitIdle
+      // This wait can be long. Consider if it's always needed or if resource tracking (fences) is better.
+      // For now, simplicity:
+      vkDeviceWaitIdle(g_vulkan_context->GetDevice());
+  }
+
+  m_vr_left_eye_framebuffer.reset();
+  m_vr_right_eye_framebuffer.reset();
+  m_vr_left_eye_target.reset();
+  m_vr_right_eye_target.reset();
+  // Only log if there was something to destroy
+  // INFO_LOG_FMT(VR, "VR eye target textures and framebuffers destroyed."); // Can be noisy if called often
+}
+
 
 bool VKGfx::IsHeadless() const
 {
@@ -317,126 +414,165 @@ void VKGfx::PresentBackbuffer()
 {
   // End drawing to backbuffer (EFB or main swapchain)
   StateTracker::GetInstance()->EndRenderPass();
+  VkCommandBuffer current_cmd_buffer = g_command_buffer_mgr->GetCurrentCommandBuffer();
 
   if (g_ActiveConfig.stereo_mode == StereoMode::OpenVR && g_video_backend->GetVROpenVR() && g_video_backend->GetVROpenVR()->IsInitialized())
   {
     // VR Presentation Path
     AbstractTexture* efb_texture_abstract = g_framebuffer_manager->GetEFBColorTexture();
-    if (!efb_texture_abstract)
+    VKTexture* efb_vulkan_texture = static_cast<VKTexture*>(efb_texture_abstract);
+    VROpenVR* vr_system = g_pVROpenVR;
+
+    if (!efb_vulkan_texture || !m_vr_left_eye_target || !m_vr_right_eye_target ||
+        !m_vr_left_eye_framebuffer || !m_vr_right_eye_framebuffer)
     {
-      ERROR_LOG_FMT(VR, "Failed to get EFB Color Texture for VR submission.");
-      // Fallback or error handling? For now, try to present normally if EFB is missing.
-      // This shouldn't happen in a normal VR scenario.
-      // For safety, just run the default path.
+      ERROR_LOG_FMT(VR, "VR resources not properly initialized. Skipping VR submission and mirror.");
+      // Fallback: try to submit whatever commands might be pending, without specific presentation.
+      g_command_buffer_mgr->SubmitCommandBuffer(true, false, false);
     }
     else
     {
-      VKTexture* efb_vulkan_texture = static_cast<VKTexture*>(efb_texture_abstract);
-      VROpenVR* vr_system = g_video_backend->GetVROpenVR(); // Assume g_pVROpenVR provides access
+      // 1. Transition EFB for reading, VR targets for writing (copy destination)
+      efb_vulkan_texture->TransitionToLayout(current_cmd_buffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+      m_vr_left_eye_target->TransitionToLayout(current_cmd_buffer, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+      m_vr_right_eye_target->TransitionToLayout(current_cmd_buffer, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
 
-      // Ensure EFB texture is in a layout OpenVR can use.
-      // OpenVR compositor generally expects textures to be readable.
-      // If the texture was just rendered to, it's likely in COLOR_ATTACHMENT_OPTIMAL.
-      // Transition to SHADER_READ_ONLY_OPTIMAL or GENERAL.
-      // This transition must be recorded on the current command buffer before submitting it.
-      efb_vulkan_texture->TransitionToLayout(g_command_buffer_mgr->GetCurrentCommandBuffer(),
-                                           VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+      // --- Copy EFB Layer 0 to m_vr_left_eye_target ---
+      SetFramebuffer(m_vr_left_eye_framebuffer.get());
+      SetViewportAndScissor(MathUtil::Rectangle<int>(0, 0, m_vr_left_eye_target->GetWidth(), m_vr_left_eye_target->GetHeight()));
 
-      // Get necessary texture info (assuming getters are added to VKTexture)
-      VkImage efb_image_handle = efb_vulkan_texture->GetImage();
-      VkFormat efb_vk_format = efb_vulkan_texture->GetVkFormat();
-      uint32_t efb_width = efb_vulkan_texture->GetWidth();
-      uint32_t efb_height = efb_vulkan_texture->GetHeight();
-      uint32_t efb_samples = efb_vulkan_texture->GetSamples(); // Should be 1 for the resolved EFB
-      VkImageViewType efb_view_type = efb_vulkan_texture->GetVkImageViewType();
+      AbstractPipeline* layer_copy_pipeline = g_shader_cache->GetScreenQuadLayerCopyPipeline(); // Assumes this exists (Step 4 of plan)
+      SetPipeline(layer_copy_pipeline);
 
+      struct { float source_layer; } layer_uniform_data_left = {0.0f};
+      UploadUtilityUniforms(&layer_uniform_data_left, sizeof(layer_uniform_data_left));
 
-      // Create layer-specific image views
-      // TODO: VKTexture needs a static CreateView method or similar helper.
-      // For now, conceptual placeholders for view creation:
-      //VkImageView left_eye_image_view = VKTexture::CreateView(efb_image_handle, efb_view_type, efb_vk_format, VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1);
-      //VkImageView right_eye_image_view = VKTexture::CreateView(efb_image_handle, efb_view_type, efb_vk_format, VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 1, 1);
+      SetTexture(0, efb_vulkan_texture);
+      SetSamplerState(0, RenderState::GetPointSamplerState());
+      Draw(0, 3);
 
-      if (false)//left_eye_image_view == VK_NULL_HANDLE || right_eye_image_view == VK_NULL_HANDLE)
+      // --- Copy EFB Layer 1 to m_vr_right_eye_target ---
+      SetFramebuffer(m_vr_right_eye_framebuffer.get());
+      SetViewportAndScissor(MathUtil::Rectangle<int>(0, 0, m_vr_right_eye_target->GetWidth(), m_vr_right_eye_target->GetHeight()));
+      SetPipeline(layer_copy_pipeline); // Re-set if SetFramebuffer clears it
+
+      struct { float source_layer; } layer_uniform_data_right = {1.0f};
+      UploadUtilityUniforms(&layer_uniform_data_right, sizeof(layer_uniform_data_right));
+
+      SetTexture(0, efb_vulkan_texture);
+      SetSamplerState(0, RenderState::GetPointSamplerState());
+      Draw(0, 3);
+
+      // --- Transition VR targets for OpenVR to read ---
+      m_vr_left_eye_target->TransitionToLayout(current_cmd_buffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+      m_vr_right_eye_target->TransitionToLayout(current_cmd_buffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+      // --- OpenVR Submission ---
+      vr::VRVulkanTextureData_t vulkan_tex_data_left = {};
+      vulkan_tex_data_left.m_nImage = (uint64_t)m_vr_left_eye_target->GetImage();
+      vulkan_tex_data_left.m_pDevice = g_vulkan_context->GetDevice();
+      vulkan_tex_data_left.m_pPhysicalDevice = g_vulkan_context->GetPhysicalDevice();
+      vulkan_tex_data_left.m_pInstance = g_vulkan_context->GetVulkanInstance();
+      vulkan_tex_data_left.m_pQueue = g_vulkan_context->GetGraphicsQueue();
+      vulkan_tex_data_left.m_nQueueFamilyIndex = g_vulkan_context->GetGraphicsQueueFamilyIndex();
+      vulkan_tex_data_left.m_nWidth = m_vr_left_eye_target->GetWidth();
+      vulkan_tex_data_left.m_nHeight = m_vr_left_eye_target->GetHeight();
+      vulkan_tex_data_left.m_nFormat = m_vr_left_eye_target->GetVkFormat(); // Assumes getter
+      vulkan_tex_data_left.m_nSampleCount = m_vr_left_eye_target->GetSamples(); // Assumes getter
+      vulkan_tex_data_left.m_pImageView = m_vr_left_eye_target->GetView(); // Assumes getter for default view
+
+      vr::Texture_t openvr_texture_left = {&vulkan_tex_data_left, vr::TextureType_Vulkan, vr::ColorSpace_Auto};
+      vr_system->GetCompositor()->Submit(vr::Eye_Left, &openvr_texture_left, nullptr, vr::Submit_Default);
+
+      vr::VRVulkanTextureData_t vulkan_tex_data_right = vulkan_tex_data_left; // Most fields are same
+      vulkan_tex_data_right.m_nImage = (uint64_t)m_vr_right_eye_target->GetImage();
+      vulkan_tex_data_right.m_nWidth = m_vr_right_eye_target->GetWidth();
+      vulkan_tex_data_right.m_nHeight = m_vr_right_eye_target->GetHeight();
+      vulkan_tex_data_right.m_nFormat = m_vr_right_eye_target->GetVkFormat();
+      vulkan_tex_data_right.m_nSampleCount = m_vr_right_eye_target->GetSamples();
+      vulkan_tex_data_right.m_pImageView = m_vr_right_eye_target->GetView();
+
+      vr::Texture_t openvr_texture_right = {&vulkan_tex_data_right, vr::TextureType_Vulkan, vr::ColorSpace_Auto};
+      vr_system->GetCompositor()->Submit(vr::Eye_Right, &openvr_texture_right, nullptr, vr::Submit_Default);
+
+      // --- Mirror to main window ---
+      if (m_swap_chain)
       {
-        ERROR_LOG_FMT(VR, "Failed to create layer-specific image views for VR submission.");
-        //if(left_eye_image_view != VK_NULL_HANDLE) vkDestroyImageView(g_vulkan_context->GetDevice(), left_eye_image_view, nullptr);
-        //if(right_eye_image_view != VK_NULL_HANDLE) vkDestroyImageView(g_vulkan_context->GetDevice(), right_eye_image_view, nullptr);
-        // Fallback to standard presentation or error
+        if (!g_command_buffer_mgr->CheckLastPresentDone())
+          g_command_buffer_mgr->WaitForWorkerThreadIdle();
+        CheckForSurfaceChange();
+        CheckForSurfaceResize();
+        if (m_swap_chain->GetCurrentFullscreenState() != m_swap_chain->GetNextFullscreenState() &&
+            !m_swap_chain->SetFullscreenState(m_swap_chain->GetNextFullscreenState()))
+        {
+          m_swap_chain->SetNextFullscreenState(m_swap_chain->GetCurrentFullscreenState());
+        }
+
+        const bool present_fail = g_command_buffer_mgr->CheckLastPresentFail();
+        VkResult res = present_fail ? g_command_buffer_mgr->GetLastPresentResult() : m_swap_chain->AcquireNextImage();
+
+        if (res == VK_ERROR_FULL_SCREEN_EXCLUSIVE_MODE_LOST_EXT && !m_swap_chain->GetCurrentFullscreenState())
+        {
+          res = VK_SUCCESS; if (present_fail) res = m_swap_chain->AcquireNextImage();
+        }
+
+        if (res != VK_SUCCESS && res != VK_SUBOPTIMAL_KHR)
+        {
+          bool swapChainRecreated = false;
+          if (res == VK_ERROR_FULL_SCREEN_EXCLUSIVE_MODE_LOST_EXT) { INFO_LOG_FMT(VIDEO, "Mirror: Lost exclusive fullscreen..."); m_swap_chain->RecreateSwapChain(); swapChainRecreated = true; }
+          else if (res == VK_ERROR_OUT_OF_DATE_KHR || res == VK_SUBOPTIMAL_KHR) { INFO_LOG_FMT(VIDEO, "Mirror: Swap chain suboptimal/out-of-date..."); m_swap_chain->ResizeSwapChain(); swapChainRecreated = true; }
+          else { ERROR_LOG_FMT(VIDEO, "Mirror: vkAcquireNextImageKHR failed: {}", VkResultToString(res)); }
+          if (swapChainRecreated) { res = m_swap_chain->AcquireNextImage(); if (res != VK_SUCCESS && res != VK_SUBOPTIMAL_KHR) ERROR_LOG_FMT(VIDEO, "Mirror: Failed to acquire after recreate: {}", VkResultToString(res)); }
+        }
+
+        if (m_swap_chain->IsCurrentImageValid())
+        {
+          VKTexture* window_target_texture = m_swap_chain->GetCurrentTexture();
+          VKFramebuffer* window_target_framebuffer = m_swap_chain->GetCurrentFramebuffer();
+
+          window_target_texture->TransitionToLayout(current_cmd_buffer, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+          SetFramebuffer(window_target_framebuffer); // Sets render pass
+          SetViewportAndScissor(MathUtil::Rectangle<int>(0, 0, m_swap_chain->GetWidth(), m_swap_chain->GetHeight()));
+
+          // Use the same layer copy pipeline to copy EFB layer 0 to the window
+          SetPipeline(layer_copy_pipeline);
+          struct { float source_layer; } mirror_layer_uniform_data = {0.0f}; // Mirror left eye
+          UploadUtilityUniforms(&mirror_layer_uniform_data, sizeof(mirror_layer_uniform_data));
+          SetTexture(0, efb_vulkan_texture); // Source EFB array texture
+          SetSamplerState(0, RenderState::GetPointSamplerState()); // Or linear for smoother mirror
+          Draw(0, 3);
+
+          window_target_texture->TransitionToLayout(current_cmd_buffer, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+        }
+      }
+    }
+
+    // Submit command buffer & present main window if applicable
+    if (m_swap_chain && m_swap_chain->IsCurrentImageValid()) {
+         g_command_buffer_mgr->SubmitCommandBuffer(true, false, true, m_swap_chain->GetSwapChain(), m_swap_chain->GetCurrentImageIndex());
+    } else {
+         g_command_buffer_mgr->SubmitCommandBuffer(true, false, false);
+    }
+  }
+  else
+  {
+    // Existing non-VR presentation path
+     if (m_swap_chain && m_swap_chain->IsCurrentImageValid())
+      {
+        m_swap_chain->GetCurrentTexture()->TransitionToLayout(
+            current_cmd_buffer, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+        g_command_buffer_mgr->SubmitCommandBuffer(true, false, true, m_swap_chain->GetSwapChain(),
+                                                  m_swap_chain->GetCurrentImageIndex());
+      }
+      else if (m_swap_chain)
+      {
+        g_command_buffer_mgr->SubmitCommandBuffer(true, false, false);
       }
       else
       {
-        vr::VRVulkanTextureData_t vulkan_tex_data_left = {};
-        vulkan_tex_data_left.m_nImage = (uint64_t)efb_image_handle;
-        vulkan_tex_data_left.m_pDevice = g_vulkan_context->GetDevice();
-        vulkan_tex_data_left.m_pPhysicalDevice = g_vulkan_context->GetPhysicalDevice();
-        vulkan_tex_data_left.m_pInstance = g_vulkan_context->GetVulkanInstance();
-        vulkan_tex_data_left.m_pQueue = g_vulkan_context->GetGraphicsQueue();
-        vulkan_tex_data_left.m_nQueueFamilyIndex = g_vulkan_context->GetGraphicsQueueFamilyIndex();
-        vulkan_tex_data_left.m_nWidth = efb_width;
-        vulkan_tex_data_left.m_nHeight = efb_height;
-        vulkan_tex_data_left.m_nFormat = efb_vk_format;
-        vulkan_tex_data_left.m_nSampleCount = efb_samples;
-        // m_nView is the VkImageView for the specific layer
-
-        vr::Texture_t openvr_texture_left = {};
-        openvr_texture_left.eType = vr::TextureType_Vulkan;
-        openvr_texture_left.eColorSpace = vr::ColorSpace_Auto; // Adjust if EFB is sRGB
-
-        //vulkan_tex_data_left.m_nImageView = left_eye_image_view; // OpenVR uses m_pImageView with new SDK
-        openvr_texture_left.handle = &vulkan_tex_data_left; // Pass pointer to data struct
-
-        vr_system->GetCompositor()->Submit(vr::Eye_Left, &openvr_texture_left, nullptr, vr::Submit_Default);
-
-        vr::VRVulkanTextureData_t vulkan_tex_data_right = vulkan_tex_data_left; // Base is same
-        //vulkan_tex_data_right.m_pImageView = right_eye_image_view; // Set right eye's view
-
-        vr::Texture_t openvr_texture_right = {};
-        openvr_texture_right.eType = vr::TextureType_Vulkan;
-        openvr_texture_right.eColorSpace = vr::ColorSpace_Auto;
-        openvr_texture_right.handle = &vulkan_tex_data_right;
-
-        vr_system->GetCompositor()->Submit(vr::Eye_Right, &openvr_texture_right, nullptr, vr::Submit_Default);
-
-        //vkDestroyImageView(g_vulkan_context->GetDevice(), left_eye_image_view, nullptr);
-        //vkDestroyImageView(g_vulkan_context->GetDevice(), right_eye_image_view, nullptr);
-
-        // Submit the command buffer which contains the layout transition for the EFB texture.
-        // Do not wait for completion here, let it run in background.
-        // Do not pass swapchain details as we are not presenting to it.
         g_command_buffer_mgr->SubmitCommandBuffer(true, false, false);
-        StateTracker::GetInstance()->InvalidateCachedState();
-        return; // VR presentation complete
       }
-    }
   }
-
-  // Fallback to existing non-VR presentation path if not in VR mode or if VR path fails above
-  if (m_swap_chain && m_swap_chain->IsCurrentImageValid())
-  {
-    // Transition the backbuffer to PRESENT_SRC to ensure all commands drawing
-    // to it have finished before present.
-    m_swap_chain->GetCurrentTexture()->TransitionToLayout(
-        g_command_buffer_mgr->GetCurrentCommandBuffer(), VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
-
-    // Submit the current command buffer, signaling rendering finished semaphore when it's done
-    // Because this final command buffer is rendering to the swap chain, we need to wait for
-    // the available semaphore to be signaled before executing the buffer. This final submission
-    // can happen off-thread in the background while we're preparing the next frame.
-    g_command_buffer_mgr->SubmitCommandBuffer(true, false, true, m_swap_chain->GetSwapChain(),
-                                              m_swap_chain->GetCurrentImageIndex());
-  }
-  else if (m_swap_chain) // Only submit if swapchain exists, even if image is not valid (e.g. out of date)
-  {
-     // If image is not valid (e.g. after resize, before new image acquired),
-     // still submit any pending work, but not for presenting to this invalid image.
-    g_command_buffer_mgr->SubmitCommandBuffer(true, false, false);
-  }
-  else // Headless or no swapchain
-  {
-    g_command_buffer_mgr->SubmitCommandBuffer(true, false, false);
-  }
-
 
   // New cmdbuffer, so invalidate state.
   StateTracker::GetInstance()->InvalidateCachedState();
@@ -533,6 +669,15 @@ void VKGfx::OnConfigChanged(u32 bits)
   {
     ExecuteCommandBuffer(false, true);
     ResetSamplerStates();
+  }
+
+  // If stereo mode changed, or if EFB scale changed (which affects VR target size)
+  if ((bits & CONFIG_CHANGE_BIT_STEREO_MODE) || (bits & CONFIG_CHANGE_BIT_TARGET_SIZE))
+  {
+    // This will init if VR mode is now active and EFB is ready,
+    // or destroy if VR was active and now disabled,
+    // or destroy and re-init if EFB size changed while VR active.
+    InitVRResources();
   }
 }
 
