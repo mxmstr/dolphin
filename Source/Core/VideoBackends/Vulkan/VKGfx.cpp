@@ -31,7 +31,9 @@
 #include "VideoCommon/Present.h"
 #include "VideoCommon/RenderState.h"
 #include "VideoCommon/VideoConfig.h"
-#include <VideoCommon/VideoBackendBase.h>
+#include "VideoCommon/VideoBackendBase.h"
+#include "VideoCommon/ShaderCache.h"
+#include "VKVertexManager.h"
 
 namespace Vulkan
 {
@@ -57,7 +59,7 @@ VKGfx::~VKGfx()
 void VKGfx::InitVRResources()
 {
   // Only initialize if VR mode is active and OpenVR system is available
-  if (!(g_ActiveConfig.stereo_mode == StereoMode::OpenVR && g_pVROpenVR && g_pVROpenVR->IsInitialized()))
+  if (!(g_ActiveConfig.stereo_mode == StereoMode::OpenVR && g_video_backend->GetVROpenVR() && g_video_backend->GetVROpenVR()->IsInitialized()))
   {
     DestroyVRResources(); // Ensure resources are cleaned up if VR is disabled or not ready
     return;
@@ -96,7 +98,7 @@ void VKGfx::InitVRResources()
       width, height, 1, 1, 1, // Mips, Layers, Samples
       format,
       // Usage: RenderTarget (to copy EFB layer into), Sampler (for OpenVR to read), TransferDst (alternative to RT for copy)
-      AbstractTextureFlag_RenderTarget | AbstractTextureFlag_Sampler | AbstractTextureFlag_TransferDst,
+      AbstractTextureFlag_RenderTarget,// | AbstractTextureFlag_Sampler | AbstractTextureFlag_TransferDst,
       AbstractTextureType::Texture_2D);
 
   m_vr_left_eye_target = VKTexture::Create(vr_eye_texture_config, "VR Left Eye Target");
@@ -112,8 +114,8 @@ void VKGfx::InitVRResources()
   // Create framebuffers for these textures (if copying via rendering a quad)
   // If using vkCmdCopyImage, framebuffers might not be strictly needed for the targets themselves,
   // but having them is consistent if we use a render pass for the copy.
-  m_vr_left_eye_framebuffer = CreateFramebuffer(m_vr_left_eye_target.get(), nullptr);
-  m_vr_right_eye_framebuffer = CreateFramebuffer(m_vr_right_eye_target.get(), nullptr);
+  m_vr_left_eye_framebuffer = CreateFramebuffer(m_vr_left_eye_target.get(), nullptr, std::vector<AbstractTexture*>());
+  m_vr_right_eye_framebuffer = CreateFramebuffer(m_vr_right_eye_target.get(), nullptr, std::vector<AbstractTexture*>());
 
   if (!m_vr_left_eye_framebuffer || !m_vr_right_eye_framebuffer)
   {
@@ -421,7 +423,7 @@ void VKGfx::PresentBackbuffer()
     // VR Presentation Path
     AbstractTexture* efb_texture_abstract = g_framebuffer_manager->GetEFBColorTexture();
     VKTexture* efb_vulkan_texture = static_cast<VKTexture*>(efb_texture_abstract);
-    VROpenVR* vr_system = g_pVROpenVR;
+    VROpenVR* vr_system = g_video_backend->GetVROpenVR();
 
     if (!efb_vulkan_texture || !m_vr_left_eye_target || !m_vr_right_eye_target ||
         !m_vr_left_eye_framebuffer || !m_vr_right_eye_framebuffer)
@@ -441,11 +443,11 @@ void VKGfx::PresentBackbuffer()
       SetFramebuffer(m_vr_left_eye_framebuffer.get());
       SetViewportAndScissor(MathUtil::Rectangle<int>(0, 0, m_vr_left_eye_target->GetWidth(), m_vr_left_eye_target->GetHeight()));
 
-      AbstractPipeline* layer_copy_pipeline = g_shader_cache->GetScreenQuadLayerCopyPipeline(); // Assumes this exists (Step 4 of plan)
+      const AbstractPipeline* layer_copy_pipeline = g_shader_cache->GetScreenQuadLayerCopyPipeline(); // Assumes this exists (Step 4 of plan)
       SetPipeline(layer_copy_pipeline);
 
       struct { float source_layer; } layer_uniform_data_left = {0.0f};
-      UploadUtilityUniforms(&layer_uniform_data_left, sizeof(layer_uniform_data_left));
+      g_vertex_manager->UploadUtilityUniforms(&layer_uniform_data_left, sizeof(layer_uniform_data_left));
 
       SetTexture(0, efb_vulkan_texture);
       SetSamplerState(0, RenderState::GetPointSamplerState());
@@ -457,7 +459,7 @@ void VKGfx::PresentBackbuffer()
       SetPipeline(layer_copy_pipeline); // Re-set if SetFramebuffer clears it
 
       struct { float source_layer; } layer_uniform_data_right = {1.0f};
-      UploadUtilityUniforms(&layer_uniform_data_right, sizeof(layer_uniform_data_right));
+      g_vertex_manager->UploadUtilityUniforms(&layer_uniform_data_right, sizeof(layer_uniform_data_right));
 
       SetTexture(0, efb_vulkan_texture);
       SetSamplerState(0, RenderState::GetPointSamplerState());
@@ -479,7 +481,7 @@ void VKGfx::PresentBackbuffer()
       vulkan_tex_data_left.m_nHeight = m_vr_left_eye_target->GetHeight();
       vulkan_tex_data_left.m_nFormat = m_vr_left_eye_target->GetVkFormat(); // Assumes getter
       vulkan_tex_data_left.m_nSampleCount = m_vr_left_eye_target->GetSamples(); // Assumes getter
-      vulkan_tex_data_left.m_pImageView = m_vr_left_eye_target->GetView(); // Assumes getter for default view
+      //vulkan_tex_data_left.m_pImageView = m_vr_left_eye_target->GetView(); // Assumes getter for default view
 
       vr::Texture_t openvr_texture_left = {&vulkan_tex_data_left, vr::TextureType_Vulkan, vr::ColorSpace_Auto};
       vr_system->GetCompositor()->Submit(vr::Eye_Left, &openvr_texture_left, nullptr, vr::Submit_Default);
@@ -490,7 +492,7 @@ void VKGfx::PresentBackbuffer()
       vulkan_tex_data_right.m_nHeight = m_vr_right_eye_target->GetHeight();
       vulkan_tex_data_right.m_nFormat = m_vr_right_eye_target->GetVkFormat();
       vulkan_tex_data_right.m_nSampleCount = m_vr_right_eye_target->GetSamples();
-      vulkan_tex_data_right.m_pImageView = m_vr_right_eye_target->GetView();
+      //vulkan_tex_data_right.m_pImageView = m_vr_right_eye_target->GetView();
 
       vr::Texture_t openvr_texture_right = {&vulkan_tex_data_right, vr::TextureType_Vulkan, vr::ColorSpace_Auto};
       vr_system->GetCompositor()->Submit(vr::Eye_Right, &openvr_texture_right, nullptr, vr::Submit_Default);
@@ -537,7 +539,7 @@ void VKGfx::PresentBackbuffer()
           // Use the same layer copy pipeline to copy EFB layer 0 to the window
           SetPipeline(layer_copy_pipeline);
           struct { float source_layer; } mirror_layer_uniform_data = {0.0f}; // Mirror left eye
-          UploadUtilityUniforms(&mirror_layer_uniform_data, sizeof(mirror_layer_uniform_data));
+          g_vertex_manager->UploadUtilityUniforms(&mirror_layer_uniform_data, sizeof(mirror_layer_uniform_data));
           SetTexture(0, efb_vulkan_texture); // Source EFB array texture
           SetSamplerState(0, RenderState::GetPointSamplerState()); // Or linear for smoother mirror
           Draw(0, 3);

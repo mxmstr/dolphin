@@ -26,4 +26,6 @@ std::string GenerateEFBRestorePixelShader();
 std::string GenerateImGuiVertexShader();
 std::string GenerateImGuiPixelShader(bool linear_space_output = false);
 
+std::string GenerateScreenQuadLayerCopyVertexShader();
+
 }  // namespace FramebufferShaderGen

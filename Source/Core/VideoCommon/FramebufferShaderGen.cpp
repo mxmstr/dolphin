@@ -26,16 +26,16 @@ APIType GetAPIType()
 void EmitUniformBufferDeclaration(ShaderCode& code)
 {
   code.Write("UBO_BINDING(std140, 1) uniform PSBlock\n");
-  code.Write("{{\n");
-  code.Write("  // Existing PSBlock members might be here, e.g., for clear colors, etc.\n");
-  code.Write("  // Adding u_source_layer for texture copying from a specific layer.\n");
-  code.Write("  float u_source_layer;\n");
-  // If PSBlock is structured with named members, it would be:
-  // code.Write("  float4 clear_color;\n");
-  // code.Write("  float clear_depth;\n");
-  // code.Write("  float u_source_layer; // Added here\n");
-  // code.Write("  // padding etc.\n");
-  code.Write("}};\n");
+  //code.Write("{{\n");
+  //code.Write("  // Existing PSBlock members might be here, e.g., for clear colors, etc.\n");
+  //code.Write("  // Adding u_source_layer for texture copying from a specific layer.\n");
+  //code.Write("  float u_source_layer;\n");
+  //// If PSBlock is structured with named members, it would be:
+  //// code.Write("  float4 clear_color;\n");
+  //// code.Write("  float clear_depth;\n");
+  //// code.Write("  float u_source_layer; // Added here\n");
+  //// code.Write("  // padding etc.\n");
+  //code.Write("}};\n");
 }
 
 void EmitSamplerDeclarations(ShaderCode& code, u32 start = 0, u32 end = 1,
@@ -328,6 +328,7 @@ std::string GenerateTextureCopyVertexShader()
   ShaderCode code;
   EmitUniformBufferDeclaration(code);
   code.Write("{{"
+    "  float u_source_layer;\n"
              "  float2 src_offset;\n"
              "  float2 src_size;\n"
              "}};\n\n");

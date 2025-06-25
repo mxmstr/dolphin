@@ -1506,7 +1506,12 @@ bool ShaderCache::CompileSharedPipelines()
   std::unique_ptr<AbstractShader> sq_layer_copy_vs = g_gfx->CreateShaderFromSource(
       ShaderStage::Vertex, FramebufferShaderGen::GenerateScreenQuadLayerCopyVertexShader(),
       "ScreenQuadLayerCopyVS");
-  RETURN_IF(!sq_layer_copy_vs, false, "Failed to create ScreenQuadLayerCopyVS");
+  //RETURN_IF(!sq_layer_copy_vs, false, "Failed to create ScreenQuadLayerCopyVS");
+  if (!sq_layer_copy_vs)
+  {
+    ERROR_LOG_FMT(VIDEO, "Failed to create ScreenQuadLayerCopyVS");
+    return false;
+  }
 
   // Use the already compiled generic texture copy pixel shader.
   // The config for this pipeline will be similar to m_copy_rgba8_pipeline but with the new VS.
@@ -1522,7 +1527,12 @@ bool ShaderCache::CompileSharedPipelines()
   layer_copy_config.framebuffer_state = RenderState::GetColorFramebufferState(FramebufferManager::GetEFBColorFormat());
   layer_copy_config.usage = AbstractPipelineUsage::Utility;
   m_screen_quad_layer_copy_pipeline = g_gfx->CreatePipeline(layer_copy_config);
-  RETURN_IF(!m_screen_quad_layer_copy_pipeline, false, "Failed to create screen quad layer copy pipeline");
+  //RETURN_IF(!m_screen_quad_layer_copy_pipeline, false, "Failed to create screen quad layer copy pipeline");
+  if (!m_screen_quad_layer_copy_pipeline)
+  {
+    ERROR_LOG_FMT(VIDEO, "Failed to create screen quad layer copy pipeline");
+    return false;
+  }
 
   if (m_host_config.backend_palette_conversion)
   {
