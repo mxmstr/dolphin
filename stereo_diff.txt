@@ -1,0 +1,5733 @@
+diff --git a/Data/Sys/Shaders/lens_distortion.glsl b/Data/Sys/Shaders/lens_distortion.glsl
+deleted file mode 100644
+index 6311cd956..000000000
+--- a/Data/Sys/Shaders/lens_distortion.glsl
++++ /dev/null
+@@ -1,93 +0,0 @@
+-/*
+-[configuration]
+-
+-[OptionRangeFloat]
+-GUIName = Distortion amount
+-OptionName = DISTORTION_FACTOR
+-MinValue = 1.0
+-MaxValue = 10.0
+-StepAmount = 0.5
+-DefaultValue = 4.0
+-
+-[OptionRangeFloat]
+-GUIName = Eye Distance Offset
+-OptionName = EYE_OFFSET
+-MinValue = 0.0
+-MaxValue = 10.0
+-StepAmount = 0.25
+-DefaultValue = 5.0
+-
+-[OptionRangeFloat]
+-GUIName = Zoom adjustment
+-OptionName = SIZE_ADJUST
+-MinValue = 0.0
+-MaxValue = 1.0
+-StepAmount = 0.025
+-DefaultValue = 0.5
+-
+-[OptionRangeFloat]
+-GUIName = Aspect Ratio adjustment
+-OptionName = ASPECT_ADJUST
+-MinValue = 0.0
+-MaxValue = 1.0
+-StepAmount = 0.025
+-DefaultValue = 0.5
+-
+-[/configuration]
+-*/
+-
+-
+-void main()
+-{
+-  // Base Cardboard distortion parameters
+-  float factor = GetOption(DISTORTION_FACTOR) * 0.01f;
+-  float ka = factor * 3.0f;
+-  float kb = factor * 5.0f;
+-
+-  // size and aspect adjustment
+-  float sizeAdjust = 1.0f - GetOption(SIZE_ADJUST) + 0.5f;
+-  float aspectAdjustment = 1.25f - GetOption(ASPECT_ADJUST);
+-
+-  // offset centering per eye
+-  float stereoOffset = GetOption(EYE_OFFSET) * 0.01f;
+-  float offsetAdd;
+-
+-  // layer0 = left eye, layer1 = right eye
+-  if (layer == 1)
+-  {
+-    offsetAdd = stereoOffset;
+-  }
+-  else
+-  {
+-    offsetAdd = 0.0 - stereoOffset;
+-  }
+-
+-  // convert coordinates to NDC space
+-  float2 fragPos = (GetCoordinates() - 0.5f - vec2(offsetAdd, 0.0f)) * 2.0f;
+-
+-  // Calculate the source location "radius" (distance from the centre of the viewport)
+-  float destR = length(fragPos);
+-
+-  // find the radius multiplier
+-  float srcR = destR * sizeAdjust + ( ka * pow(destR, 2.0) + kb * pow(destR, 4.0));
+-
+-  // Calculate the source vector (radial)
+-  vec2 correctedRadial = normalize(fragPos) * srcR;
+-
+-  // fix aspect ratio
+-  vec2 widenedRadial = correctedRadial * vec2(aspectAdjustment, 1.0f);
+-
+-  // Transform the coordinates (from [-1,1]^2 to [0, 1]^2)
+-  vec2 uv = (widenedRadial/2.0f) + vec2(0.5f) + vec2(offsetAdd, 0.0f);
+-
+-  // Sample the texture at the source location
+-  if(clamp(uv, 0.0, 1.0) != uv)
+-  {
+-    // black if beyond bounds
+-    SetOutput(float4(0.0, 0.0, 0.0, 0.0));
+-  }
+-  else
+-  {
+-    SetOutput(SampleLocation(uv));
+-  }
+-}
+diff --git a/Source/Core/VideoCommon/OpcodeDecoding.cpp b/Source/Core/VideoCommon/OpcodeDecoding.cpp
+index 59e9babdc..32a3782aa 100644
+--- a/Source/Core/VideoCommon/OpcodeDecoding.cpp
++++ b/Source/Core/VideoCommon/OpcodeDecoding.cpp
+@@ -1,336 +1,322 @@
+-// Copyright 2008 Dolphin Emulator Project
+-// Licensed under GPLv2+
+-// Refer to the license.txt file included.
+-
+-// DL facts:
+-//  Ikaruga uses (nearly) NO display lists!
+-//  Zelda WW uses TONS of display lists
+-//  Zelda TP uses almost 100% display lists except menus (we like this!)
+-//  Super Mario Galaxy has nearly all geometry and more than half of the state in DLs (great!)
+-
+-// Note that it IS NOT GENERALLY POSSIBLE to precompile display lists! You can compile them as they
+-// are
+-// while interpreting them, and hope that the vertex format doesn't change, though, if you do it
+-// right
+-// when they are called. The reason is that the vertex format affects the sizes of the vertices.
+-
+-#include "VideoCommon/OpcodeDecoding.h"
+-#include "Common/CommonTypes.h"
+-#include "Common/Logging/Log.h"
+-#include "Common/MsgHandler.h"
+-#include "Core/ARBruteForcer.h"
+-#include "Core/ConfigManager.h"
+-#include "Core/Core.h"
+-#include "Core/FifoPlayer/FifoRecorder.h"
+-#include "Core/HW/Memmap.h"
+-#include "VideoCommon/BPMemory.h"
+-#include "VideoCommon/CPMemory.h"
+-#include "VideoCommon/CommandProcessor.h"
+-#include "VideoCommon/DataReader.h"
+-#include "VideoCommon/Fifo.h"
+-#include "VideoCommon/Statistics.h"
+-#include "VideoCommon/VR.h"
+-#include "VideoCommon/VertexLoaderManager.h"
+-#include "VideoCommon/VideoCommon.h"
+-#include "VideoCommon/VideoConfig.h"
+-#include "VideoCommon/XFMemory.h"
+-
+-bool g_bRecordFifoData = false;
+-
+-namespace OpcodeDecoder
+-{
+-static bool s_bFifoErrorSeen = false;
+-
+-static u32 InterpretDisplayList(u32 address, u32 size)
+-{
+-  u8* startAddress;
+-
+-  if (Fifo::UseDeterministicGPUThread())
+-    startAddress = (u8*)Fifo::PopFifoAuxBuffer(size);
+-  else
+-    startAddress = Memory::GetPointer(address);
+-
+-  u32 cycles = 0;
+-
+-  // Avoid the crash if Memory::GetPointer failed ..
+-  if (startAddress != nullptr)
+-  {
+-    // temporarily swap dl and non-dl (small "hack" for the stats)
+-    Statistics::SwapDL();
+-
+-    Run(DataReader(startAddress, startAddress + size), &cycles, true, true);
+-    INCSTAT(stats.thisFrame.numDListsCalled);
+-
+-    // un-swap
+-    Statistics::SwapDL();
+-  }
+-
+-  return cycles;
+-}
+-
+-static void InterpretDisplayListPreprocess(u32 address, u32 size)
+-{
+-  u8* startAddress = Memory::GetPointer(address);
+-
+-  Fifo::PushFifoAuxBuffer(startAddress, size);
+-
+-  if (startAddress != nullptr)
+-  {
+-    Run<true>(DataReader(startAddress, startAddress + size), nullptr, true, true);
+-  }
+-}
+-
+-void Init()
+-{
+-  g_opcode_replay_enabled =
+-      g_ActiveConfig.bOpcodeReplay &&
+-      SConfig::GetInstance().m_GPUDeterminismMode != GPU_DETERMINISM_FAKE_COMPLETION && g_has_hmd;
+-  g_opcode_replay_frame = false;
+-  g_opcode_replay_log_frame = false;
+-  s_bFifoErrorSeen = false;
+-}
+-
+-void Shutdown()
+-{
+-  if (g_has_hmd)
+-  {
+-    g_opcode_replay_frame = false;
+-    g_opcode_replay_log_frame = false;
+-    timewarp_logentries.clear();
+-    timewarp_logentries.resize(0);
+-  }
+-}
+-
+-template <bool is_preprocess>
+-u8* Run(DataReader src, u32* cycles, bool in_display_list, bool recursive_call)
+-{
+-  u32 totalCycles = 0;
+-  u8* opcodeStart;
+-
+-  // if (((u32)(src.buffer) >= 0x92700000) && ((u32)(src.buffer) <= 0x9281FFFF))
+-  // if (((u32)(src.buffer) == 0x9281F7AD)) //Doesn't work?
+-  // if (((u32)(src.end) == 0x92e4d640))
+-  //{
+-  //	PanicAlert(
+-  //		"Loop: (0x%x, 0x%x, timewarped_frame = %s, in_display_list=%s, recursive_call = %s).\n",
+-  //		src.buffer,
+-  //		src.end,
+-  //		g_opcode_replay_frame ? "yes" : "no",
+-  //		in_display_list ? "yes" : "no",
+-  //		recursive_call ? "yes" : "no"
+-  //		);
+-  //}
+-
+-  if (g_opcode_replay_log_frame && !g_opcode_replay_frame && !recursive_call &&
+-      (skipped_opcode_replay_count >= (int)g_ActiveConfig.iExtraVideoLoopsDivider))
+-  {
+-    timewarp_logentries.push_back(TimewarpLogEntry{src, is_preprocess});
+-
+-    if (in_display_list)
+-    {
+-      PanicAlert("A display list call was recorded in the opcode replay buffer!");
+-    }
+-
+-    // s_pCurBufferPointer_log.push_back(VertexManager::s_pCurBufferPointer);
+-    // s_pEndBufferPointer_log.push_back(VertexManager::s_pEndBufferPointer);
+-    // s_pBaseBufferPointer_log.push_back(VertexManager::s_pBaseBufferPointer);
+-
+-    // if (CPBase_log.size() < 1)
+-    //{
+-    // SCPFifoStruct &fifo = CommandProcessor::fifo;
+-
+-    // CPBase_log.push_back((u32)fifo.CPBase);
+-    // CPEnd_log.push_back((u32)fifo.CPEnd);
+-    // CPHiWatermark_log.push_back(fifo.CPHiWatermark);
+-    // CPLoWatermark_log.push_back(fifo.CPLoWatermark);
+-    // CPReadWriteDistance_log.push_back((u32)fifo.CPReadWriteDistance);
+-    // CPWritePointer_log.push_back((u32)fifo.CPWritePointer);
+-    // CPReadPointer_log.push_back((u32)fifo.CPReadPointer);
+-    // CPBreakpoint_log.push_back((u32)fifo.CPBreakpoint);
+-    //}
+-  }
+-
+-  while (true)
+-  {
+-    opcodeStart = src.GetPointer();
+-
+-    if (!src.size())
+-      goto end;
+-
+-    u8 cmd_byte = src.Read<u8>();
+-    int refarray;
+-    switch (cmd_byte)
+-    {
+-    case GX_NOP:
+-      totalCycles += 6;  // Hm, this means that we scan over nop streams pretty slowly...
+-      break;
+-
+-    case GX_UNKNOWN_RESET:
+-      totalCycles += 6;  // Datel software uses this command
+-      DEBUG_LOG(VIDEO, "GX Reset?: %08x", cmd_byte);
+-      break;
+-
+-    case GX_LOAD_CP_REG:
+-    {
+-      if (src.size() < 1 + 4)
+-        goto end;
+-      totalCycles += 12;
+-      u8 sub_cmd = src.Read<u8>();
+-      u32 value = src.Read<u32>();
+-      LoadCPReg(sub_cmd, value, is_preprocess);
+-      if (!is_preprocess)
+-        INCSTAT(stats.thisFrame.numCPLoads);
+-    }
+-    break;
+-
+-    case GX_LOAD_XF_REG:
+-    {
+-      if (src.size() < 4)
+-        goto end;
+-      u32 Cmd2 = src.Read<u32>();
+-      int transfer_size = ((Cmd2 >> 16) & 15) + 1;
+-      if (src.size() < transfer_size * sizeof(u32))
+-        goto end;
+-      totalCycles += 18 + 6 * transfer_size;
+-      if (!is_preprocess)
+-      {
+-        u32 xf_address = Cmd2 & 0xFFFF;
+-        LoadXFReg(transfer_size, xf_address, src);
+-
+-        INCSTAT(stats.thisFrame.numXFLoads);
+-      }
+-      src.Skip<u32>(transfer_size);
+-    }
+-    break;
+-
+-    case GX_LOAD_INDX_A:  // used for position matrices
+-      refarray = 0xC;
+-      goto load_indx;
+-    case GX_LOAD_INDX_B:  // used for normal matrices
+-      refarray = 0xD;
+-      goto load_indx;
+-    case GX_LOAD_INDX_C:  // used for postmatrices
+-      refarray = 0xE;
+-      goto load_indx;
+-    case GX_LOAD_INDX_D:  // used for lights
+-      refarray = 0xF;
+-      goto load_indx;
+-    load_indx:
+-      if (src.size() < 4)
+-        goto end;
+-      totalCycles += 6;
+-      if (is_preprocess)
+-        PreprocessIndexedXF(src.Read<u32>(), refarray);
+-      else
+-        LoadIndexedXF(src.Read<u32>(), refarray);
+-      break;
+-
+-    case GX_CMD_CALL_DL:
+-    {
+-      if (src.size() < 8)
+-        goto end;
+-      u32 address = src.Read<u32>();
+-      u32 count = src.Read<u32>();
+-
+-      if (in_display_list)
+-      {
+-        totalCycles += 6;
+-        INFO_LOG(VIDEO, "recursive display list detected");
+-      }
+-      else
+-      {
+-        if (is_preprocess)
+-          InterpretDisplayListPreprocess(address, count);
+-        else
+-          totalCycles += 6 + InterpretDisplayList(address, count);
+-      }
+-    }
+-    break;
+-
+-    case GX_CMD_UNKNOWN_METRICS:  // zelda 4 swords calls it and checks the metrics registers after
+-                                  // that
+-      totalCycles += 6;
+-      DEBUG_LOG(VIDEO, "GX 0x44: %08x", cmd_byte);
+-      break;
+-
+-    case GX_CMD_INVL_VC:  // Invalidate Vertex Cache
+-      totalCycles += 6;
+-      DEBUG_LOG(VIDEO, "Invalidate (vertex cache?)");
+-      break;
+-
+-    case GX_LOAD_BP_REG:
+-      // In skipped_frame case: We have to let BP writes through because they set
+-      // tokens and stuff.  TODO: Call a much simplified LoadBPReg instead.
+-      {
+-        if (src.size() < 4)
+-          goto end;
+-        totalCycles += 12;
+-        u32 bp_cmd = src.Read<u32>();
+-        if (is_preprocess)
+-        {
+-          LoadBPRegPreprocess(bp_cmd);
+-        }
+-        else
+-        {
+-          LoadBPReg(bp_cmd);
+-          INCSTAT(stats.thisFrame.numBPLoads);
+-        }
+-      }
+-      break;
+-
+-    // draw primitives
+-    default:
+-      if ((cmd_byte & 0xC0) == 0x80)
+-      {
+-        // load vertices
+-        if (src.size() < 2)
+-          goto end;
+-        u16 num_vertices = src.Read<u16>();
+-        int bytes = VertexLoaderManager::RunVertices(
+-            cmd_byte & GX_VAT_MASK,  // Vertex loader index (0 - 7)
+-            (cmd_byte & GX_PRIMITIVE_MASK) >> GX_PRIMITIVE_SHIFT, num_vertices, src,
+-            Fifo::WillSkipCurrentFrame(), is_preprocess);
+-
+-        if (bytes < 0)
+-          goto end;
+-
+-        src.Skip(bytes);
+-
+-        // 4 GPU ticks per vertex, 3 CPU ticks per GPU tick
+-        totalCycles += num_vertices * 4 * 3 + 6;
+-      }
+-      else
+-      {
+-        if (!s_bFifoErrorSeen && !g_ActiveConfig.bOpcodeWarningDisable)
+-          CommandProcessor::HandleUnknownOpcode(cmd_byte, opcodeStart, is_preprocess, g_opcode_replay_frame,
+-                                                in_display_list, recursive_call);
+-        ERROR_LOG(VIDEO, "FIFO: Unknown Opcode(0x%02x @ %p, preprocessing = %s)", cmd_byte,
+-                  opcodeStart, is_preprocess ? "yes" : "no");
+-        s_bFifoErrorSeen = true;
+-        totalCycles += 1;
+-      }
+-      break;
+-    }
+-
+-    // Display lists get added directly into the FIFO stream
+-    if (!is_preprocess && g_bRecordFifoData && cmd_byte != GX_CMD_CALL_DL)
+-    {
+-      u8* opcodeEnd;
+-      opcodeEnd = src.GetPointer();
+-      FifoRecorder::GetInstance().WriteGPCommand(opcodeStart, u32(opcodeEnd - opcodeStart));
+-    }
+-  }
+-
+-end:
+-  if (cycles)
+-  {
+-    *cycles = totalCycles;
+-  }
+-  return opcodeStart;
+-}
+-
+-template u8* Run<true>(DataReader src, u32* cycles, bool in_display_list,
+-                       bool recursive_call = false);
+-template u8* Run<false>(DataReader src, u32* cycles, bool in_display_list,
+-                        bool recursive_call = false);
+-}  // namespace OpcodeDecoder
++// Copyright 2008 Dolphin Emulator Project
++// Licensed under GPLv2+
++// Refer to the license.txt file included.
++
++//DL facts:
++//  Ikaruga uses (nearly) NO display lists!
++//  Zelda WW uses TONS of display lists
++//  Zelda TP uses almost 100% display lists except menus (we like this!)
++//  Super Mario Galaxy has nearly all geometry and more than half of the state in DLs (great!)
++
++// Note that it IS NOT GENERALLY POSSIBLE to precompile display lists! You can compile them as they are
++// while interpreting them, and hope that the vertex format doesn't change, though, if you do it right
++// when they are called. The reason is that the vertex format affects the sizes of the vertices.
++
++#include "Common/CommonTypes.h"
++#include "Common/MsgHandler.h"
++#include "Common/Logging/Log.h"
++#include "Core/FifoPlayer/FifoRecorder.h"
++#include "Core/HW/Memmap.h"
++#include "VideoCommon/BPMemory.h"
++#include "VideoCommon/CommandProcessor.h"
++#include "VideoCommon/CPMemory.h"
++#include "VideoCommon/DataReader.h"
++#include "VideoCommon/Fifo.h"
++#include "VideoCommon/OpcodeDecoding.h"
++#include "VideoCommon/Statistics.h"
++#include "VideoCommon/VertexLoaderManager.h"
++#include "VideoCommon/VideoCommon.h"
++#include "VideoCommon/XFMemory.h"
++
++bool g_bRecordFifoData = false;
++
++namespace OpcodeDecoder
++{
++
++static bool s_bFifoErrorSeen = false;
++
++static u32 InterpretDisplayList(u32 address, u32 size)
++{
++	u8* startAddress;
++
++	if (Fifo::UseDeterministicGPUThread())
++		startAddress = (u8*)Fifo::PopFifoAuxBuffer(size);
++	else
++		startAddress = Memory::GetPointer(address);
++
++	u32 cycles = 0;
++
++	// Avoid the crash if Memory::GetPointer failed ..
++	if (startAddress != nullptr)
++	{
++		// temporarily swap dl and non-dl (small "hack" for the stats)
++		Statistics::SwapDL();
++
++		Run(DataReader(startAddress, startAddress + size), &cycles, true);
++		INCSTAT(stats.thisFrame.numDListsCalled);
++
++		// un-swap
++		Statistics::SwapDL();
++	}
++
++	return cycles;
++}
++
++static void InterpretDisplayListPreprocess(u32 address, u32 size)
++{
++	u8* startAddress = Memory::GetPointer(address);
++
++	Fifo::PushFifoAuxBuffer(startAddress, size);
++
++	if (startAddress != nullptr)
++	{
++		Run<true>(DataReader(startAddress, startAddress + size), nullptr, true);
++	}
++}
++
++static void UnknownOpcode(u8 cmd_byte, void *buffer, bool preprocess)
++{
++	// TODO(Omega): Maybe dump FIFO to file on this error
++	PanicAlertT(
++	    "GFX FIFO: Unknown Opcode (0x%02x @ %p, %s).\n"
++	    "This means one of the following:\n"
++	    "* The emulated GPU got desynced, disabling dual core can help\n"
++	    "* Command stream corrupted by some spurious memory bug\n"
++	    "* This really is an unknown opcode (unlikely)\n"
++	    "* Some other sort of bug\n\n"
++	    "Further errors will be sent to the Video Backend log and\n"
++	    "Dolphin will now likely crash or hang. Enjoy." ,
++	    cmd_byte,
++	    buffer,
++	    preprocess ? "preprocess=true" : "preprocess=false");
++
++	{
++		SCPFifoStruct &fifo = CommandProcessor::fifo;
++
++		PanicAlert(
++		    "Illegal command %02x\n"
++		    "CPBase: 0x%08x\n"
++		    "CPEnd: 0x%08x\n"
++		    "CPHiWatermark: 0x%08x\n"
++		    "CPLoWatermark: 0x%08x\n"
++		    "CPReadWriteDistance: 0x%08x\n"
++		    "CPWritePointer: 0x%08x\n"
++		    "CPReadPointer: 0x%08x\n"
++		    "CPBreakpoint: 0x%08x\n"
++		    "bFF_GPReadEnable: %s\n"
++		    "bFF_BPEnable: %s\n"
++		    "bFF_BPInt: %s\n"
++		    "bFF_Breakpoint: %s\n"
++		    "bFF_GPLinkEnable: %s\n"
++		    "bFF_HiWatermarkInt: %s\n"
++		    "bFF_LoWatermarkInt: %s\n"
++		    ,cmd_byte, fifo.CPBase, fifo.CPEnd, fifo.CPHiWatermark, fifo.CPLoWatermark, fifo.CPReadWriteDistance
++		    ,fifo.CPWritePointer, fifo.CPReadPointer, fifo.CPBreakpoint
++		    ,fifo.bFF_GPReadEnable ? "true" : "false"
++		    ,fifo.bFF_BPEnable ? "true" : "false"
++		    ,fifo.bFF_BPInt ? "true" : "false"
++		    ,fifo.bFF_Breakpoint ? "true" : "false"
++		    ,fifo.bFF_GPLinkEnable ? "true" : "false"
++		    ,fifo.bFF_HiWatermarkInt ? "true" : "false"
++		    ,fifo.bFF_LoWatermarkInt ? "true" : "false"
++		    );
++	}
++}
++
++void Init()
++{
++	s_bFifoErrorSeen = false;
++}
++
++void Shutdown()
++{
++}
++
++template <bool is_preprocess>
++u8* Run(DataReader src, u32* cycles, bool in_display_list)
++{
++	u32 totalCycles = 0;
++	u8* opcodeStart;
++	while (true)
++	{
++		opcodeStart = src.GetPointer();
++
++		if (!src.size())
++			goto end;
++
++		u8 cmd_byte = src.Read<u8>();
++		int refarray;
++		switch (cmd_byte)
++		{
++		case GX_NOP:
++			totalCycles += 6; // Hm, this means that we scan over nop streams pretty slowly...
++			break;
++
++		case GX_UNKNOWN_RESET:
++			totalCycles += 6; // Datel software uses this command
++			DEBUG_LOG(VIDEO, "GX Reset?: %08x", cmd_byte);
++			break;
++
++		case GX_LOAD_CP_REG:
++			{
++				if (src.size() < 1 + 4)
++					goto end;
++				totalCycles += 12;
++				u8 sub_cmd = src.Read<u8>();
++				u32 value =  src.Read<u32>();
++				LoadCPReg(sub_cmd, value, is_preprocess);
++				if (!is_preprocess)
++					INCSTAT(stats.thisFrame.numCPLoads);
++			}
++			break;
++
++		case GX_LOAD_XF_REG:
++			{
++				if (src.size() < 4)
++					goto end;
++				u32 Cmd2 =  src.Read<u32>();
++				int transfer_size = ((Cmd2 >> 16) & 15) + 1;
++				if (src.size() < transfer_size * sizeof(u32))
++					goto end;
++				totalCycles += 18 + 6 * transfer_size;
++				if (!is_preprocess)
++				{
++					u32 xf_address = Cmd2 & 0xFFFF;
++					LoadXFReg(transfer_size, xf_address, src);
++
++					INCSTAT(stats.thisFrame.numXFLoads);
++				}
++				src.Skip<u32>(transfer_size);
++			}
++			break;
++
++		case GX_LOAD_INDX_A: //used for position matrices
++			refarray = 0xC;
++			goto load_indx;
++		case GX_LOAD_INDX_B: //used for normal matrices
++			refarray = 0xD;
++			goto load_indx;
++		case GX_LOAD_INDX_C: //used for postmatrices
++			refarray = 0xE;
++			goto load_indx;
++		case GX_LOAD_INDX_D: //used for lights
++			refarray = 0xF;
++			goto load_indx;
++		load_indx:
++			if (src.size() < 4)
++				goto end;
++			totalCycles += 6;
++			if (is_preprocess)
++				PreprocessIndexedXF(src.Read<u32>(), refarray);
++			else
++				LoadIndexedXF(src.Read<u32>(), refarray);
++			break;
++
++		case GX_CMD_CALL_DL:
++			{
++				if (src.size() < 8)
++					goto end;
++				u32 address = src.Read<u32>();
++				u32 count = src.Read<u32>();
++
++				if (in_display_list)
++				{
++					totalCycles += 6;
++					WARN_LOG(VIDEO,"recursive display list detected");
++				}
++				else
++				{
++					if (is_preprocess)
++						InterpretDisplayListPreprocess(address, count);
++					else
++						totalCycles += 6 + InterpretDisplayList(address, count);
++				}
++			}
++			break;
++
++		case GX_CMD_UNKNOWN_METRICS: // zelda 4 swords calls it and checks the metrics registers after that
++			totalCycles += 6;
++			DEBUG_LOG(VIDEO, "GX 0x44: %08x", cmd_byte);
++			break;
++
++		case GX_CMD_INVL_VC: // Invalidate Vertex Cache
++			totalCycles += 6;
++			DEBUG_LOG(VIDEO, "Invalidate (vertex cache?)");
++			break;
++
++		case GX_LOAD_BP_REG:
++			// In skipped_frame case: We have to let BP writes through because they set
++			// tokens and stuff.  TODO: Call a much simplified LoadBPReg instead.
++			{
++				if (src.size() < 4)
++					goto end;
++				totalCycles += 12;
++				u32 bp_cmd = src.Read<u32>();
++				if (is_preprocess)
++				{
++					LoadBPRegPreprocess(bp_cmd);
++				}
++				else
++				{
++					LoadBPReg(bp_cmd);
++					INCSTAT(stats.thisFrame.numBPLoads);
++				}
++			}
++			break;
++
++		// draw primitives
++		default:
++			if ((cmd_byte & 0xC0) == 0x80)
++			{
++				// load vertices
++				if (src.size() < 2)
++					goto end;
++				u16 num_vertices = src.Read<u16>();
++				int bytes = VertexLoaderManager::RunVertices(
++					cmd_byte & GX_VAT_MASK,   // Vertex loader index (0 - 7)
++					(cmd_byte & GX_PRIMITIVE_MASK) >> GX_PRIMITIVE_SHIFT,
++					num_vertices,
++					src,
++					Fifo::WillSkipCurrentFrame(),
++					is_preprocess);
++
++				if (bytes < 0)
++					goto end;
++
++				src.Skip(bytes);
++
++				// 4 GPU ticks per vertex, 3 CPU ticks per GPU tick
++				totalCycles += num_vertices * 4 * 3 + 6;
++			}
++			else
++			{
++				if (!s_bFifoErrorSeen)
++					UnknownOpcode(cmd_byte, opcodeStart, is_preprocess);
++				ERROR_LOG(VIDEO, "FIFO: Unknown Opcode(0x%02x @ %p, preprocessing = %s)", cmd_byte, opcodeStart, is_preprocess ? "yes" : "no");
++				s_bFifoErrorSeen = true;
++				totalCycles += 1;
++			}
++			break;
++		}
++
++		// Display lists get added directly into the FIFO stream
++		if (!is_preprocess && g_bRecordFifoData && cmd_byte != GX_CMD_CALL_DL)
++		{
++			u8* opcodeEnd;
++			opcodeEnd = src.GetPointer();
++			FifoRecorder::GetInstance().WriteGPCommand(opcodeStart, u32(opcodeEnd - opcodeStart));
++		}
++	}
++
++end:
++	if (cycles)
++	{
++		*cycles = totalCycles;
++	}
++	return opcodeStart;
++}
++
++template u8* Run<true>(DataReader src, u32* cycles, bool in_display_list);
++template u8* Run<false>(DataReader src, u32* cycles, bool in_display_list);
++
++} // namespace OpcodeDecoder
+diff --git a/Source/Core/VideoCommon/VR.cpp b/Source/Core/VideoCommon/VR.cpp
+deleted file mode 100644
+index ddf81a159..000000000
+--- a/Source/Core/VideoCommon/VR.cpp
++++ /dev/null
+@@ -1,2599 +0,0 @@
+-﻿// Copyright 2014 Dolphin Emulator Project
+-// Licensed under GPLv2+
+-// Refer to the license.txt file included.
+-
+-#ifdef _WIN32
+-// clang-format off
+-#include <windows.h>
+-#include <Objbase.h>
+-#include <mmdeviceapi.h>
+-#include <setupapi.h>
+-#include "VideoCommon/VR920.h"
+-// clang-format on
+-#endif
+-
+-#include "Common/Common.h"
+-#include "Common/MathUtil.h"
+-#include "Common/StringUtil.h"
+-#include "Common/Timer.h"
+-#include "Common/Logging/Log.h"
+-#include "Core/ConfigManager.h"
+-#include "Core/HW/WiimoteEmu/HydraTLayer.h"
+-#include "VideoCommon/OpcodeDecoding.h"
+-#include "VideoCommon/VideoConfig.h"
+-#include "VideoCommon/VR.h"
+-#include "VideoCommon/VROculus.h"
+-
+-const char* scm_vr_sdk_str = SCM_OCULUS_STR;
+-
+-float g_current_fps = 60.0f, g_current_speed = 0.0f;  // g_current_speed is a percentage
+-
+-#ifdef HAVE_OPENVR
+-#include "VideoCommon\VROpenVR.h"
+-
+-vr::IVRSystem* m_pHMD;
+-vr::IVRRenderModels* m_pRenderModels;
+-vr::IVRCompositor* m_pCompositor;
+-std::string m_strDriver;
+-std::string m_strDisplay;
+-vr::TrackedDevicePose_t m_rTrackedDevicePose[vr::k_unMaxTrackedDeviceCount];
+-bool m_bUseCompositor = true;
+-bool m_rbShowTrackedDevice[vr::k_unMaxTrackedDeviceCount];
+-int m_iValidPoseCount;
+-#endif
+-
+-void ClearDebugProj();
+-
+-#ifdef OVR_MAJOR_VERSION
+-ovrHmd hmd = nullptr;
+-ovrHmdDesc hmdDesc;
+-ovrFovPort g_best_eye_fov[2], g_eye_fov[2], g_last_eye_fov[2];
+-ovrEyeRenderDesc g_eye_render_desc[2];
+-#if OVR_PRODUCT_VERSION == 0 && OVR_MAJOR_VERSION <= 7
+-ovrFrameTiming g_rift_frame_timing;
+-#endif
+-ovrPosef g_eye_poses[2], g_front_eye_poses[2];
+-int g_ovr_frameindex;
+-#if OVR_PRODUCT_VERSION >= 1 || OVR_MAJOR_VERSION >= 7
+-ovrGraphicsLuid luid;
+-#endif
+-#endif
+-
+-#ifdef _WIN32
+-LUID* g_hmd_luid = nullptr;
+-#endif
+-
+-std::mutex g_vr_lock;
+-
+-#if defined(OVR_MAJOR_VERSION)
+-#if OVR_PRODUCT_VERSION >= 1
+-bool g_vr_cant_motion_blur = true, g_vr_must_motion_blur = false;
+-bool g_vr_has_dynamic_predict = false, g_vr_has_configure_rendering = false,
+-     g_vr_has_hq_distortion = true;
+-bool g_vr_has_configure_tracking = false, g_vr_has_asynchronous_timewarp = true;
+-bool g_vr_supports_extended = false;
+-#elif OVR_MAJOR_VERSION >= 7
+-bool g_vr_cant_motion_blur = true, g_vr_must_motion_blur = false;
+-bool g_vr_has_dynamic_predict = false, g_vr_has_configure_rendering = false,
+-     g_vr_has_hq_distortion = true;
+-bool g_vr_has_configure_tracking = true, g_vr_has_asynchronous_timewarp = false;
+-bool g_vr_supports_extended = false;
+-#else
+-bool g_vr_cant_motion_blur = false, g_vr_must_motion_blur = false;
+-bool g_vr_has_dynamic_predict = true, g_vr_has_configure_rendering = true,
+-     g_vr_has_hq_distortion = true;
+-bool g_vr_has_configure_tracking = true, g_vr_has_asynchronous_timewarp = false;
+-bool g_vr_supports_extended = true;
+-#endif
+-#else
+-bool g_vr_cant_motion_blur = true, g_vr_must_motion_blur = false;
+-bool g_vr_has_dynamic_predict = false, g_vr_has_configure_rendering = false,
+-     g_vr_has_hq_distortion = true;
+-bool g_vr_has_configure_tracking = true, g_vr_has_asynchronous_timewarp = false;
+-bool g_vr_supports_extended = false;
+-#endif
+-
+-#if defined(OVR_MAJOR_VERSION) && OVR_PRODUCT_VERSION == 0 && OVR_MAJOR_VERSION <= 5
+-bool g_vr_has_timewarp_tweak = true;
+-bool g_vr_needs_DXGIFactory1 = false;
+-bool g_vr_needs_endframe = true;
+-bool g_vr_can_disable_hsw = true;
+-#else
+-bool g_vr_has_timewarp_tweak = false;
+-#if defined(OVR_MAJOR_VERSION)
+-bool g_vr_can_disable_hsw = false;
+-bool g_vr_needs_DXGIFactory1 = true;
+-#else
+-bool g_vr_can_disable_hsw = true;
+-bool g_vr_needs_DXGIFactory1 = false;
+-#endif
+-bool g_vr_needs_endframe = false;
+-#endif
+-
+-bool g_vr_should_swap_buffers = true, g_vr_dont_vsync = false;
+-
+-bool g_force_vr = false, g_prefer_openvr = false, g_one_hmd = false;
+-bool g_has_hmd = false, g_has_two_hmds = false, g_has_rift = false, g_has_vr920 = false, g_has_openvr = false, g_openvr_is_vive = true, g_openvr_is_rift = false;
+-bool g_is_direct_mode = false, g_is_nes = false;
+-bool g_new_tracking_frame = true;
+-bool g_new_frame_tracker_for_efb_skip = true;
+-u32 skip_objects_count = 0;
+-Matrix44 g_head_tracking_matrix;
+-float g_head_tracking_position[3];
+-float g_left_hand_tracking_position[3], g_right_hand_tracking_position[3];
+-int g_hmd_window_width = 0, g_hmd_window_height = 0, g_hmd_window_x = 0, g_hmd_window_y = 0,
+-    g_hmd_refresh_rate = 90;
+-const char* g_hmd_device_name = nullptr;
+-float g_vr_speed = 0;
+-float vr_freelook_speed = 0;
+-bool g_fov_changed = false, g_vr_black_screen = false;
+-bool g_vr_had_3D_already = false;
+-float vr_widest_3d_HFOV = 0;
+-float vr_widest_3d_VFOV = 0;
+-float vr_widest_3d_zNear = 0;
+-float vr_widest_3d_zFar = 0;
+-float g_game_camera_pos[3];
+-Matrix44 g_game_camera_rotmat;
+-
+-// used for calculating acceleration of vive controllers
+-double g_older_tracking_time = 0, g_old_tracking_time = 0, g_last_tracking_time = 0;
+-float g_openvr_ipd = 0.064f;
+-
+-u8 g_vr_reading_wiimote_accel[5] = {}, g_vr_reading_wiimote_ir[5] = {},
+-   g_vr_reading_wiimote_ext[5] = {};
+-bool g_vr_has_ir = false;
+-float g_vr_ir_x = 0, g_vr_ir_y = 0, g_vr_ir_z = 0;
+-
+-ControllerStyle vr_left_controller = CS_HYDRA_LEFT, vr_right_controller = CS_HYDRA_RIGHT;
+-
+-std::vector<TimewarpLogEntry> timewarp_logentries;
+-
+-bool g_opcode_replay_enabled = false;
+-bool g_new_frame_just_rendered = false;
+-bool g_first_pass = true;
+-bool g_first_pass_vs_constants = true;
+-bool g_opcode_replay_frame = false;
+-bool g_opcode_replay_log_frame = false;
+-int skipped_opcode_replay_count = 0;
+-
+-// std::vector<u8*> s_pCurBufferPointer_log;
+-// std::vector<u8*> s_pBaseBufferPointer_log;
+-// std::vector<u8*> s_pEndBufferPointer_log;
+-
+-// std::vector<u32> CPBase_log;
+-// std::vector<u32> CPEnd_log;
+-// std::vector<u32> CPHiWatermark_log;
+-// std::vector<u32> CPLoWatermark_log;
+-// std::vector<u32> CPReadWriteDistance_log;
+-// std::vector<u32> CPWritePointer_log;
+-// std::vector<u32> CPReadPointer_log;
+-// std::vector<u32> CPBreakpoint_log;
+-
+-#ifdef _WIN32
+-static char hmd_device_name[MAX_PATH] = "";
+-#endif
+-
+-void VR_NewVRFrame()
+-{
+-  g_new_tracking_frame = true;
+-  g_new_frame_tracker_for_efb_skip = true;
+-  if (!g_vr_had_3D_already)
+-  {
+-    Matrix44::LoadIdentity(g_game_camera_rotmat);
+-  }
+-  g_vr_had_3D_already = false;
+-  skip_objects_count = 0;
+-  ClearDebugProj();
+-
+-  // Prevent motion sickness: estimate how fast we are moving, and reduce the FOV if we are moving
+-  // fast
+-  g_vr_speed = 0;
+-  if (g_ActiveConfig.bMotionSicknessAlways)
+-  {
+-    g_vr_speed = 1.0f;
+-  }
+-  else
+-  {
+-    if (g_ActiveConfig.bMotionSicknessDPad)
+-      g_vr_speed += HydraTLayer::vr_gc_dpad_speed + HydraTLayer::vr_cc_dpad_speed +
+-                    HydraTLayer::vr_wm_dpad_speed;
+-    if (g_ActiveConfig.bMotionSicknessLeftStick)
+-      g_vr_speed += HydraTLayer::vr_gc_leftstick_speed + HydraTLayer::vr_wm_leftstick_speed;
+-    if (g_ActiveConfig.bMotionSicknessRightStick)
+-      g_vr_speed += HydraTLayer::vr_gc_rightstick_speed + HydraTLayer::vr_wm_rightstick_speed;
+-    if (g_ActiveConfig.bMotionSickness2D && vr_widest_3d_HFOV <= 0)
+-      g_vr_speed += 1.0f;
+-    if (g_ActiveConfig.bMotionSicknessIR)
+-      g_vr_speed += HydraTLayer::vr_ir_speed;
+-    if (g_ActiveConfig.bMotionSicknessFreelook)
+-      g_vr_speed += vr_freelook_speed;
+-    vr_freelook_speed = 0;
+-  }
+-  if (g_has_hmd && g_ActiveConfig.iMotionSicknessMethod == 2)
+-  {
+-    // black the screen if we are moving fast
+-    g_vr_black_screen = (g_vr_speed > 0.15f);
+-  }
+-#ifdef OVR_MAJOR_VERSION
+-  else if (g_has_rift && g_ActiveConfig.iMotionSicknessMethod == 1 && !g_has_openvr)
+-  {
+-    g_vr_black_screen = false;
+-    // reduce the FOV if we are moving fast
+-    if (g_vr_speed > 0.15f)
+-    {
+-      float t = tan(DEGREES_TO_RADIANS(g_ActiveConfig.fMotionSicknessFOV / 2));
+-      g_eye_fov[0].LeftTan = std::min(g_best_eye_fov[0].LeftTan, t);
+-      g_eye_fov[0].RightTan = std::min(g_best_eye_fov[0].RightTan, t);
+-      g_eye_fov[0].UpTan = std::min(g_best_eye_fov[0].UpTan, t);
+-      g_eye_fov[0].DownTan = std::min(g_best_eye_fov[0].DownTan, t);
+-      g_eye_fov[1].LeftTan = std::min(g_best_eye_fov[1].LeftTan, t);
+-      g_eye_fov[1].RightTan = std::min(g_best_eye_fov[1].RightTan, t);
+-      g_eye_fov[1].UpTan = std::min(g_best_eye_fov[1].UpTan, t);
+-      g_eye_fov[1].DownTan = std::min(g_best_eye_fov[1].DownTan, t);
+-    }
+-    else
+-    {
+-      memcpy(g_eye_fov, g_best_eye_fov, 2 * sizeof(g_eye_fov[0]));
+-    }
+-    g_fov_changed = memcmp(g_eye_fov, g_last_eye_fov, 2 * sizeof(g_eye_fov[0])) != 0;
+-    memcpy(g_last_eye_fov, g_eye_fov, 2 * sizeof(g_eye_fov[0]));
+-  }
+-#endif
+-  else
+-  {
+-    g_vr_black_screen = false;
+-  }
+-}
+-
+-#ifdef HAVE_OPENVR
+-//-----------------------------------------------------------------------------
+-// Purpose: Helper to get a string from a tracked device property and turn it
+-//			into a std::string
+-//-----------------------------------------------------------------------------
+-std::string GetTrackedDeviceString(vr::IVRSystem* pHmd, vr::TrackedDeviceIndex_t unDevice,
+-                                   vr::TrackedDeviceProperty prop,
+-                                   vr::TrackedPropertyError* peError = nullptr)
+-{
+-  uint32_t unRequiredBufferLen =
+-      pHmd->GetStringTrackedDeviceProperty(unDevice, prop, nullptr, 0, peError);
+-  if (unRequiredBufferLen == 0)
+-    return "";
+-
+-  char* pchBuffer = new char[unRequiredBufferLen];
+-  unRequiredBufferLen =
+-      pHmd->GetStringTrackedDeviceProperty(unDevice, prop, pchBuffer, unRequiredBufferLen, peError);
+-  std::string sResult = pchBuffer;
+-  delete[] pchBuffer;
+-  return sResult;
+-}
+-
+-//-----------------------------------------------------------------------------
+-// Purpose:
+-//-----------------------------------------------------------------------------
+-bool BInitCompositor()
+-{
+-  vr::EVRInitError peError = vr::VRInitError_None;
+-
+-  m_pCompositor =
+-      (vr::IVRCompositor*)vr::VR_GetGenericInterface(vr::IVRCompositor_Version, &peError);
+-
+-  if (peError != vr::VRInitError_None)
+-  {
+-    m_pCompositor = nullptr;
+-
+-    NOTICE_LOG(VR, "Compositor initialization failed with error: %s: %s\n",
+-               vr::VR_GetVRInitErrorAsSymbol(peError),
+-               vr::VR_GetVRInitErrorAsEnglishDescription(peError));
+-    return false;
+-  }
+-
+-  // change grid room colour
+-  // m_pCompositor->FadeToColor(0.0f, 0.0f, 0.0f, 0.0f, 1.0f, true);
+-  m_pCompositor->SetTrackingSpace(vr::TrackingUniverseSeated);
+-
+-  return true;
+-}
+-#endif
+-
+-void SetTwoHmdFOV()
+-{
+-#if defined(HAVE_OPENVR) && defined(OVR_MAJOR_VERSION)
+-  float left, right, top, bottom;
+-  for (int eye = 0; eye < 2; ++eye)
+-  {
+-    m_pHMD->GetProjectionRaw((vr::EVREye)eye, &left, &right, &top, &bottom);
+-    g_eye_fov[eye].LeftTan = fabs(left);
+-    g_eye_fov[eye].RightTan = fabs(right);
+-    g_eye_fov[eye].UpTan = fabs(top);
+-    g_eye_fov[eye].DownTan = fabs(bottom);
+-  }
+-  memcpy(g_best_eye_fov, g_eye_fov, 2 * sizeof(g_eye_fov[0]));
+-  memcpy(g_last_eye_fov, g_eye_fov, 2 * sizeof(g_eye_fov[0]));
+-//NOTICE_LOG(VR, "********** %f to %f, %f to %f", left, right, top, bottom);
+-  //ERROR_LOG(VR, "********** %f° to %f°, %f° to %f°", RADIANS_TO_DEGREES(atan(left)), RADIANS_TO_DEGREES(atan(right)), RADIANS_TO_DEGREES(atan(top)), RADIANS_TO_DEGREES(atan(bottom)));
+-//#else
+-  //int eye = 0;
+-  //NOTICE_LOG(VR, "********** %f to %f, %f to %f", g_eye_fov[eye].LeftTan, g_eye_fov[eye].RightTan, g_eye_fov[eye].UpTan, g_eye_fov[eye].DownTan);
+-  //ERROR_LOG(VR, "********** %f° to %f°, %f° to %f°", RADIANS_TO_DEGREES(atan(g_eye_fov[eye].LeftTan)), RADIANS_TO_DEGREES(atan(g_eye_fov[eye].RightTan)), RADIANS_TO_DEGREES(atan(g_eye_fov[eye].UpTan)), RADIANS_TO_DEGREES(atan(g_eye_fov[eye].DownTan)));
+-//CV1: 0.964926 to 0.715264, 0.889498 to 1.110925
+-//CV1: 43.977375° to 35.574768°, 41.653034° to 48.008022°
+-#endif
+-}
+-
+-bool InitOpenVR()
+-{
+-#ifdef HAVE_OPENVR
+-  g_has_two_hmds = false;
+-
+-  // Loading the OpenVR Runtime
+-  vr::EVRInitError eError = vr::VRInitError_None;
+-  m_pHMD = vr::VR_Init(&eError, vr::VRApplication_Scene);
+-
+-  if (eError != vr::VRInitError_None)
+-  {
+-    m_pHMD = nullptr;
+-    ERROR_LOG(VR, "Unable to init OpenVR: %s: %s", vr::VR_GetVRInitErrorAsSymbol(eError),
+-              vr::VR_GetVRInitErrorAsEnglishDescription(eError));
+-    g_has_openvr = false;
+-  }
+-  else
+-  {
+-    m_strDriver = GetTrackedDeviceString(m_pHMD, vr::k_unTrackedDeviceIndex_Hmd,
+-      vr::Prop_TrackingSystemName_String);
+-    g_openvr_is_vive = (m_strDriver == "lighthouse");
+-    g_openvr_is_rift = (m_strDriver == "oculus");
+-    NOTICE_LOG(VR, "OpenVR strDriver = '%s'", m_strDriver.c_str());
+-    m_strDisplay = GetTrackedDeviceString(m_pHMD, vr::k_unTrackedDeviceIndex_Hmd,
+-      vr::Prop_SerialNumber_String);
+-    NOTICE_LOG(VR, "OpenVR strDisplay = '%s'", m_strDisplay.c_str());
+-
+-    if (g_has_rift && g_openvr_is_rift)
+-    {
+-      m_pHMD = nullptr;
+-      g_has_openvr = false;
+-    }
+-    else
+-    {
+-      m_pRenderModels =
+-        (vr::IVRRenderModels*)vr::VR_GetGenericInterface(vr::IVRRenderModels_Version, &eError);
+-      if (!m_pRenderModels)
+-      {
+-        m_pHMD = nullptr;
+-        vr::VR_Shutdown();
+-
+-        ERROR_LOG(VR, "Unable to get render model interface: %s: %s",
+-          vr::VR_GetVRInitErrorAsSymbol(eError),
+-          vr::VR_GetVRInitErrorAsEnglishDescription(eError));
+-        g_has_openvr = false;
+-      }
+-      else
+-      {
+-        NOTICE_LOG(VR, "VR_Init Succeeded");
+-        g_has_openvr = true;
+-        g_has_hmd = true;
+-        g_has_two_hmds = g_has_rift;
+-      }
+-
+-      u32 m_nWindowWidth = 512;
+-      u32 m_nWindowHeight = 512;
+-      // m_pHMD->GetWindowBounds(&g_hmd_window_x, &g_hmd_window_y, &m_nWindowWidth, &m_nWindowHeight);
+-      g_hmd_window_width = m_nWindowWidth;
+-      g_hmd_window_height = m_nWindowHeight;
+-      // NOTICE_LOG(VR, "OpenVR WindowBounds (%d,%d) %dx%d", g_hmd_window_x, g_hmd_window_y,
+-      // g_hmd_window_width, g_hmd_window_height);
+-
+-      vr::TrackedPropertyError error;
+-      g_hmd_refresh_rate =
+-        (int)(0.5f +
+-          m_pHMD->GetFloatTrackedDeviceProperty(vr::k_unTrackedDeviceIndex_Hmd,
+-            vr::Prop_DisplayFrequency_Float, &error));
+-      g_openvr_ipd = m_pHMD->GetFloatTrackedDeviceProperty(vr::k_unTrackedDeviceIndex_Hmd,
+-        vr::Prop_UserIpdMeters_Float, &error);
+-
+-      if (m_bUseCompositor)
+-      {
+-        if (!BInitCompositor())
+-        {
+-          ERROR_LOG(VR, "%s - Failed to initialize OpenVR Compositor!\n", __FUNCTION__);
+-          g_has_openvr = false;
+-        }
+-      }
+-      if (g_has_openvr)
+-      {
+-        g_vr_needs_DXGIFactory1 = true;
+-        g_vr_cant_motion_blur = true;
+-        g_vr_has_dynamic_predict = false;
+-        g_vr_has_configure_rendering = false;
+-        g_vr_has_configure_tracking = false;
+-        g_vr_has_hq_distortion = false;
+-        g_vr_should_swap_buffers = true;  // todo: check if this is right
+-        g_vr_has_timewarp_tweak = false;
+-        g_vr_has_asynchronous_timewarp = false;
+-      }
+-      return g_has_openvr;
+-    }
+-  }
+-#endif
+-  return false;
+-}
+-
+-bool InitOculusDebugVR()
+-{
+-#if defined(OVR_MAJOR_VERSION) && OVR_PRODUCT_VERSION == 0 && OVR_MAJOR_VERSION <= 6
+-  if (g_force_vr)
+-  {
+-    NOTICE_LOG(VR, "Forcing VR mode, simulating Oculus Rift DK2.");
+-#if OVR_MAJOR_VERSION >= 6
+-    if (ovrHmd_CreateDebug(ovrHmd_DK2, &hmd) != ovrSuccess)
+-      hmd = nullptr;
+-#else
+-    hmd = ovrHmd_CreateDebug(ovrHmd_DK2);
+-#endif
+-    return (hmd != nullptr);
+-  }
+-#endif
+-  return false;
+-}
+-
+-bool InitOculusHMD()
+-{
+-#ifdef OVR_MAJOR_VERSION
+-  if (hmd)
+-  {
+-    g_vr_dont_vsync = true;
+-#if OVR_PRODUCT_VERSION >= 1 || OVR_MAJOR_VERSION >= 5 ||                                          \
+-    (OVR_MINOR_VERSION == 4 && OVR_BUILD_VERSION >= 2)
+-    g_vr_has_hq_distortion = true;
+-#else
+-    g_vr_has_hq_distortion = false;
+-#endif
+-#if OVR_PRODUCT_VERSION == 0 && OVR_MAJOR_VERSION <= 5
+-    g_vr_should_swap_buffers = false;
+-    g_vr_needs_DXGIFactory1 = false;
+-#else
+-    g_vr_needs_DXGIFactory1 = true;
+-    g_vr_should_swap_buffers = true;
+-#endif
+-
+-#if OVR_PRODUCT_VERSION == 0 && OVR_MAJOR_VERSION <= 5
+-    g_vr_has_timewarp_tweak = true;
+-#else
+-    g_vr_has_timewarp_tweak = false;
+-#endif
+-
+-// Get more details about the HMD
+-#if OVR_PRODUCT_VERSION >= 1
+-    g_vr_cant_motion_blur = true;
+-    g_vr_has_dynamic_predict = false;
+-    g_vr_has_configure_rendering = false;
+-    hmdDesc = ovr_GetHmdDesc(hmd);
+-#elif OVR_MAJOR_VERSION >= 7
+-    g_vr_cant_motion_blur = true;
+-    g_vr_has_dynamic_predict = false;
+-    g_vr_has_configure_rendering = false;
+-    hmdDesc = ovr_GetHmdDesc(hmd);
+-    ovr_SetEnabledCaps(hmd, ovrHmd_GetEnabledCaps(hmd) | 0);
+-#else
+-    g_vr_cant_motion_blur = false;
+-    g_vr_has_dynamic_predict = true;
+-    g_vr_has_configure_rendering = true;
+-    // ovrHmd_GetDesc(hmd, &hmdDesc);
+-    hmdDesc = *hmd;
+-    ovrHmd_SetEnabledCaps(hmd, ovrHmd_GetEnabledCaps(hmd) | ovrHmdCap_DynamicPrediction |
+-                                   ovrHmdCap_LowPersistence);
+-#endif
+-
+-#if OVR_PRODUCT_VERSION >= 1
+-    g_vr_can_disable_hsw = false;
+-    g_vr_has_asynchronous_timewarp = true;
+-    // no need to configure tracking
+-    g_vr_has_configure_tracking = false;
+-#elif OVR_MAJOR_VERSION >= 6
+-    g_vr_can_disable_hsw = false;
+-    g_vr_has_asynchronous_timewarp = false;
+-    g_vr_has_configure_tracking = true;
+-    if (OVR_SUCCESS(ovrHmd_ConfigureTracking(hmd,
+-                                             ovrTrackingCap_Orientation | ovrTrackingCap_Position |
+-                                                 ovrTrackingCap_MagYawCorrection,
+-                                             0)))
+-#else
+-    g_vr_can_disable_hsw = true;
+-    g_vr_has_asynchronous_timewarp = false;
+-    g_vr_has_configure_tracking = true;
+-    if (ovrHmd_ConfigureTracking(hmd, ovrTrackingCap_Orientation | ovrTrackingCap_Position |
+-                                          ovrTrackingCap_MagYawCorrection,
+-                                 0))
+-#endif
+-    {
+-      g_has_rift = true;
+-      g_has_hmd = true;
+-      g_hmd_window_width = hmdDesc.Resolution.w;
+-      g_hmd_window_height = hmdDesc.Resolution.h;
+-      g_best_eye_fov[0] = hmdDesc.DefaultEyeFov[0];
+-      g_best_eye_fov[1] = hmdDesc.DefaultEyeFov[1];
+-      g_eye_fov[0] = g_best_eye_fov[0];
+-      g_eye_fov[1] = g_best_eye_fov[1];
+-      g_last_eye_fov[0] = g_eye_fov[0];
+-      g_last_eye_fov[1] = g_eye_fov[1];
+-#if OVR_PRODUCT_VERSION == 0 && OVR_MAJOR_VERSION < 6
+-      g_hmd_window_x = hmdDesc.WindowsPos.x;
+-      g_hmd_window_y = hmdDesc.WindowsPos.y;
+-      g_is_direct_mode = !(hmdDesc.HmdCaps & ovrHmdCap_ExtendDesktop);
+-      if (hmdDesc.Type < 6)
+-        g_hmd_refresh_rate = 60;
+-      else if (hmdDesc.Type > 6)
+-        g_hmd_refresh_rate = 90;
+-      else
+-        g_hmd_refresh_rate = 75;
+-#else
+-#if OVR_PRODUCT_VERSION == 0 && OVR_MAJOR_VERSION == 6
+-      g_hmd_refresh_rate = (int)(1.0f / ovrHmd_GetFloat(hmd, "VsyncToNextVsync", 0.f) + 0.5f);
+-#else
+-      g_hmd_refresh_rate = (int)(hmdDesc.DisplayRefreshRate + 0.5f);
+-#endif
+-      g_hmd_window_x = 0;
+-      g_hmd_window_y = 0;
+-      g_is_direct_mode = true;
+-#endif
+-#ifdef _WIN32
+-#if OVR_PRODUCT_VERSION == 0 && OVR_MAJOR_VERSION < 6
+-      g_hmd_device_name = hmdDesc.DisplayDeviceName;
+-#else
+-      g_hmd_device_name = nullptr;
+-#endif
+-
+-      if (g_hmd_device_name)
+-      {
+-		const char* p = strstr(g_hmd_device_name, "\\Monitor");
+-        if (p)
+-        {
+-          size_t n = p - g_hmd_device_name;
+-          if (n >= MAX_PATH)
+-            n = MAX_PATH - 1;
+-          g_hmd_device_name = strncpy(hmd_device_name, g_hmd_device_name, n);
+-          hmd_device_name[n] = '\0';
+-        }
+-      }
+-#endif
+-      NOTICE_LOG(VR, "Oculus Rift head tracker started.");
+-    }
+-    return g_has_rift;
+-  }
+-#endif
+-  return false;
+-}
+-
+-bool InitOculusVR()
+-{
+-#ifdef OVR_MAJOR_VERSION
+-#if OVR_PRODUCT_VERSION == 0 && OVR_MAJOR_VERSION <= 7
+-  memset(&g_rift_frame_timing, 0, sizeof(g_rift_frame_timing));
+-#endif
+-
+-#if OVR_PRODUCT_VERSION >= 1 || OVR_MAJOR_VERSION >= 7
+-  ovr_Initialize(nullptr);
+-  if (ovr_Create(&hmd, &luid) != ovrSuccess)
+-    hmd = nullptr;
+-#ifdef _WIN32
+-  else
+-    g_hmd_luid = reinterpret_cast<LUID*>(&luid);
+-#endif
+-
+-#else
+-#if OVR_MAJOR_VERSION >= 6
+-  ovr_Initialize(nullptr);
+-  if (ovrHmd_Create(0, &hmd) != ovrSuccess)
+-    hmd = nullptr;
+-#else
+-  ovr_Initialize();
+-  hmd = ovrHmd_Create(0);
+-#endif
+-#endif
+-  g_has_rift = (hmd != nullptr);
+-  g_has_hmd = g_has_hmd || g_has_rift;
+-  g_has_two_hmds = g_has_rift && g_has_openvr;
+-  if (!g_has_rift)
+-    WARN_LOG(VR, "Oculus Rift not detected. Oculus Rift support will not be available.");
+-  return (hmd != nullptr);
+-#else
+-  return false;
+-#endif
+-}
+-
+-bool InitVR920VR()
+-{
+-#ifdef _WIN32
+-  LoadVR920();
+-  if (g_has_vr920)
+-  {
+-    g_has_hmd = true;
+-    g_hmd_window_width = 800;
+-    g_hmd_window_height = 600;
+-    // Todo: find vr920
+-    g_hmd_window_x = 0;
+-    g_hmd_window_y = 0;
+-    g_hmd_refresh_rate = 60;  // or 30, depending on how we implement it
+-    g_vr_must_motion_blur = true;
+-    g_vr_has_dynamic_predict = false;
+-    g_vr_has_configure_rendering = false;
+-    g_vr_has_configure_tracking = false;
+-    g_vr_has_hq_distortion = false;
+-    g_vr_should_swap_buffers = true;
+-    g_vr_has_timewarp_tweak = false;
+-    g_vr_has_asynchronous_timewarp =
+-        false;  // but it doesn't need it either, so maybe this should be true?
+-    return true;
+-  }
+-#endif
+-  return false;
+-}
+-
+-void VR_Init()
+-{
+-  g_has_hmd = false;
+-  g_is_direct_mode = false;
+-  g_hmd_device_name = nullptr;
+-  g_has_openvr = false;
+-  g_has_rift = false;
+-#ifdef _WIN32
+-  g_hmd_luid = nullptr;
+-#endif
+-
+-  if (g_prefer_openvr)
+-  {
+-    InitOpenVR();
+-    if (!(g_has_openvr && g_one_hmd))
+-    {
+-      if (g_openvr_is_rift || !InitOculusVR())
+-        InitVR920VR();
+-      if (!g_has_hmd)
+-        InitOculusDebugVR();
+-    }
+-    if (g_force_vr)
+-      g_has_hmd = true;
+-  }
+-  else
+-  {
+-    InitOculusVR();
+-    if (!(g_has_rift && g_one_hmd))
+-    {
+-      if (!InitOpenVR())
+-        InitVR920VR();
+-      if (!g_has_hmd)
+-        InitOculusDebugVR();
+-    }
+-    if (g_force_vr)
+-      g_has_hmd = true;
+-  }
+-  if (g_has_two_hmds)
+-    NOTICE_LOG(VR, "Two HMDs detected!");
+-  InitOculusHMD();
+-  if (g_has_openvr && g_has_rift)
+-    SetTwoHmdFOV();
+-
+-  if (g_has_hmd && g_hmd_window_width > 0 && g_hmd_window_height > 0)
+-  {
+-    SConfig::GetInstance().strFullscreenResolution =
+-        StringFromFormat("%dx%d", g_hmd_window_width, g_hmd_window_height);
+-    SConfig::GetInstance().iRenderWindowXPos = g_hmd_window_x;
+-    SConfig::GetInstance().iRenderWindowYPos = g_hmd_window_y;
+-    SConfig::GetInstance().iRenderWindowWidth = g_hmd_window_width;
+-    SConfig::GetInstance().iRenderWindowHeight = g_hmd_window_height;
+-    SConfig::GetInstance().m_special_case = true;
+-  }
+-  else
+-  {
+-    SConfig::GetInstance().m_special_case = false;
+-  }
+-}
+-
+-void VR_StopRendering()
+-{
+-#ifdef _WIN32
+-  if (g_has_vr920)
+-  {
+-    VR920_StopStereo3D();
+-  }
+-#endif
+-#ifdef OVR_MAJOR_VERSION
+-  // Shut down rendering and release resources (by passing NULL)
+-  if (g_has_rift)
+-  {
+-#if OVR_PRODUCT_VERSION >= 1 || OVR_MAJOR_VERSION >= 6
+-    for (int i = 0; i < ovrEye_Count; ++i)
+-      g_eye_render_desc[i] = ovrHmd_GetRenderDesc(hmd, (ovrEyeType)i, g_eye_fov[i]);
+-#else
+-    ovrHmd_ConfigureRendering(hmd, nullptr, 0, g_eye_fov, g_eye_render_desc);
+-#endif
+-  }
+-#endif
+-}
+-
+-void VR_Shutdown()
+-{
+-#ifdef HAVE_OPENVR
+-  if (g_has_openvr && m_pHMD)
+-  {
+-    g_has_openvr = false;
+-    m_pHMD = nullptr;
+-    // crashes if OpenGL
+-    vr::VR_Shutdown();
+-  }
+-#endif
+-#ifdef OVR_MAJOR_VERSION
+-  if (hmd)
+-  {
+-#if OVR_PRODUCT_VERSION == 0 && OVR_MAJOR_VERSION < 6
+-    // on my computer, on runtime 0.4.2, the Rift won't switch itself off without this:
+-    if (g_is_direct_mode)
+-      ovrHmd_SetEnabledCaps(hmd, ovrHmdCap_DisplayOff);
+-#endif
+-    ovrHmd_Destroy(hmd);
+-    g_has_rift = false;
+-    g_has_hmd = false;
+-    g_is_direct_mode = false;
+-    NOTICE_LOG(VR, "Oculus Rift shut down.");
+-  }
+-  ovr_Shutdown();
+-#endif
+-}
+-
+-void VR_RecenterHMD()
+-{
+-#ifdef HAVE_OPENVR
+-  if (g_has_openvr && m_pHMD)
+-  {
+-    m_pHMD->ResetSeatedZeroPose();
+-  }
+-#endif
+-#ifdef OVR_MAJOR_VERSION
+-  if (g_has_rift)
+-  {
+-    ovrHmd_RecenterPose(hmd);
+-  }
+-#endif
+-}
+-
+-void VR_CheckStatus(bool* ShouldRecenter, bool* ShouldQuit)
+-{
+-#if defined(OVR_MAJOR_VERSION) && (OVR_PRODUCT_VERSION >= 1)
+-  if (g_has_rift)
+-  {
+-    ovrSessionStatus sessionStatus;
+-    ovr_GetSessionStatus(hmd, &sessionStatus);
+-    *ShouldRecenter = sessionStatus.ShouldRecenter ? true : false;
+-    *ShouldQuit = sessionStatus.ShouldQuit ? true : false;
+-  }
+-  else
+-  {
+-    *ShouldRecenter = *ShouldQuit = false;
+-  }
+-#else
+-  *ShouldRecenter = *ShouldQuit = false;
+-#endif
+-}
+-
+-void VR_ConfigureHMDTracking()
+-{
+-#if defined(OVR_MAJOR_VERSION) && OVR_PRODUCT_VERSION == 0
+-  if (g_has_rift)
+-  {
+-    int cap = 0;
+-    if (g_ActiveConfig.bOrientationTracking)
+-      cap |= ovrTrackingCap_Orientation;
+-    if (g_ActiveConfig.bMagYawCorrection)
+-      cap |= ovrTrackingCap_MagYawCorrection;
+-    if (g_ActiveConfig.bPositionTracking)
+-      cap |= ovrTrackingCap_Position;
+-    ovrHmd_ConfigureTracking(hmd, cap, 0);
+-  }
+-#endif
+-}
+-
+-void VR_ConfigureHMDPrediction()
+-{
+-#if defined(OVR_MAJOR_VERSION) && OVR_PRODUCT_VERSION == 0
+-  if (g_has_rift)
+-  {
+-#if OVR_MAJOR_VERSION <= 5
+-    int caps =
+-        ovrHmd_GetEnabledCaps(hmd) &
+-        ~(ovrHmdCap_DynamicPrediction | ovrHmdCap_LowPersistence | ovrHmdCap_NoMirrorToWindow);
+-#else
+-#if OVR_MAJOR_VERSION >= 7
+-    int caps = ovrHmd_GetEnabledCaps(hmd) & ~(0);
+-#else
+-    int caps =
+-        ovrHmd_GetEnabledCaps(hmd) & ~(ovrHmdCap_DynamicPrediction | ovrHmdCap_LowPersistence);
+-#endif
+-#endif
+-#if OVR_MAJOR_VERSION <= 6
+-    if (g_Config.bLowPersistence)
+-      caps |= ovrHmdCap_LowPersistence;
+-    if (g_Config.bDynamicPrediction)
+-      caps |= ovrHmdCap_DynamicPrediction;
+-#if OVR_MAJOR_VERSION <= 5
+-    if (g_Config.iMirrorPlayer == VR_PLAYER_NONE || g_Config.iMirrorStyle == VR_MIRROR_DISABLED)
+-      caps |= ovrHmdCap_NoMirrorToWindow;
+-#endif
+-#endif
+-    ovrHmd_SetEnabledCaps(hmd, caps);
+-  }
+-#endif
+-}
+-
+-void VR_GetEyePoses()
+-{
+-#ifdef OVR_MAJOR_VERSION
+-  if (g_has_rift)
+-  {
+-#ifdef OCULUSSDK042
+-    g_eye_poses[ovrEye_Left] = ovrHmd_GetEyePose(hmd, ovrEye_Left);
+-    g_eye_poses[ovrEye_Right] = ovrHmd_GetEyePose(hmd, ovrEye_Right);
+-#elif OVR_PRODUCT_VERSION >= 1
+-    ovrVector3f useHmdToEyeViewOffset[2] = {g_eye_render_desc[0].HmdToEyeOffset,
+-                                            g_eye_render_desc[1].HmdToEyeOffset};
+-#else
+-    ovrVector3f useHmdToEyeViewOffset[2] = {g_eye_render_desc[0].HmdToEyeViewOffset,
+-                                            g_eye_render_desc[1].HmdToEyeViewOffset};
+-#if OVR_MAJOR_VERSION >= 8
+-    ovr_GetEyePoses(hmd, g_ovr_frameindex, false, useHmdToEyeViewOffset, g_eye_poses, nullptr);
+-#elif OVR_MAJOR_VERSION >= 7
+-    ovr_GetEyePoses(hmd, g_ovr_frameindex, useHmdToEyeViewOffset, g_eye_poses, nullptr);
+-#else
+-    ovrHmd_GetEyePoses(hmd, g_ovr_frameindex, useHmdToEyeViewOffset, g_eye_poses, nullptr);
+-#endif
+-#endif
+-  }
+-#endif
+-#if HAVE_OPENVR
+-  if (g_has_openvr)
+-  {
+-    if (m_pCompositor)
+-    {
+-      // m_pCompositor->WaitGetPoses(m_rTrackedDevicePose, vr::k_unMaxTrackedDeviceCount, nullptr,
+-      // 0);
+-    }
+-  }
+-#endif
+-}
+-
+-#ifdef HAVE_OPENVR
+-//-----------------------------------------------------------------------------
+-// Purpose: Processes a single VR event
+-//-----------------------------------------------------------------------------
+-void ProcessVREvent(const vr::VREvent_t& event)
+-{
+-  switch (event.eventType)
+-  {
+-  case vr::VREvent_TrackedDeviceActivated:
+-  {
+-    // SetupRenderModelForTrackedDevice(event.trackedDeviceIndex);
+-    NOTICE_LOG(VR, "Device %u attached. Setting up render model.\n", event.trackedDeviceIndex);
+-    break;
+-  }
+-  case vr::VREvent_TrackedDeviceDeactivated:
+-  {
+-    NOTICE_LOG(VR, "Device %u detached.\n", event.trackedDeviceIndex);
+-    break;
+-  }
+-  case vr::VREvent_TrackedDeviceUpdated:
+-  {
+-    NOTICE_LOG(VR, "Device %u updated.\n", event.trackedDeviceIndex);
+-    break;
+-  }
+-  case vr::VREvent_IpdChanged:
+-  {
+-    g_openvr_ipd = event.data.ipd.ipdMeters;
+-    NOTICE_LOG(VR, "IPD changed to %fm", g_openvr_ipd);
+-  }
+-  }
+-}
+-#endif
+-
+-void ConvertOpenVRToOculusPose()
+-{
+-#if defined(OVR_MAJOR_VERSION) && defined(HAVE_OPENVR)
+-  OVR::Posef pose;
+-  ovrMatrix4f m;
+-  for (int r = 0; r < 4; ++r)
+-    for (int c = 0; c < 4; ++c)
+-      m.M[r][c] = g_head_tracking_matrix.data[c * 4 + r];
+-  pose.Rotation = OVR::Quatf(m);
+-  pose.Translation = OVR::Vector3f(-g_head_tracking_position[0], -g_head_tracking_position[1], -g_head_tracking_position[2]);
+-
+-  g_eye_poses[0] = pose;
+-  g_eye_poses[1] = pose;
+-#endif
+-}
+-
+-#ifdef OVR_MAJOR_VERSION
+-void UpdateOculusHeadTracking()
+-{
+-// we can only call GetEyePose between BeginFrame and EndFrame
+-#ifdef OCULUSSDK042
+-  g_vr_lock.lock();
+-  g_eye_poses[ovrEye_Left] = ovrHmd_GetEyePose(hmd, ovrEye_Left);
+-  g_eye_poses[ovrEye_Right] = ovrHmd_GetEyePose(hmd, ovrEye_Right);
+-  OVR::Posef pose = g_eye_poses[ovrEye_Left];
+-  g_vr_lock.unlock();
+-#else
+-#if OVR_PRODUCT_VERSION >= 1
+-  ovrVector3f useHmdToEyeViewOffset[2] = {g_eye_render_desc[0].HmdToEyeOffset,
+-                                          g_eye_render_desc[1].HmdToEyeOffset};
+-#else
+-  ovrVector3f useHmdToEyeViewOffset[2] = {g_eye_render_desc[0].HmdToEyeViewOffset,
+-                                          g_eye_render_desc[1].HmdToEyeViewOffset};
+-#endif
+-#if OVR_PRODUCT_VERSION >= 1 || OVR_MAJOR_VERSION >= 8
+-  double display_time = ovr_GetPredictedDisplayTime(hmd, g_ovr_frameindex);
+-  ovrTrackingState state = ovr_GetTrackingState(hmd, display_time, false);
+-  ovr_CalcEyePoses(state.HeadPose.ThePose, useHmdToEyeViewOffset, g_eye_poses);
+-  OVR::Posef pose = state.HeadPose.ThePose;
+-#elif OVR_MAJOR_VERSION >= 7
+-  ovr_GetEyePoses(hmd, g_ovr_frameindex, useHmdToEyeViewOffset, g_eye_poses, nullptr);
+-  OVR::Posef pose = g_eye_poses[ovrEye_Left];
+-#else
+-  ovrHmd_GetEyePoses(hmd, g_ovr_frameindex, useHmdToEyeViewOffset, g_eye_poses, nullptr);
+-  OVR::Posef pose = g_eye_poses[ovrEye_Left];
+-#endif
+-#endif
+-  // ovrTrackingState ss = ovrHmd_GetTrackingState(hmd, g_rift_frame_timing.ScanoutMidpointSeconds);
+-  // if (ss.StatusFlags & (ovrStatus_OrientationTracked | ovrStatus_PositionTracked))
+-  {
+-    // OVR::Posef pose = ss.HeadPose.ThePose;
+-    float yaw = 0.0f, pitch = 0.0f, roll = 0.0f;
+-    pose.Rotation.GetEulerAngles<OVR::Axis_Y, OVR::Axis_X, OVR::Axis_Z>(&yaw, &pitch, &roll);
+-
+-    float x = 0, y = 0, z = 0;
+-    roll = -RADIANS_TO_DEGREES(roll);    // ???
+-    pitch = -RADIANS_TO_DEGREES(pitch);  // should be degrees down
+-    yaw = -RADIANS_TO_DEGREES(yaw);      // should be degrees right
+-    x = pose.Translation.x;
+-    y = pose.Translation.y;
+-    z = pose.Translation.z;
+-    g_head_tracking_position[0] = -x;
+-    g_head_tracking_position[1] = -y;
+-#if OVR_PRODUCT_VERSION == 0 && OVR_MAJOR_VERSION <= 4
+-    g_head_tracking_position[2] = 0.06f - z;
+-#else
+-    g_head_tracking_position[2] = -z;
+-#endif
+-    Matrix33 m, yp, ya, p, r;
+-    Matrix33::RotateY(ya, DEGREES_TO_RADIANS(yaw));
+-    Matrix33::RotateX(p, DEGREES_TO_RADIANS(pitch));
+-    Matrix33::Multiply(p, ya, yp);
+-    Matrix33::RotateZ(r, DEGREES_TO_RADIANS(roll));
+-    Matrix33::Multiply(r, yp, m);
+-    Matrix44::LoadMatrix33(g_head_tracking_matrix, m);
+-  }
+-}
+-#endif
+-
+-#ifdef HAVE_OPENVR
+-void UpdateOpenVRHeadTracking()
+-{
+-  // Process OpenVR events
+-  vr::VREvent_t event;
+-  while (m_pHMD->PollNextEvent(&event, sizeof(event)))
+-  {
+-    ProcessVREvent(event);
+-  }
+-
+-  // float fSecondsUntilPhotons = 0.0f;
+-  // m_pHMD->GetDeviceToAbsoluteTrackingPose(vr::TrackingUniverseSeated, fSecondsUntilPhotons,
+-  // m_rTrackedDevicePose, vr::k_unMaxTrackedDeviceCount);
+-  m_iValidPoseCount = 0;
+-  // for ( int nDevice = 0; nDevice < vr::k_unMaxTrackedDeviceCount; ++nDevice )
+-  //{
+-  //	if ( m_rTrackedDevicePose[nDevice].bPoseIsValid )
+-  //	{
+-  //		m_iValidPoseCount++;
+-  //		//m_rTrackedDevicePose[nDevice].mDeviceToAbsoluteTracking;
+-  //	}
+-  //}
+-
+-  if (m_rTrackedDevicePose[vr::k_unTrackedDeviceIndex_Hmd].bPoseIsValid)
+-  {
+-    float x =
+-        m_rTrackedDevicePose[vr::k_unTrackedDeviceIndex_Hmd].mDeviceToAbsoluteTracking.m[0][3];
+-    float y =
+-        m_rTrackedDevicePose[vr::k_unTrackedDeviceIndex_Hmd].mDeviceToAbsoluteTracking.m[1][3];
+-    float z =
+-        m_rTrackedDevicePose[vr::k_unTrackedDeviceIndex_Hmd].mDeviceToAbsoluteTracking.m[2][3];
+-    g_head_tracking_position[0] = -x;
+-    g_head_tracking_position[1] = -y;
+-    g_head_tracking_position[2] = -z;
+-    Matrix33 m;
+-    for (int r = 0; r < 3; r++)
+-      for (int c = 0; c < 3; c++)
+-        m.data[r * 3 + c] =
+-            m_rTrackedDevicePose[vr::k_unTrackedDeviceIndex_Hmd].mDeviceToAbsoluteTracking.m[c][r];
+-    Matrix44::LoadMatrix33(g_head_tracking_matrix, m);
+-  }
+-}
+-#endif
+-
+-#ifdef _WIN32
+-void UpdateVuzixHeadTracking()
+-{
+-  LONG ya = 0, p = 0, r = 0;
+-  if (Vuzix_GetTracking(&ya, &p, &r) == ERROR_SUCCESS)
+-  {
+-    float yaw = -ya * 180.0f / 32767.0f;
+-    float pitch = p * -180.0f / 32767.0f;
+-    float roll = r * 180.0f / 32767.0f;
+-    // todo: use head and neck model
+-    float x = 0;
+-    float y = 0;
+-    float z = 0;
+-    Matrix33 m, yp, yawm, pitchm, rollm;
+-    Matrix33::RotateY(yawm, DEGREES_TO_RADIANS(yaw));
+-    Matrix33::RotateX(pitchm, DEGREES_TO_RADIANS(pitch));
+-    Matrix33::Multiply(pitchm, yawm, yp);
+-    Matrix33::RotateZ(rollm, DEGREES_TO_RADIANS(roll));
+-    Matrix33::Multiply(rollm, yp, m);
+-    Matrix44::LoadMatrix33(g_head_tracking_matrix, m);
+-    g_head_tracking_position[0] = -x;
+-    g_head_tracking_position[1] = -y;
+-    g_head_tracking_position[2] = -z;
+-  }
+-}
+-#endif
+-
+-void VR_UpdateHeadTrackingIfNeeded()
+-{
+-  if (g_new_tracking_frame)
+-  {
+-    g_new_tracking_frame = false;
+-#ifdef _WIN32
+-    if (g_has_vr920 && Vuzix_GetTracking)
+-      UpdateVuzixHeadTracking();
+-#endif
+-#ifdef HAVE_OPENVR
+-    if (g_has_openvr)
+-      UpdateOpenVRHeadTracking();
+-#endif
+-#ifdef OVR_MAJOR_VERSION
+-    if (g_has_rift && g_has_openvr)
+-      ConvertOpenVRToOculusPose();
+-    else if (g_has_rift)
+-      UpdateOculusHeadTracking();
+-#endif
+-  }
+-}
+-
+-void VR_GetProjectionHalfTan(float& hmd_halftan)
+-{
+-#ifdef OVR_MAJOR_VERSION
+-  if (g_has_rift)
+-  {
+-    hmd_halftan = fabs(g_eye_fov[0].LeftTan);
+-    if (fabs(g_eye_fov[0].RightTan) > hmd_halftan)
+-      hmd_halftan = fabs(g_eye_fov[0].RightTan);
+-    if (fabs(g_eye_fov[0].UpTan) > hmd_halftan)
+-      hmd_halftan = fabs(g_eye_fov[0].UpTan);
+-    if (fabs(g_eye_fov[0].DownTan) > hmd_halftan)
+-      hmd_halftan = fabs(g_eye_fov[0].DownTan);
+-  }
+-  else
+-#endif
+-      if (g_has_openvr)
+-  {
+-    // rough approximation, can't be bothered to work this out properly
+-    hmd_halftan = tan(DEGREES_TO_RADIANS(100.0f / 2));
+-  }
+-  else
+-  {
+-    hmd_halftan = tan(DEGREES_TO_RADIANS(32.0f / 2)) * 3.0f / 4.0f;
+-  }
+-}
+-
+-void VR_GetProjectionMatrices(Matrix44& left_eye, Matrix44& right_eye, float znear, float zfar)
+-{
+-#ifdef OVR_MAJOR_VERSION
+-  if (g_has_rift && !g_has_two_hmds)
+-  {
+-#if OVR_PRODUCT_VERSION >= 1
+-    ovrMatrix4f rift_left = ovrMatrix4f_Projection(g_eye_fov[0], znear, zfar, 0);
+-    ovrMatrix4f rift_right = ovrMatrix4f_Projection(g_eye_fov[1], znear, zfar, 0);
+-#else
+-    ovrMatrix4f rift_left = ovrMatrix4f_Projection(g_eye_fov[0], znear, zfar, true);
+-    ovrMatrix4f rift_right = ovrMatrix4f_Projection(g_eye_fov[1], znear, zfar, true);
+-#endif
+-    Matrix44::Set(left_eye, rift_left.M[0]);
+-    Matrix44::Set(right_eye, rift_right.M[0]);
+-  }
+-  else
+-#endif
+-#ifdef HAVE_OPENVR
+-      if (g_has_openvr)
+-  {
+-#ifdef OPENVR_105_OR_ABOVE
+-    vr::HmdMatrix44_t mat = m_pHMD->GetProjectionMatrix(
+-        vr::Eye_Left, znear,
+-        zfar);  // if error here, use OpenVR 1.05 or above instead of 1.03/1.04 OR use line below
+-#else
+-    vr::HmdMatrix44_t mat = m_pHMD->GetProjectionMatrix(vr::Eye_Left, znear, zfar, OPENVR_DirectX);
+-#endif
+-    for (int r = 0; r < 4; ++r)
+-      for (int c = 0; c < 4; ++c)
+-        left_eye.data[r * 4 + c] = mat.m[r][c];
+-#ifdef OPENVR_105_OR_ABOVE
+-    mat = m_pHMD->GetProjectionMatrix(
+-        vr::Eye_Right, znear,
+-        zfar);  // if error here, use OpenVR 1.05 or above instead of 1.03/1.04 OR use line below
+-#else
+-    mat = m_pHMD->GetProjectionMatrix(vr::Eye_Right, znear, zfar, OPENVR_DirectX);
+-#endif
+-    for (int r = 0; r < 4; ++r)
+-      for (int c = 0; c < 4; ++c)
+-        right_eye.data[r * 4 + c] = mat.m[r][c];
+-  }
+-  else
+-#endif
+-  {
+-    Matrix44::LoadIdentity(left_eye);
+-    left_eye.data[10] = -znear / (zfar - znear);
+-    left_eye.data[11] = -zfar * znear / (zfar - znear);
+-    left_eye.data[14] = -1.0f;
+-    left_eye.data[15] = 0.0f;
+-    // 32 degrees HFOV, 4:3 aspect ratio
+-    left_eye.data[0 * 4 + 0] = 1.0f / tan(32.0f / 2.0f * 3.1415926535f / 180.0f);
+-    left_eye.data[1 * 4 + 1] = 4.0f / 3.0f * left_eye.data[0 * 4 + 0];
+-    Matrix44::Set(right_eye, left_eye.data);
+-  }
+-}
+-
+-void VR_GetEyePos(float* posLeft, float* posRight)
+-{
+-#ifdef OVR_MAJOR_VERSION
+-  if (g_has_rift)
+-  {
+-#ifdef OCULUSSDK042
+-    posLeft[0] = g_eye_render_desc[0].ViewAdjust.x;
+-    posLeft[1] = g_eye_render_desc[0].ViewAdjust.y;
+-    posLeft[2] = g_eye_render_desc[0].ViewAdjust.z;
+-    posRight[0] = g_eye_render_desc[1].ViewAdjust.x;
+-    posRight[1] = g_eye_render_desc[1].ViewAdjust.y;
+-    posRight[2] = g_eye_render_desc[1].ViewAdjust.z;
+-#elif OVR_PRODUCT_VERSION >= 1
+-    posLeft[0] = g_eye_render_desc[0].HmdToEyeOffset.x;
+-    posLeft[1] = g_eye_render_desc[0].HmdToEyeOffset.y;
+-    posLeft[2] = g_eye_render_desc[0].HmdToEyeOffset.z;
+-    posRight[0] = g_eye_render_desc[1].HmdToEyeOffset.x;
+-    posRight[1] = g_eye_render_desc[1].HmdToEyeOffset.y;
+-    posRight[2] = g_eye_render_desc[1].HmdToEyeOffset.z;
+-#else
+-    posLeft[0] = g_eye_render_desc[0].HmdToEyeViewOffset.x;
+-    posLeft[1] = g_eye_render_desc[0].HmdToEyeViewOffset.y;
+-    posLeft[2] = g_eye_render_desc[0].HmdToEyeViewOffset.z;
+-    posRight[0] = g_eye_render_desc[1].HmdToEyeViewOffset.x;
+-    posRight[1] = g_eye_render_desc[1].HmdToEyeViewOffset.y;
+-    posRight[2] = g_eye_render_desc[1].HmdToEyeViewOffset.z;
+-#endif
+-#if OVR_PRODUCT_VERSION >= 1 || OVR_MAJOR_VERSION >= 6
+-    for (int i = 0; i < 3; ++i)
+-    {
+-      posLeft[i] = -posLeft[i];
+-      posRight[i] = -posRight[i];
+-    }
+-#endif
+-  }
+-  else
+-#endif
+-#ifdef HAVE_OPENVR
+-      if (g_has_openvr)
+-  {
+-    posLeft[0] = g_openvr_ipd / 2;
+-    posRight[0] = -posLeft[0];
+-    posLeft[1] = posRight[1] = 0;
+-    posLeft[2] = posRight[2] = 0;
+-  }
+-  else
+-#endif
+-  {
+-    // assume 64mm IPD
+-    posLeft[0] = 0.032f;
+-    posRight[0] = -0.032f;
+-    posLeft[1] = posRight[1] = 0;
+-    posLeft[2] = posRight[2] = 0;
+-  }
+-}
+-
+-void VR_GetFovTextureSize(int* width, int* height)
+-{
+-#if defined(OVR_MAJOR_VERSION)
+-  if (g_has_rift)
+-  {
+-    ovrSizei size = ovrHmd_GetFovTextureSize(hmd, ovrEye_Left, g_eye_fov[0], 1.0f);
+-    *width = size.w;
+-    *height = size.h;
+-  }
+-#endif
+-}
+-
+-std::wstring VR_GetAudioDeviceId()
+-{
+-#if defined(OVR_PRODUCT_VERSION) && OVR_PRODUCT_VERSION >= 1
+-  if (g_has_rift)
+-  {
+-    // this is a standard GUID, but the windows GUID include file system is insane, so just define
+-    // it here
+-    const GUID DEVINTERFACE_AUDIO_RENDER_ = {
+-        0xe6327cad, 0xdcec, 0x4949, {0xae, 0x8a, 0x99, 0x1e, 0x97, 0x6a, 0x79, 0xd2}};
+-    GUID rift_guid;
+-    ovr_GetAudioDeviceOutGuid(&rift_guid);
+-    wchar_t guid_wstr[40];
+-    StringFromGUID2(rift_guid, guid_wstr, 40);
+-    NOTICE_LOG(VR, "Rift Audio GUID: '%S'", guid_wstr);
+-    HDEVINFO const device_info = SetupDiGetClassDevs(&DEVINTERFACE_AUDIO_RENDER_, 0, 0,
+-                                                     DIGCF_DEVICEINTERFACE | DIGCF_PRESENT);
+-
+-    SP_DEVICE_INTERFACE_DATA device_data = {};
+-    device_data.cbSize = sizeof(device_data);
+-    PSP_DEVICE_INTERFACE_DETAIL_DATA detail_data = nullptr;
+-
+-    for (int index = 0; SetupDiEnumDeviceInterfaces(
+-             device_info, nullptr, &DEVINTERFACE_AUDIO_RENDER_, index, &device_data);
+-         ++index)
+-    {
+-      // Get the size of the data block required
+-      DWORD len;
+-      SetupDiGetDeviceInterfaceDetail(device_info, &device_data, nullptr, 0, &len, nullptr);
+-      detail_data = (PSP_DEVICE_INTERFACE_DETAIL_DATA)malloc(len);
+-      detail_data->cbSize = sizeof(SP_DEVICE_INTERFACE_DETAIL_DATA);
+-
+-      SP_DEVINFO_DATA device_info_data = {};
+-      device_info_data.cbSize = sizeof(SP_DEVINFO_DATA);
+-
+-      // Query the data for this device
+-      if (SetupDiGetDeviceInterfaceDetail(device_info, &device_data, detail_data, len, nullptr,
+-                                          &device_info_data))
+-      {
+-        std::wstring device_path(detail_data->DevicePath);
+-        for_each(device_path.begin(), device_path.end(), [](wchar_t& in) { in = ::toupper(in); });
+-        if (device_path.find(guid_wstr) != std::string::npos)
+-        {
+-          NOTICE_LOG(VR, "Found Rift audio device %d: DevicePath = '%S', ", index,
+-                     detail_data->DevicePath);
+-          auto result = std::wstring(detail_data->DevicePath);
+-          free(detail_data);
+-          SetupDiDestroyDeviceInfoList(device_info);
+-          return result;
+-        }
+-        else
+-        {
+-          // NOTICE_LOG(VR, "%d: DevicePath = '%S', ", index, detail_data->DevicePath);
+-        }
+-      }
+-      free(detail_data);
+-    }
+-    SetupDiDestroyDeviceInfoList(device_info);
+-    // couldn't find the audio device Oculus specified
+-    ERROR_LOG(VR, "Couldn't find Rift audio device.");
+-    return std::wstring();
+-  }
+-  else
+-#endif
+-#ifdef HAVE_OPENVR
+-      if (g_has_openvr)
+-  {
+-    return std::wstring();
+-  }
+-  else
+-#endif
+-  {
+-    return std::wstring();
+-  }
+-}
+-
+-bool VR_GetRemoteButtons(u32* buttons)
+-{
+-  *buttons = 0;
+-#if defined(OVR_MAJOR_VERSION) && OVR_PRODUCT_VERSION >= 1
+-  if (g_has_rift)
+-  {
+-    ovrInputState sidInput = {};
+-    bool HasInputState = OVR_SUCCESS(ovr_GetInputState(hmd, ovrControllerType_Remote, &sidInput));
+-    *buttons = sidInput.Buttons;
+-    return HasInputState;
+-  }
+-  else
+-#endif
+-  {
+-    return false;
+-  }
+-}
+-
+-bool VR_GetTouchButtons(u32* buttons, u32* touches, float m_triggers[], float m_axes[])
+-{
+-  *buttons = 0;
+-  *touches = 0;
+-#if defined(OVR_MAJOR_VERSION) && (OVR_MAJOR_VERSION > 7 || OVR_PRODUCT_VERSION >= 1)
+-  if (g_has_rift)
+-  {
+-    ovrInputState touchInput = {};
+-    bool HasInputState = OVR_SUCCESS(ovr_GetInputState(hmd, ovrControllerType_Touch, &touchInput));
+-    *buttons = touchInput.Buttons;
+-    *touches = touchInput.Touches;
+-    memcpy(m_triggers, touchInput.IndexTrigger, 2 * sizeof(float));
+-    memcpy(&m_triggers[2], touchInput.HandTrigger, 2 * sizeof(float));
+-    memcpy(m_axes, touchInput.Thumbstick, 4 * sizeof(float));
+-    return HasInputState;
+-  }
+-  else
+-#endif
+-  {
+-    return false;
+-  }
+-}
+-
+-bool VR_SetTouchVibration(int hands, float freq, float amplitude)
+-{
+-#if defined(OVR_MAJOR_VERSION) && (OVR_MAJOR_VERSION > 7 || OVR_PRODUCT_VERSION >= 1)
+-  if (g_has_rift)
+-  {
+-    if (amplitude <= 0)
+-      amplitude = 0;
+-    else
+-      amplitude = 1;
+-    return OVR_SUCCESS(ovr_SetControllerVibration(hmd, (ovrControllerType)hands, freq, amplitude));
+-  }
+-  else
+-#endif
+-  {
+-    return false;
+-  }
+-}
+-
+-// 0 = unknown, 1 = buttons, -1 = analog
+-static int s_vive_button_mode[2] = {};
+-static bool s_vive_was_touched[2] = {};
+-static float s_vive_initial_touch_x[2] = {};
+-static float s_vive_initial_touch_y[2] = {};
+-
+-void ProcessViveTouchpad(int hand, bool touched, bool pressed, float x, float y, u32* specials,
+-                         float analogs[])
+-{
+-  *specials = 0;
+-  analogs[0] = 0;
+-  analogs[1] = 0;
+-  if (!touched && !pressed)
+-  {
+-    s_vive_button_mode[hand] = 0;
+-  }
+-  else
+-  {
+-    if (pressed)
+-    {
+-      s_vive_button_mode[hand] = 1;
+-      // dpad or classic controller diamond button layout
+-      if (x < -1.0f / 3.0f)
+-        *specials |= VIVE_SPECIAL_DPAD_LEFT;
+-      else if (x > 1.0f / 3.0f)
+-        *specials |= VIVE_SPECIAL_DPAD_RIGHT;
+-      else if (-1.0f / 3.0f < y && y < 1.0f / 3.0f)
+-        *specials |= VIVE_SPECIAL_DPAD_MIDDLE;
+-      if (y < -1.0f / 3.0f)
+-        *specials |= VIVE_SPECIAL_DPAD_DOWN;
+-      else if (y > 1.0f / 3.0f)
+-        *specials |= VIVE_SPECIAL_DPAD_UP;
+-      // GameCube style buttons
+-      float angle = RADIANS_TO_DEGREES(atan2f(y, x));
+-      float dd = x * x + y * y;
+-#define A_RADIUS 0.372f
+-#define INNER_XY_RADIUS 0.498f
+-#define OUTER_XY_RADIUS 0.856f
+-#define INNER_B_RADIUS 0.544f
+-#define B_MIN_ANGLE -170.0f
+-#define B_MAX_ANGLE -134.0f
+-#define EMPTY_MIN_ANGLE -100.0f
+-#define EMPTY_MAX_ANGLE -52.0f
+-#define X_MIN_ANGLE -18.0f
+-#define X_MAX_ANGLE 39.0f
+-#define Y_MIN_ANGLE 76.0f
+-#define Y_MAX_ANGLE 137.0f
+-      // pressing just the A button
+-      if (dd < A_RADIUS * A_RADIUS)
+-      {
+-        *specials |= VIVE_SPECIAL_GC_A;
+-      }
+-      else
+-      {
+-        // pressing the B button
+-        if (angle > B_MIN_ANGLE && angle < B_MAX_ANGLE)
+-        {
+-          *specials |= VIVE_SPECIAL_GC_B;
+-          // pressing in between A and B counts as both
+-          if (dd < INNER_B_RADIUS * INNER_B_RADIUS)
+-            *specials |= VIVE_SPECIAL_GC_A;
+-        }
+-        else
+-        {
+-          // pressing the X button (may also be pressing Y)
+-          if (angle >= X_MIN_ANGLE && angle < Y_MIN_ANGLE)
+-          {
+-            *specials |= VIVE_SPECIAL_GC_X;
+-            // pressing in between A and X counts as both
+-            if (dd < INNER_XY_RADIUS * INNER_XY_RADIUS)
+-              *specials |= VIVE_SPECIAL_GC_A;
+-          }
+-          // pressing the Y button (may also be pressing X)
+-          if (angle > X_MAX_ANGLE && angle <= Y_MAX_ANGLE)
+-          {
+-            *specials |= VIVE_SPECIAL_GC_Y;
+-            // pressing in between A and Y counts as both
+-            if (dd < INNER_XY_RADIUS * INNER_XY_RADIUS)
+-              *specials |= VIVE_SPECIAL_GC_A;
+-          }
+-          // pressing the empty space below B and X
+-          else if (angle >= EMPTY_MIN_ANGLE && angle <= EMPTY_MAX_ANGLE &&
+-                   dd > INNER_B_RADIUS * INNER_B_RADIUS)
+-          {
+-            *specials |= VIVE_SPECIAL_GC_EMPTY;
+-          }
+-        }
+-      }
+-      // quadrant buttons, for NES, TurboGraphx, sideways wiimote, etc.
+-      if (y > -0.15)
+-      {
+-        if (x < 0.15)
+-          *specials |= VIVE_SPECIAL_TOPLEFT;
+-        if (x > -0.15)
+-          *specials |= VIVE_SPECIAL_TOPRIGHT;
+-      }
+-      if (y < 0.15)
+-      {
+-        if (x < 0.15)
+-          *specials |= VIVE_SPECIAL_BOTTOMLEFT;
+-        if (x > -0.15)
+-          *specials |= VIVE_SPECIAL_BOTTOMRIGHT;
+-      }
+-
+-      // 6 buttons diagonally, for N64, sega, arcade
+-      angle = DEGREES_TO_RADIANS(40);
+-      float xd = x * cos(angle) + y * sin(angle);
+-      float yd = y * cos(angle) - x * sin(angle);
+-      // top row
+-      if (yd >= -0.1)
+-      {
+-        if (xd < -1 / 3.0f + 0.04f)
+-          *specials |= VIVE_SPECIAL_SIX_X;
+-        if (xd > -1 / 3.0f - 0.04f && xd < 1 / 3.0f + 0.04f)
+-          *specials |= VIVE_SPECIAL_SIX_Y;
+-        if (xd > 1 / 3.0f - 0.04f)
+-          *specials |= VIVE_SPECIAL_SIX_Z;
+-      }
+-      // bottom row
+-      if (yd <= 0.1)
+-      {
+-        if (xd < -1 / 3.0f + 0.04f)
+-          *specials |= VIVE_SPECIAL_SIX_A;
+-        if (xd > -1 / 3.0f - 0.04f && xd < 1 / 3.0f + 0.04f)
+-          *specials |= VIVE_SPECIAL_SIX_B;
+-        if (xd > 1 / 3.0f - 0.04f)
+-          *specials |= VIVE_SPECIAL_SIX_C;
+-      }
+-      // todo: various wiimote face button layouts
+-    }
+-    if (!s_vive_was_touched[hand])
+-    {
+-      // touching for first time
+-      s_vive_initial_touch_x[hand] = x;
+-      s_vive_initial_touch_y[hand] = y;
+-    }
+-    else if (!pressed && s_vive_button_mode[hand] == 0)
+-    {
+-      const float min_dist = 0.4f;
+-      float dx = x - s_vive_initial_touch_x[hand];
+-      float dy = y - s_vive_initial_touch_y[hand];
+-      float dist_squared = dx * dx + dy * dy;
+-      if (dist_squared > min_dist * min_dist)
+-        s_vive_button_mode[hand] = -1;
+-    }
+-    if (s_vive_button_mode[hand] < 0)
+-    {
+-      analogs[0] = x;
+-      analogs[1] = y;
+-    }
+-  }
+-  s_vive_was_touched[hand] = touched;
+-}
+-
+-double last_good_tracking_time = 0;
+-bool VR_GetViveButtons(u32* buttons, u32* touches, u64* specials, float triggers[], float axes[])
+-{
+-  *buttons = 0;
+-  *touches = 0;
+-#if defined(HAVE_OPENVR)
+-  bool result = false;
+-  if (m_pHMD)
+-  {
+-    // find the controllers for each hand, 100 = not found
+-    vr::TrackedDeviceIndex_t left_hand = 100, right_hand = 100;
+-    for (vr::TrackedDeviceIndex_t i = 0; i < vr::k_unMaxTrackedDeviceCount; ++i)
+-    {
+-      vr::ETrackedControllerRole hand = m_pHMD->GetControllerRoleForTrackedDeviceIndex(i);
+-      if (hand == vr::TrackedControllerRole_LeftHand)
+-        left_hand = i;
+-      else if (hand == vr::TrackedControllerRole_RightHand)
+-        right_hand = i;
+-    }
+-    for (vr::TrackedDeviceIndex_t i = 0; i < vr::k_unMaxTrackedDeviceCount; ++i)
+-    {
+-      vr::ETrackedDeviceClass kind = m_pHMD->GetTrackedDeviceClass(i);
+-      if (kind == vr::TrackedDeviceClass_Controller)
+-      {
+-        if (left_hand == 100 && i != right_hand)
+-          left_hand = i;
+-        else if (right_hand == 100 && i != left_hand)
+-          right_hand = i;
+-      }
+-    }
+-    if (g_ActiveConfig.bAutoPairViveControllers &&
+-        (left_hand == 100 || right_hand == 100 || !m_rTrackedDevicePose[left_hand].bPoseIsValid ||
+-         !m_rTrackedDevicePose[right_hand].bPoseIsValid))
+-    {
+-      // one of the controllers lost tracking
+-      double t = Common::Timer::GetTimeMs() / 1000.0;
+-      // if we haven't had tracking for a whole second, try repairing
+-      if (t - last_good_tracking_time > 1.0)
+-      {
+-        VR_PairViveControllers();
+-        // don't try again for 20 seconds
+-        last_good_tracking_time = t + 20;
+-      }
+-    }
+-    else
+-    {
+-      last_good_tracking_time = Common::Timer::GetTimeMs() / 1000.0;
+-    }
+-    // get the state of each hand
+-    vr::VRControllerState_t states[2];
+-    ZeroMemory(&states, 2 * sizeof(*states));
+-#ifdef OPENVR_104_OR_ABOVE
+-    if (m_pHMD->GetControllerState(left_hand, &states[0], sizeof(*states)))  // if error here, use
+-                                                                             // OpenVR 1.05 or above
+-                                                                             // instead of 1.03 OR
+-                                                                             // use line below
+-#else
+-    if (m_pHMD->GetControllerState(left_hand, &states[0]))
+-#endif
+-      result = true;
+-#ifdef OPENVR_104_OR_ABOVE
+-    if (m_pHMD->GetControllerState(right_hand, &states[1], sizeof(*states)))  // if error here, use
+-                                                                              // OpenVR 1.05 or
+-                                                                              // above instead of
+-                                                                              // 1.03 OR use line
+-                                                                              // below
+-#else
+-    if (m_pHMD->GetControllerState(right_hand, &states[1]))
+-#endif
+-      result = true;
+-    // save the results in our own format
+-    *buttons =
+-        (states[0].ulButtonPressed & 0xFF) | ((states[0].ulButtonPressed >> 24) & 0xFF00) |
+-        (((states[1].ulButtonPressed & 0xFF) | ((states[1].ulButtonPressed >> 24) & 0xFF00)) << 16);
+-    *touches =
+-        (states[0].ulButtonTouched & 0xFF) | ((states[0].ulButtonTouched >> 24) & 0xFF00) |
+-        (((states[1].ulButtonTouched & 0xFF) | ((states[1].ulButtonTouched >> 24) & 0xFF00)) << 16);
+-    axes[4] = states[0].rAxis[0].x;
+-    axes[5] = states[0].rAxis[0].y;
+-    axes[6] = states[1].rAxis[0].x;
+-    axes[7] = states[1].rAxis[0].y;
+-    triggers[0] = states[0].rAxis[1].x;
+-    triggers[1] = states[1].rAxis[1].x;
+-    // our own special processing
+-    for (int hand = 0; hand < 2; ++hand)
+-      ProcessViveTouchpad(
+-          hand, (states[hand].ulButtonTouched & ((u64)1 << vr::k_EButton_SteamVR_Touchpad)) != 0,
+-          (states[hand].ulButtonPressed & ((u64)1 << vr::k_EButton_SteamVR_Touchpad)) != 0,
+-          states[hand].rAxis[0].x, states[hand].rAxis[0].y, ((u32*)specials) + hand,
+-          &axes[hand * 2]);
+-    return result;
+-  }
+-  else
+-#endif
+-  {
+-    return false;
+-  }
+-}
+-
+-bool VR_ViveHapticPulse(int hands, int microseconds)
+-{
+-#if defined(HAVE_OPENVR)
+-  if (g_has_openvr && hands)
+-  {
+-    // find the controllers for each hand, 100 = not found
+-    vr::TrackedDeviceIndex_t left_hand = 100, right_hand = 100;
+-    for (vr::TrackedDeviceIndex_t i = 0; i < vr::k_unMaxTrackedDeviceCount; ++i)
+-    {
+-      vr::ETrackedControllerRole hand = m_pHMD->GetControllerRoleForTrackedDeviceIndex(i);
+-      if (hand == vr::TrackedControllerRole_LeftHand)
+-        left_hand = i;
+-      else if (hand == vr::TrackedControllerRole_RightHand)
+-        right_hand = i;
+-    }
+-    for (vr::TrackedDeviceIndex_t i = 0; i < vr::k_unMaxTrackedDeviceCount; ++i)
+-    {
+-      vr::ETrackedDeviceClass kind = m_pHMD->GetTrackedDeviceClass(i);
+-      if (kind == vr::TrackedDeviceClass_Controller)
+-      {
+-        if (left_hand == 100 && i != right_hand)
+-          left_hand = i;
+-        else if (right_hand == 100 && i != left_hand)
+-          right_hand = i;
+-      }
+-    }
+-    if (hands & 1)
+-      m_pHMD->TriggerHapticPulse(left_hand, 0, microseconds);
+-    if (hands & 2)
+-      m_pHMD->TriggerHapticPulse(right_hand, 0, microseconds);
+-  }
+-#endif
+-  return false;
+-}
+-
+-float left_hand_old_velocity[3] = {}, left_hand_older_velocity[3] = {};
+-float right_hand_old_velocity[3] = {}, right_hand_older_velocity[3] = {};
+-
+-bool VR_GetAccel(int index, bool sideways, bool has_extension, float* gx, float* gy, float* gz)
+-{
+-#if defined(HAVE_OPENVR)
+-  if (g_has_openvr)
+-  {
+-    // find the controllers for each hand, 100 = not found
+-    vr::TrackedDeviceIndex_t left_hand = 100, right_hand = 100;
+-    for (vr::TrackedDeviceIndex_t i = 0; i < vr::k_unMaxTrackedDeviceCount; ++i)
+-    {
+-      vr::ETrackedControllerRole hand = m_pHMD->GetControllerRoleForTrackedDeviceIndex(i);
+-      if (hand == vr::TrackedControllerRole_LeftHand)
+-        left_hand = i;
+-      else if (hand == vr::TrackedControllerRole_RightHand)
+-        right_hand = i;
+-    }
+-    for (vr::TrackedDeviceIndex_t i = 0; i < vr::k_unMaxTrackedDeviceCount; ++i)
+-    {
+-      vr::ETrackedDeviceClass kind = m_pHMD->GetTrackedDeviceClass(i);
+-      if (kind == vr::TrackedDeviceClass_Controller)
+-      {
+-        if (left_hand == 100 && i != right_hand)
+-          left_hand = i;
+-        else if (right_hand == 100 && i != left_hand)
+-          right_hand = i;
+-      }
+-    }
+-    if (right_hand >= vr::k_unMaxTrackedDeviceCount ||
+-        !m_rTrackedDevicePose[right_hand].bPoseIsValid)
+-    {
+-      // NOTICE_LOG(VR, "invalid!");
+-      return false;
+-    }
+-    float rx = m_rTrackedDevicePose[right_hand].mDeviceToAbsoluteTracking.m[0][3];
+-    float ry = m_rTrackedDevicePose[right_hand].mDeviceToAbsoluteTracking.m[1][3];
+-    float rz = m_rTrackedDevicePose[right_hand].mDeviceToAbsoluteTracking.m[2][3];
+-    Matrix33 m;
+-    for (int r = 0; r < 3; r++)
+-      for (int c = 0; c < 3; c++)
+-        m.data[r * 3 + c] = m_rTrackedDevicePose[right_hand].mDeviceToAbsoluteTracking.m[c][r];
+-    float acc[3] = {};
+-    float dt = (float)(g_last_tracking_time - g_older_tracking_time);
+-    if (dt < 0.001f)
+-    {
+-      // NOTICE_LOG(VR, "too fast!");
+-      // return false;
+-    }
+-    for (int axis = 0; axis < 3; ++axis)
+-    {
+-      acc[axis] =
+-          (m_rTrackedDevicePose[right_hand].vVelocity.v[axis] - right_hand_older_velocity[axis]) /
+-          dt;
+-      right_hand_older_velocity[axis] = right_hand_old_velocity[axis];
+-      right_hand_old_velocity[axis] = m_rTrackedDevicePose[right_hand].vVelocity.v[axis];
+-    }
+-    // World-space accelerations need to be converted into accelerations relative to the Wiimote's
+-    // sensor.
+-    float rel_acc[3];
+-    for (int i = 0; i < 3; ++i)
+-    {
+-      rel_acc[i] =
+-          acc[0] * m.data[i * 3 + 0] + acc[1] * m.data[i * 3 + 1] + acc[2] * m.data[i * 3 + 2];
+-      // todo: check if this is correct!
+-    }
+-
+-    // Note that here gX means to the CONTROLLER'S left, gY means to the CONTROLLER'S tail, and gZ
+-    // means to the CONTROLLER'S top!
+-    // Tilt sensing.
+-    // If the left Vive controller is off, or an extension is plugged in then just
+-    // hold the right Vive sideways yourself. Otherwise in sideways mode
+-    // with no extension pitch is controlled by the angle between the Vive controllers.
+-    if (sideways && !has_extension && left_hand != 100)
+-    {
+-      // Left vive controller's left side = front of wiimote
+-      // Right vive controller's right side = back of wiimote
+-      // Right vive controller's front = right side of wiimote
+-      // Right vive controller's face = top side of wiimote
+-
+-      // angle between the controllers
+-      float lx = m_rTrackedDevicePose[left_hand].mDeviceToAbsoluteTracking.m[0][3];
+-      float ly = m_rTrackedDevicePose[left_hand].mDeviceToAbsoluteTracking.m[1][3];
+-      float lz = m_rTrackedDevicePose[left_hand].mDeviceToAbsoluteTracking.m[2][3];
+-      float x = rx - lx;
+-      float y = ry - ly;
+-      float z = rz - lz;
+-      float dist = sqrtf(x * x + y * y + z * z);
+-      if (dist > 0)
+-      {
+-        x = x / dist;
+-        y = y / dist;
+-        z = z / dist;
+-      }
+-      else
+-      {
+-        x = 1;
+-        y = 0;
+-        z = 0;
+-      }
+-      *gy = y;
+-      float tail_up = m.data[2 * 3 + 1];
+-      float touchpad_up = m.data[1 * 3 + 1];
+-      float len = sqrtf(tail_up * tail_up + touchpad_up * touchpad_up);
+-      if (len == 0)
+-      {
+-        // neither the tail or the touchpad is up, the side is up
+-        *gx = 0;
+-        *gz = 0;
+-      }
+-      else
+-      {
+-        float horiz_dist = sqrtf(x * x + z * z);
+-        *gx = horiz_dist * tail_up / len;
+-        *gz = horiz_dist * touchpad_up / len;
+-      }
+-
+-      // Convert rel acc from m/s/s to G's, and to sideways Wiimote's coordinate system.
+-      *gx += rel_acc[2] / 9.8f;
+-      *gz += rel_acc[1] / 9.8f;
+-      *gy -= rel_acc[0] / 9.8f;
+-    }
+-    else
+-    {
+-      // Tilt sensing.
+-      *gx = -m.data[0 * 3 + 1];
+-      *gz = m.data[1 * 3 + 1];
+-      *gy = m.data[2 * 3 + 1];
+-      // NOTICE_LOG(VR, "gx=%f, gy=%f, gz=%f", *gx, *gy, *gz);
+-
+-      // Convert rel acc from m/s/s to G's, and to Wiimote's coordinate system.
+-      *gx -= rel_acc[0] / 9.8f;
+-      *gz += rel_acc[1] / 9.8f;
+-      *gy += rel_acc[2] / 9.8f;
+-      // NOTICE_LOG(VR, "dt=%f", dt);
+-      // NOTICE_LOG(VR, "gx=%f, gy=%f, gz=%f", -rel_acc[0] / 9.8f, rel_acc[2] / 9.8f, rel_acc[1] /
+-      // 9.8f);
+-    }
+-    return true;
+-  }
+-#endif
+-  return false;
+-}
+-
+-bool VR_GetNunchuckAccel(int index, float* gx, float* gy, float* gz)
+-{
+-#if defined(HAVE_OPENVR)
+-  if (g_has_openvr && index == 0)
+-  {
+-    // find the controllers for each hand, 100 = not found
+-    vr::TrackedDeviceIndex_t left_hand = 100, right_hand = 100;
+-    for (vr::TrackedDeviceIndex_t i = 0; i < vr::k_unMaxTrackedDeviceCount; ++i)
+-    {
+-      vr::ETrackedControllerRole hand = m_pHMD->GetControllerRoleForTrackedDeviceIndex(i);
+-      if (hand == vr::TrackedControllerRole_LeftHand)
+-        left_hand = i;
+-      else if (hand == vr::TrackedControllerRole_RightHand)
+-        right_hand = i;
+-    }
+-    for (vr::TrackedDeviceIndex_t i = 0; i < vr::k_unMaxTrackedDeviceCount; ++i)
+-    {
+-      vr::ETrackedDeviceClass kind = m_pHMD->GetTrackedDeviceClass(i);
+-      if (kind == vr::TrackedDeviceClass_Controller)
+-      {
+-        if (left_hand == 100 && i != right_hand)
+-          left_hand = i;
+-        else if (right_hand == 100 && i != left_hand)
+-          right_hand = i;
+-      }
+-    }
+-    if (left_hand >= vr::k_unMaxTrackedDeviceCount || !m_rTrackedDevicePose[left_hand].bPoseIsValid)
+-    {
+-      // NOTICE_LOG(VR, "invalid!");
+-      return false;
+-    }
+-    // float lx = m_rTrackedDevicePose[left_hand].mDeviceToAbsoluteTracking.m[0][3];
+-    // float ly = m_rTrackedDevicePose[left_hand].mDeviceToAbsoluteTracking.m[1][3];
+-    // float lz = m_rTrackedDevicePose[left_hand].mDeviceToAbsoluteTracking.m[2][3];
+-    Matrix33 m;
+-    for (int r = 0; r < 3; r++)
+-      for (int c = 0; c < 3; c++)
+-        m.data[r * 3 + c] = m_rTrackedDevicePose[left_hand].mDeviceToAbsoluteTracking.m[c][r];
+-    float acc[3] = {};
+-    float dt = (float)(g_last_tracking_time - g_older_tracking_time);
+-    if (dt < 0.001f)
+-    {
+-      // NOTICE_LOG(VR, "too fast!");
+-      // return false;
+-    }
+-    for (int axis = 0; axis < 3; ++axis)
+-    {
+-      acc[axis] =
+-          (m_rTrackedDevicePose[left_hand].vVelocity.v[axis] - left_hand_older_velocity[axis]) / dt;
+-      left_hand_older_velocity[axis] = left_hand_old_velocity[axis];
+-      left_hand_old_velocity[axis] = m_rTrackedDevicePose[left_hand].vVelocity.v[axis];
+-    }
+-    // World-space accelerations need to be converted into accelerations relative to the Nunchuk's
+-    // sensor.
+-    float rel_acc[3];
+-    for (int i = 0; i < 3; ++i)
+-    {
+-      rel_acc[i] =
+-          acc[0] * m.data[i * 3 + 0] + acc[1] * m.data[i * 3 + 1] + acc[2] * m.data[i * 3 + 2];
+-      // todo: check if this is correct!
+-    }
+-
+-    {
+-      // Tilt sensing.
+-      *gx = -m.data[0 * 3 + 1];
+-      *gz = m.data[1 * 3 + 1];
+-      *gy = m.data[2 * 3 + 1];
+-
+-      // Convert from metres per second per second to G's, and to Wiimote's coordinate system.
+-      *gx -= rel_acc[0] / 9.8f;
+-      *gz += rel_acc[1] / 9.8f;
+-      *gy += rel_acc[2] / 9.8f;
+-    }
+-    return true;
+-  }
+-#endif
+-  return false;
+-}
+-
+-bool VR_GetIR(int index, double* irx, double* iry, double* irz)
+-{
+-#if defined(HAVE_OPENVR)
+-  if (g_has_openvr)
+-  {
+-    if (g_vr_has_ir)
+-    {
+-      *irx = g_vr_ir_x;
+-      *iry = g_vr_ir_y;
+-      *irz = g_vr_ir_z;
+-      return true;
+-    }
+-  }
+-#endif
+-  return false;
+-}
+-
+-#if defined(OVR_MAJOR_VERSION)
+-bool WasItTapped(ovrVector3f linearAcc, double time)
+-{
+-  const float thresholdForTap = 10.0f;
+-  const float thresholdForReset = 2.0f;
+-  const double keepDownTime = 0.050;
+-  float magOfAccelSquared =
+-      linearAcc.x * linearAcc.x + linearAcc.y * linearAcc.y + linearAcc.z * linearAcc.z;
+-  static bool readyForNewSingleTap = false;
+-  static double lastTapTime = 0.0;
+-  if (magOfAccelSquared < thresholdForReset * thresholdForReset)
+-    readyForNewSingleTap = true;
+-  if ((readyForNewSingleTap) && (magOfAccelSquared > thresholdForTap * thresholdForTap))
+-  {
+-    readyForNewSingleTap = false;
+-    lastTapTime = time;
+-    return (true);
+-  }
+-  return time - lastTapTime < keepDownTime;
+-}
+-#endif
+-
+-bool VR_GetHMDGestures(u32* gestures)
+-{
+-  *gestures = 0;
+-#if defined(OVR_MAJOR_VERSION)
+-  if (g_has_rift)
+-  {
+-#if OVR_PRODUCT_VERSION >= 1 || OVR_MAJOR_VERSION >= 8
+-    ovrTrackingState t = ovr_GetTrackingState(hmd, 0, false);
+-#else
+-    ovrTrackingState t = ovrHmd_GetTrackingState(hmd, g_rift_frame_timing.ScanoutMidpointSeconds);
+-#endif
+-    if (WasItTapped(t.HeadPose.LinearAcceleration, t.HeadPose.TimeInSeconds))
+-    {
+-      *gestures |= OCULUS_BUTTON_A;
+-    }
+-    return true;
+-  }
+-  else
+-#endif
+-  {
+-    return false;
+-  }
+-}
+-
+-void VR_UpdateWiimoteReportingMode(int index, u8 accel, u8 ir, u8 ext)
+-{
+-  g_vr_reading_wiimote_accel[index] = accel;
+-  g_vr_reading_wiimote_ir[index] = ir;
+-  g_vr_reading_wiimote_ext[index] = ext;
+-}
+-
+-bool VR_GetLeftControllerPos(float* pos, float* thumbpos, Matrix33* m)
+-{
+-#if defined(HAVE_OPENVR)
+-  if (g_has_openvr)
+-  {
+-    // find the controllers for each hand, 100 = not found
+-    vr::TrackedDeviceIndex_t left_hand = 100, right_hand = 100;
+-    for (vr::TrackedDeviceIndex_t i = 0; i < vr::k_unMaxTrackedDeviceCount; ++i)
+-    {
+-      vr::ETrackedControllerRole hand = m_pHMD->GetControllerRoleForTrackedDeviceIndex(i);
+-      if (hand == vr::TrackedControllerRole_LeftHand)
+-        left_hand = i;
+-      else if (hand == vr::TrackedControllerRole_RightHand)
+-        right_hand = i;
+-    }
+-    for (vr::TrackedDeviceIndex_t i = 0; i < vr::k_unMaxTrackedDeviceCount; ++i)
+-    {
+-      vr::ETrackedDeviceClass kind = m_pHMD->GetTrackedDeviceClass(i);
+-      if (kind == vr::TrackedDeviceClass_Controller)
+-      {
+-        if (left_hand == 100 && i != right_hand)
+-          left_hand = i;
+-        else if (right_hand == 100 && i != left_hand)
+-          right_hand = i;
+-      }
+-    }
+-    if (left_hand >= vr::k_unMaxTrackedDeviceCount || !m_rTrackedDevicePose[left_hand].bPoseIsValid)
+-    {
+-      // NOTICE_LOG(VR, "invalid!");
+-      pos[0] = pos[1] = pos[2] = 0;
+-      return false;
+-    }
+-    float lx = m_rTrackedDevicePose[left_hand].mDeviceToAbsoluteTracking.m[0][3];
+-    float ly = m_rTrackedDevicePose[left_hand].mDeviceToAbsoluteTracking.m[1][3];
+-    float lz = m_rTrackedDevicePose[left_hand].mDeviceToAbsoluteTracking.m[2][3];
+-    pos[0] = lx;
+-    pos[1] = ly;
+-    pos[2] = lz;
+-    for (int r = 0; r < 3; r++)
+-      for (int c = 0; c < 3; c++)
+-        m->data[r * 3 + c] = m_rTrackedDevicePose[left_hand].mDeviceToAbsoluteTracking.m[r][c];
+-    vr::VRControllerState_t cs;
+-#ifdef OPENVR_104_OR_ABOVE
+-    if (m_pHMD->GetControllerState(
+-            left_hand, &cs,
+-            sizeof(
+-                cs)))  // if error here, use OpenVR 1.05 or above instead of 1.03 OR use line below
+-#else
+-    if (m_pHMD->GetControllerState(left_hand, &cs))
+-#endif
+-    {
+-      thumbpos[0] = cs.rAxis[0].x;
+-      thumbpos[1] = cs.rAxis[0].y;
+-      if (cs.ulButtonPressed & ((u64)1 << vr::k_EButton_SteamVR_Touchpad))
+-        thumbpos[2] = 1;
+-      else if (cs.ulButtonTouched & ((u64)1 << vr::k_EButton_SteamVR_Touchpad))
+-        thumbpos[2] = 0;
+-      else
+-        thumbpos[2] = -1;
+-      if ((cs.ulButtonPressed | cs.ulButtonTouched) & ((u64)1 << vr::k_EButton_ApplicationMenu))
+-      {
+-        if (cs.ulButtonTouched & ((u64)1 << vr::k_EButton_SteamVR_Touchpad))
+-          thumbpos[1] = 1.18f;
+-        else
+-          thumbpos[1] = 1.5f;
+-        thumbpos[2] = 1;
+-      }
+-    }
+-    else
+-    {
+-      thumbpos[0] = thumbpos[1] = 0;
+-      thumbpos[2] = -1;
+-    }
+-    return true;
+-  }
+-  else
+-#endif
+-  {
+-    pos[0] = -0.15f;
+-    pos[1] = -0.30f;
+-    pos[2] = -0.4f;
+-    return true;
+-  }
+-}
+-
+-bool VR_GetRightControllerPos(float* pos, float* thumbpos, Matrix33* m)
+-{
+-#if defined(HAVE_OPENVR)
+-  if (g_has_openvr)
+-  {
+-    // find the controllers for each hand, 100 = not found
+-    vr::TrackedDeviceIndex_t left_hand = 100, right_hand = 100;
+-    for (vr::TrackedDeviceIndex_t i = 0; i < vr::k_unMaxTrackedDeviceCount; ++i)
+-    {
+-      vr::ETrackedControllerRole hand = m_pHMD->GetControllerRoleForTrackedDeviceIndex(i);
+-      if (hand == vr::TrackedControllerRole_LeftHand)
+-        left_hand = i;
+-      else if (hand == vr::TrackedControllerRole_RightHand)
+-        right_hand = i;
+-    }
+-    for (vr::TrackedDeviceIndex_t i = 0; i < vr::k_unMaxTrackedDeviceCount; ++i)
+-    {
+-      vr::ETrackedDeviceClass kind = m_pHMD->GetTrackedDeviceClass(i);
+-      if (kind == vr::TrackedDeviceClass_Controller)
+-      {
+-        if (left_hand == 100 && i != right_hand)
+-          left_hand = i;
+-        else if (right_hand == 100 && i != left_hand)
+-          right_hand = i;
+-      }
+-    }
+-    if (right_hand >= vr::k_unMaxTrackedDeviceCount ||
+-        !m_rTrackedDevicePose[right_hand].bPoseIsValid)
+-    {
+-      // NOTICE_LOG(VR, "invalid!");
+-      pos[0] = pos[1] = pos[2] = 0;
+-      return false;
+-    }
+-    float rx = m_rTrackedDevicePose[right_hand].mDeviceToAbsoluteTracking.m[0][3];
+-    float ry = m_rTrackedDevicePose[right_hand].mDeviceToAbsoluteTracking.m[1][3];
+-    float rz = m_rTrackedDevicePose[right_hand].mDeviceToAbsoluteTracking.m[2][3];
+-    pos[0] = rx;
+-    pos[1] = ry;
+-    pos[2] = rz;
+-    for (int r = 0; r < 3; r++)
+-      for (int c = 0; c < 3; c++)
+-        m->data[r * 3 + c] = m_rTrackedDevicePose[right_hand].mDeviceToAbsoluteTracking.m[r][c];
+-    vr::VRControllerState_t cs;
+-#ifdef OPENVR_104_OR_ABOVE
+-    if (m_pHMD->GetControllerState(
+-            left_hand, &cs,
+-            sizeof(
+-                cs)))  // if error here, use OpenVR 1.05 or above instead of 1.03 OR use line below
+-#else
+-    if (m_pHMD->GetControllerState(right_hand, &cs))
+-#endif
+-    {
+-      thumbpos[0] = cs.rAxis[0].x;
+-      thumbpos[1] = cs.rAxis[0].y;
+-      if (cs.ulButtonPressed & ((u64)1 << vr::k_EButton_SteamVR_Touchpad))
+-        thumbpos[2] = 1;
+-      else if (cs.ulButtonTouched & ((u64)1 << vr::k_EButton_SteamVR_Touchpad))
+-        thumbpos[2] = 0;
+-      else
+-        thumbpos[2] = -1;
+-      if ((cs.ulButtonPressed | cs.ulButtonTouched) & ((u64)1 << vr::k_EButton_ApplicationMenu))
+-      {
+-        if (cs.ulButtonTouched & ((u64)1 << vr::k_EButton_SteamVR_Touchpad))
+-          thumbpos[1] = 1.18f;
+-        else
+-          thumbpos[1] = 1.5f;
+-        thumbpos[2] = 1;
+-      }
+-    }
+-    else
+-    {
+-      thumbpos[0] = thumbpos[1] = 0;
+-      thumbpos[2] = -1;
+-    }
+-    return true;
+-  }
+-  else
+-#endif
+-  {
+-    pos[0] = 0.15f;
+-    pos[1] = -0.30f;
+-    pos[2] = -0.4f;
+-    return true;
+-  }
+-}
+-
+-void VR_SetGame(bool is_wii, bool is_nand, std::string id)
+-{
+-  g_is_nes = false;
+-  // GameCube uses GameCube controller
+-  if (!is_wii)
+-  {
+-    vr_left_controller = CS_GC_LEFT;
+-    vr_right_controller = CS_GC_RIGHT;
+-  }
+-  // Wii Discs or homebrew files use the Wiimote and Nunchuk
+-  else if (!is_nand)
+-  {
+-    vr_left_controller = CS_NUNCHUK_UNREAD;
+-    vr_right_controller = CS_WIIMOTE;
+-  }
+-  else
+-  {
+-    char c = ' ';
+-    if (id.length() > 0)
+-      c = id[0];
+-    switch (c)
+-    {
+-    case 'C':
+-    case 'X':
+-      // C64, MSX (or WiiWare demos)
+-      vr_left_controller = CS_ARCADE_LEFT;
+-      vr_right_controller = CS_ARCADE_RIGHT;
+-      break;
+-    case 'E':
+-      // Virtual arcade, Neo Geo
+-      vr_left_controller = CS_ARCADE_LEFT;
+-      vr_right_controller = CS_ARCADE_RIGHT;
+-      break;
+-    case 'F':
+-      // NES
+-      g_is_nes = true;
+-      if (id.length() > 3 && id[3] == 'J')
+-      {
+-        vr_left_controller = CS_FAMICON_LEFT;
+-        vr_right_controller = CS_FAMICON_RIGHT;
+-      }
+-      else
+-      {
+-        vr_left_controller = CS_NES_LEFT;
+-        vr_right_controller = CS_NES_RIGHT;
+-      }
+-      break;
+-    case 'J':
+-      vr_left_controller = CS_SNES_LEFT;
+-      // SNES
+-      if (id.length() > 3 && id[3] == 'E')
+-        vr_right_controller = CS_SNES_NTSC_RIGHT;
+-      else
+-        vr_right_controller = CS_SNES_RIGHT;
+-      break;
+-    case 'L':
+-      // Sega
+-      vr_left_controller = CS_SEGA_LEFT;
+-      vr_right_controller = CS_SEGA_RIGHT;
+-      break;
+-    case 'M':
+-      // Sega Genesis
+-      vr_left_controller = CS_GENESIS_LEFT;
+-      vr_right_controller = CS_GENESIS_RIGHT;
+-      break;
+-    case 'N':
+-      // N64
+-      vr_left_controller = CS_N64_LEFT;
+-      vr_right_controller = CS_N64_RIGHT;
+-      break;
+-    case 'P':
+-    case 'Q':
+-      // TurboGrafx
+-      vr_left_controller = CS_TURBOGRAFX_LEFT;
+-      vr_right_controller = CS_TURBOGRAFX_RIGHT;
+-      break;
+-    case 'H':
+-    case 'W':
+-    default:
+-      // WiiWare
+-      vr_left_controller = CS_NUNCHUK_UNREAD;
+-      vr_right_controller = CS_WIIMOTE;
+-      break;
+-    }
+-  }
+-}
+-
+-ControllerStyle VR_GetHydraStyle(int hand)
+-{
+-  if (hand)
+-  {
+-    if (vr_right_controller == CS_WIIMOTE && g_vr_reading_wiimote_ir[0])
+-      vr_right_controller = CS_WIIMOTE_IR;
+-    else if (vr_right_controller == CS_WIIMOTE_IR && !g_vr_reading_wiimote_ir[0])
+-      vr_right_controller = CS_WIIMOTE;
+-    return vr_right_controller;
+-  }
+-  else
+-  {
+-    if (vr_left_controller == CS_NUNCHUK && !g_vr_reading_wiimote_ext[0])
+-      vr_left_controller = CS_NUNCHUK_UNREAD;
+-    else if (vr_left_controller == CS_NUNCHUK_UNREAD && g_vr_reading_wiimote_ext[0])
+-      vr_left_controller = CS_NUNCHUK;
+-    return vr_left_controller;
+-  }
+-}
+-
+-bool VR_PairViveControllers()
+-{
+-#ifdef _WIN32
+-  HWND SteamVRStatusWindow = FindWindowA("Qt5QWindowIcon", "SteamVR Status");
+-  if (!SteamVRStatusWindow)
+-    return false;
+-  POINT C;
+-  BOOL hasC = GetCursorPos(&C);
+-  // HWND W = GetForegroundWindow();
+-  // RECT rw;
+-  // GetWindowRect(W, &rw);
+-  // SetForegroundWindow(SteamVRStatusWindow);
+-  INPUT input[16] = {};
+-  RECT r;
+-  if (!GetWindowRect(SteamVRStatusWindow, &r))
+-    return false;
+-  SetCursorPos(r.left + 100, r.top + 100);
+-  input[0].type = INPUT_MOUSE;
+-  input[0].mi.dwFlags = MOUSEEVENTF_RIGHTDOWN;
+-  input[1].type = INPUT_MOUSE;
+-  input[1].mi.dwFlags = MOUSEEVENTF_RIGHTUP;
+-  SendInput(2, &input[0], sizeof(INPUT));
+-  Sleep(100);
+-
+-  input[2].type = INPUT_KEYBOARD;
+-  input[2].ki.wVk = VK_DOWN;
+-  input[3].ki.dwFlags = 0;
+-  input[3].type = INPUT_KEYBOARD;
+-  input[3].ki.wVk = VK_DOWN;
+-  input[3].ki.dwFlags = KEYEVENTF_KEYUP;
+-  input[6] = input[4] = input[2];
+-  input[7] = input[5] = input[3];
+-  SendInput(4, &input[2], sizeof(INPUT));
+-  Sleep(100);
+-
+-  input[6].ki.wVk = VK_RETURN;
+-  input[7].ki.wVk = VK_RETURN;
+-  SendInput(2, &input[6], sizeof(INPUT));
+-  Sleep(100);
+-
+-  if (hasC)
+-  {
+-    SetCursorPos(C.x, C.y);
+-    input[0].mi.dwFlags = MOUSEEVENTF_LEFTDOWN;
+-    input[1].mi.dwFlags = MOUSEEVENTF_LEFTUP;
+-    SendInput(2, input, sizeof(INPUT));
+-  }
+-  return true;
+-#else
+-  return false;
+-#endif
+-}
+-
+-void OpcodeReplayBuffer()
+-{
+-  // Opcode Replay Buffer Code.  This enables the capture of all the Video Opcodes that occur during
+-  // a frame,
+-  // and then plays them back with new headtracking information.  Allows ways to easily set
+-  // headtracking at 75fps
+-  // for various games.  In Alpha right now, will crash many games/cause corruption.
+-  static int extra_video_loops_count = 0;
+-  static int real_frame_count = 0;
+-  if (g_ActiveConfig.bOpcodeReplay &&
+-      SConfig::GetInstance().m_GPUDeterminismMode != GPU_DETERMINISM_FAKE_COMPLETION)
+-  {
+-    g_opcode_replay_enabled = true;
+-    if (g_hmd_refresh_rate == 75)
+-    {
+-      if (g_ActiveConfig.bPullUp20fps)
+-      {
+-        if (real_frame_count % 4 == 1)
+-        {
+-          g_ActiveConfig.iExtraVideoLoops = 2;
+-          g_ActiveConfig.iExtraVideoLoopsDivider = 0;
+-        }
+-        else
+-        {
+-          g_ActiveConfig.iExtraVideoLoops = 3;
+-          g_ActiveConfig.iExtraVideoLoopsDivider = 0;
+-        }
+-      }
+-      else if (g_ActiveConfig.bPullUp30fps)
+-      {
+-        if (real_frame_count % 2 == 1)
+-        {
+-          g_ActiveConfig.iExtraVideoLoops = 1;
+-          g_ActiveConfig.iExtraVideoLoopsDivider = 0;
+-        }
+-        else
+-        {
+-          g_ActiveConfig.iExtraVideoLoops = 2;
+-          g_ActiveConfig.iExtraVideoLoopsDivider = 0;
+-        }
+-      }
+-      else if (g_ActiveConfig.bPullUp60fps)
+-      {
+-        // if (real_frame_count % 4 == 0)
+-        //{
+-        //	g_ActiveConfig.iExtraVideoLoops = 1;
+-        //	g_ActiveConfig.iExtraVideoLoopsDivider = 0;
+-        //}
+-        // else
+-        //{
+-        //	g_ActiveConfig.iExtraVideoLoops = 0;
+-        //	g_ActiveConfig.iExtraVideoLoopsDivider = 0;
+-        //}
+-        g_ActiveConfig.iExtraVideoLoops = 1;
+-        g_ActiveConfig.iExtraVideoLoopsDivider = 3;
+-      }
+-    }
+-    else
+-    {
+-      // 90 FPS
+-      if (g_ActiveConfig.bPullUp20fps)
+-      {
+-        if (real_frame_count % 2 == 1)
+-        {
+-          g_ActiveConfig.iExtraVideoLoops = 4;
+-          g_ActiveConfig.iExtraVideoLoopsDivider = 0;
+-        }
+-        else
+-        {
+-          g_ActiveConfig.iExtraVideoLoops = 5;
+-          g_ActiveConfig.iExtraVideoLoopsDivider = 0;
+-        }
+-      }
+-      else if (g_ActiveConfig.bPullUp30fps)
+-      {
+-        g_ActiveConfig.iExtraVideoLoops = 2;
+-        g_ActiveConfig.iExtraVideoLoopsDivider = 0;
+-      }
+-      else if (g_ActiveConfig.bPullUp60fps)
+-      {
+-        // if (real_frame_count % 4 == 0)
+-        //{
+-        //	g_ActiveConfig.iExtraVideoLoops = 1;
+-        //	g_ActiveConfig.iExtraVideoLoopsDivider = 0;
+-        //}
+-        // else
+-        //{
+-        //	g_ActiveConfig.iExtraVideoLoops = 0;
+-        //	g_ActiveConfig.iExtraVideoLoopsDivider = 0;
+-        //}
+-        g_ActiveConfig.iExtraVideoLoops = 1;
+-        g_ActiveConfig.iExtraVideoLoopsDivider = 1;
+-      }
+-    }
+-
+-    if ((g_opcode_replay_frame &&
+-         (extra_video_loops_count >= (int)g_ActiveConfig.iExtraVideoLoops)))
+-    {
+-      g_opcode_replay_frame = false;
+-      ++real_frame_count;
+-      extra_video_loops_count = 0;
+-    }
+-    else
+-    {
+-      if (skipped_opcode_replay_count >= (int)g_ActiveConfig.iExtraVideoLoopsDivider)
+-      {
+-        g_opcode_replay_frame = true;
+-        ++extra_video_loops_count;
+-        skipped_opcode_replay_count = 0;
+-
+-        for (TimewarpLogEntry& entry : timewarp_logentries)
+-        {
+-          // VertexManager::s_pCurBufferPointer = s_pCurBufferPointer_log.at(i);
+-          // VertexManager::s_pEndBufferPointer = s_pEndBufferPointer_log.at(i);
+-          // VertexManager::s_pBaseBufferPointer = s_pBaseBufferPointer_log.at(i);
+-
+-          // if (i == 0)
+-          //{
+-          // SCPFifoStruct &fifo = CommandProcessor::fifo;
+-
+-          // fifo.CPBase = CPBase_log.at(i);
+-          // fifo.CPEnd = CPEnd_log.at(i);
+-          // fifo.CPHiWatermark = CPHiWatermark_log.at(i);
+-          // fifo.CPLoWatermark = CPLoWatermark_log.at(i);
+-          // fifo.CPReadWriteDistance = CPReadWriteDistance_log.at(i);
+-          // fifo.CPWritePointer = CPWritePointer_log.at(i);
+-          // fifo.CPReadPointer = CPReadPointer_log.at(i);
+-          // fifo.CPBreakpoint = CPBreakpoint_log.at(i);
+-          //}
+-
+-          if (entry.is_preprocess_log)
+-          {
+-            OpcodeDecoder::Run<true>(entry.timewarp_log, nullptr, false);
+-          }
+-          else
+-          {
+-            OpcodeDecoder::Run<false>(entry.timewarp_log, nullptr, false);
+-          }
+-        }
+-      }
+-      else
+-      {
+-        ++skipped_opcode_replay_count;
+-      }
+-      // CPBase_log.resize(0);
+-      // CPEnd_log.resize(0);
+-      // CPHiWatermark_log.resize(0);
+-      // CPLoWatermark_log.resize(0);
+-      // CPReadWriteDistance_log.resize(0);
+-      // CPWritePointer_log.resize(0);
+-      // CPReadPointer_log.resize(0);
+-      // CPBreakpoint_log.resize(0);
+-      // CPBase_log.clear();
+-      // CPEnd_log.clear();
+-      // CPHiWatermark_log.clear();
+-      // CPLoWatermark_log.clear();
+-      // CPReadWriteDistance_log.clear();
+-      // CPWritePointer_log.clear();
+-      // CPReadPointer_log.clear();
+-      // CPBreakpoint_log.clear();
+-      // s_pCurBufferPointer_log.clear();
+-      // s_pCurBufferPointer_log.resize(0);
+-      // s_pEndBufferPointer_log.clear();
+-      // s_pEndBufferPointer_log.resize(0);
+-      // s_pBaseBufferPointer_log.clear();
+-      // s_pBaseBufferPointer_log.resize(0);
+-      timewarp_logentries.clear();
+-      timewarp_logentries.resize(0);
+-    }
+-  }
+-  else
+-  {
+-    if (g_opcode_replay_enabled)
+-    {
+-      timewarp_logentries.clear();
+-      timewarp_logentries.resize(0);
+-    }
+-    g_opcode_replay_enabled = false;
+-    g_opcode_replay_log_frame = false;
+-  }
+-}
+-
+-void OpcodeReplayBufferInline()
+-{
+-  // Opcode Replay Buffer Code.  This enables the capture of all the Video Opcodes that occur during
+-  // a frame,
+-  // and then plays them back with new headtracking information.  Allows ways to easily set
+-  // headtracking at 75fps
+-  // for various games.  In Alpha right now, will crash many games/cause corruption.
+-  static int real_frame_count = 0;
+-  int extra_video_loops;
+-  if (g_ActiveConfig.bOpcodeReplay &&
+-      SConfig::GetInstance().m_GPUDeterminismMode != GPU_DETERMINISM_FAKE_COMPLETION)
+-  {
+-    g_opcode_replay_enabled = true;
+-    g_opcode_replay_log_frame = true;
+-    if (g_ActiveConfig.bPullUpAuto)
+-    {
+-      static int replay_count = 0;
+-      static int old_rate = 0;
+-      int real_framerate = ((int)((g_current_fps + 2.5) / 5)) * 5;
+-      if (real_framerate != old_rate)
+-      {
+-        // MessageBeep(MB_ICONASTERISK);
+-        WARN_LOG(VR, "new FPS = %d", real_framerate);
+-        replay_count = 0;
+-        old_rate = real_framerate;
+-      }
+-      if (real_framerate < 19 || real_framerate > g_hmd_refresh_rate ||
+-          (g_vr_has_asynchronous_timewarp && g_current_speed < 95.0f))
+-      {
+-        real_framerate = g_hmd_refresh_rate;
+-        replay_count = 0;
+-      }
+-      int replays_per_second = g_hmd_refresh_rate - real_framerate;
+-      extra_video_loops = 0;
+-      replay_count += replays_per_second;
+-      while (replay_count >= real_framerate)
+-      {
+-        ++extra_video_loops;
+-        replay_count -= real_framerate;
+-      }
+-      // check if next frame will need replays
+-      if (replay_count + replays_per_second < real_framerate)
+-        g_opcode_replay_log_frame = false;
+-    }
+-    else if (g_hmd_refresh_rate == 75)
+-    {
+-      if (g_ActiveConfig.bPullUp60fps)
+-      {
+-        if (real_frame_count % 4 == 0)
+-        {
+-          extra_video_loops = 1;
+-        }
+-        else
+-        {
+-          extra_video_loops = 0;
+-          if ((real_frame_count + 1) % 4 != 0)
+-            g_opcode_replay_log_frame = false;
+-        }
+-      }
+-      else if (g_ActiveConfig.bPullUp30fps)
+-      {
+-        if (real_frame_count % 2 == 1)
+-        {
+-          extra_video_loops = 1;
+-        }
+-        else
+-        {
+-          extra_video_loops = 2;
+-        }
+-      }
+-      else if (g_ActiveConfig.bPullUp20fps)
+-      {
+-        if (real_frame_count % 4 == 1)
+-        {
+-          extra_video_loops = 2;
+-        }
+-        else
+-        {
+-          extra_video_loops = 3;
+-        }
+-      }
+-      else
+-      {
+-        extra_video_loops = g_ActiveConfig.iExtraVideoLoops;
+-      }
+-    }
+-    else
+-    {
+-      // 90 FPS
+-      if (g_ActiveConfig.bPullUp60fps)
+-      {
+-        if (real_frame_count % 2 == 0)
+-        {
+-          extra_video_loops = 1;
+-        }
+-        else
+-        {
+-          extra_video_loops = 0;
+-          // if ((real_frame_count + 1) % 2 != 0)
+-          //	g_opcode_replay_log_frame = false;
+-        }
+-      }
+-      else if (g_ActiveConfig.bPullUp30fps)
+-      {
+-        extra_video_loops = 2;
+-      }
+-      else if (g_ActiveConfig.bPullUp20fps)
+-      {
+-        if (real_frame_count % 2 == 1)
+-        {
+-          extra_video_loops = 4;
+-        }
+-        else
+-        {
+-          extra_video_loops = 5;
+-        }
+-      }
+-      else
+-      {
+-        extra_video_loops = g_ActiveConfig.iExtraVideoLoops;
+-      }
+-    }
+-    ++real_frame_count;
+-    g_opcode_replay_frame = true;
+-    skipped_opcode_replay_count = 0;
+-
+-    for (int num_extra_frames = 0; num_extra_frames < extra_video_loops; ++num_extra_frames)
+-    {
+-      for (TimewarpLogEntry& entry : timewarp_logentries)
+-      {
+-        if (entry.is_preprocess_log)
+-        {
+-          OpcodeDecoder::Run<true>(entry.timewarp_log, nullptr, false);
+-        }
+-        else
+-        {
+-          OpcodeDecoder::Run<false>(entry.timewarp_log, nullptr, false);
+-        }
+-      }
+-    }
+-    timewarp_logentries.clear();
+-    timewarp_logentries.resize(0);
+-    g_opcode_replay_frame = false;
+-  }
+-  else
+-  {
+-    if (g_opcode_replay_enabled)
+-    {
+-      timewarp_logentries.clear();
+-      timewarp_logentries.resize(0);
+-    }
+-    g_opcode_replay_enabled = false;
+-    g_opcode_replay_log_frame = false;
+-  }
+-  g_Config.iExtraVideoLoopsDivider = 0;
+-}
+diff --git a/Source/Core/VideoCommon/VRGameMatrices.cpp b/Source/Core/VideoCommon/VRGameMatrices.cpp
+deleted file mode 100644
+index 78151b85e..000000000
+--- a/Source/Core/VideoCommon/VRGameMatrices.cpp
++++ /dev/null
+@@ -1,878 +0,0 @@
+-// Copyright 2016 Dolphin VR Emulator Project
+-// Licensed under GPLv2+
+-// Refer to the license.txt file included.
+-
+-#include "VideoCommon/VRGameMatrices.h"
+-#include "Common/FileUtil.h"
+-#include "Common/MathUtil.h"
+-#include "Common/MsgHandler.h"
+-#include "VideoBackends/D3D/AvatarDrawer.h"
+-#include "VideoBackends/D3D/D3DBase.h"
+-#include "VideoBackends/D3D/D3DBlob.h"
+-#include "VideoBackends/D3D/D3DShader.h"
+-#include "VideoBackends/D3D/D3DState.h"
+-#include "VideoBackends/D3D/FramebufferManager.h"
+-#include "VideoBackends/D3D/GeometryShaderCache.h"
+-#include "VideoBackends/D3D/Render.h"
+-#include "VideoBackends/D3D/tiny_obj_loader.h"
+-#include "VideoCommon/GeometryShaderGen.h"
+-#include "VideoCommon/GeometryShaderManager.h"
+-#include "VideoCommon/VR.h"
+-#include "VideoCommon/VideoConfig.h"
+-#include "VideoCommon/XFMemory.h"
+-
+-#include "InputCommon/ControllerInterface/Sixense/SixenseHack.h"
+-
+-extern float s_fViewTranslationVector[3];
+-extern EFBRectangle g_final_screen_region;
+-
+-bool CalculateViewMatrix(int kind, Matrix44& look_matrix)
+-{
+-  bool bStuckToHead = false, bIsSkybox = false, bIsPerspective = false,
+-       bHasWidest = (vr_widest_3d_HFOV > 0);
+-  bool bIsHudElement = false, bIsOffscreen = false, bAspectWide = true, bNoForward = false,
+-       bShowAim = false;
+-  float UnitsPerMetre = 1.0f;
+-
+-  // Show HUD
+-  if (kind == 1)
+-  {
+-    if (!bHasWidest)
+-      return false;
+-  }
+-  // Show Aim
+-  else if (kind == 0)
+-  {
+-    if (bHasWidest)
+-      bShowAim = true;
+-  }
+-  // Show 2D
+-  else if (kind == 2)
+-  {
+-    bHasWidest = false;
+-  }
+-
+-  float zoom_forward = 0.0f;
+-  if (vr_widest_3d_HFOV <= g_ActiveConfig.fMinFOV && bHasWidest)
+-  {
+-    zoom_forward = g_ActiveConfig.fAimDistance *
+-                   tanf(DEGREES_TO_RADIANS(g_ActiveConfig.fMinFOV) / 2) /
+-                   tanf(DEGREES_TO_RADIANS(vr_widest_3d_HFOV) / 2);
+-    zoom_forward -= g_ActiveConfig.fAimDistance;
+-  }
+-
+-  float hfov = 0, vfov = 0;
+-  hfov = vr_widest_3d_HFOV;
+-  vfov = vr_widest_3d_VFOV;
+-
+-  // VR Headtracking and leaning back compensation
+-  Matrix44 rotation_matrix;
+-  Matrix44 lean_back_matrix;
+-  Matrix44 camera_pitch_matrix;
+-  if (bStuckToHead)
+-  {
+-    Matrix44::LoadIdentity(rotation_matrix);
+-    Matrix44::LoadIdentity(lean_back_matrix);
+-    Matrix44::LoadIdentity(camera_pitch_matrix);
+-  }
+-  else
+-  {
+-    // head tracking
+-    if (g_ActiveConfig.bOrientationTracking)
+-    {
+-      VR_UpdateHeadTrackingIfNeeded();
+-      rotation_matrix = g_head_tracking_matrix;
+-    }
+-    else
+-    {
+-      Matrix44::LoadIdentity(rotation_matrix);
+-    }
+-
+-    Matrix33 pitch_matrix33;
+-
+-    // leaning back
+-    float extra_pitch = -g_ActiveConfig.fLeanBackAngle;
+-    Matrix33::RotateX(pitch_matrix33, -DEGREES_TO_RADIANS(extra_pitch));
+-    lean_back_matrix = pitch_matrix33;
+-
+-    // camera pitch
+-    if ((g_ActiveConfig.bStabilizePitch || g_ActiveConfig.bStabilizeRoll ||
+-         g_ActiveConfig.bStabilizeYaw) &&
+-        g_ActiveConfig.bCanReadCameraAngles &&
+-        (g_ActiveConfig.iMotionSicknessSkybox != 2 || !bIsSkybox))
+-    {
+-      if (!g_ActiveConfig.bStabilizePitch)
+-      {
+-        Matrix44 user_pitch44;
+-        Matrix44 roll_and_yaw_matrix;
+-
+-        if (bIsPerspective || bHasWidest)
+-          extra_pitch = g_ActiveConfig.fCameraPitch;
+-        else
+-          extra_pitch = g_ActiveConfig.fScreenPitch;
+-        Matrix33::RotateX(pitch_matrix33, -DEGREES_TO_RADIANS(extra_pitch));
+-        user_pitch44 = pitch_matrix33;
+-        roll_and_yaw_matrix = g_game_camera_rotmat;
+-        camera_pitch_matrix = user_pitch44 * roll_and_yaw_matrix;
+-      }
+-      else
+-      {
+-        camera_pitch_matrix = g_game_camera_rotmat;
+-      }
+-    }
+-    else
+-    {
+-      if (xfmem.projection.type == GX_PERSPECTIVE || bHasWidest)
+-        extra_pitch = g_ActiveConfig.fCameraPitch;
+-      else
+-        extra_pitch = g_ActiveConfig.fScreenPitch;
+-      Matrix33::RotateX(pitch_matrix33, -DEGREES_TO_RADIANS(extra_pitch));
+-      camera_pitch_matrix = pitch_matrix33;
+-    }
+-  }
+-
+-  // Position matrices
+-  Matrix44 head_position_matrix, free_look_matrix, camera_forward_matrix, camera_position_matrix;
+-  if (bStuckToHead || bIsSkybox)
+-  {
+-    Matrix44::LoadIdentity(head_position_matrix);
+-    Matrix44::LoadIdentity(free_look_matrix);
+-    Matrix44::LoadIdentity(camera_position_matrix);
+-  }
+-  else
+-  {
+-    float pos[3];
+-    // head tracking
+-    if (g_ActiveConfig.bPositionTracking)
+-    {
+-      for (int i = 0; i < 3; ++i)
+-        pos[i] = g_head_tracking_position[i] * UnitsPerMetre;
+-      Matrix44::Translate(head_position_matrix, pos);
+-    }
+-    else
+-    {
+-      Matrix44::LoadIdentity(head_position_matrix);
+-    }
+-
+-    // freelook camera position
+-    for (int i = 0; i < 3; ++i)
+-      pos[i] = s_fViewTranslationVector[i] * UnitsPerMetre;
+-    Matrix44::Translate(free_look_matrix, pos);
+-
+-    // camera position stabilisation
+-    if (g_ActiveConfig.bStabilizeX || g_ActiveConfig.bStabilizeY || g_ActiveConfig.bStabilizeZ)
+-    {
+-      for (int i = 0; i < 3; ++i)
+-        pos[i] = -g_game_camera_pos[i] * UnitsPerMetre;
+-      Matrix44::Translate(camera_position_matrix, pos);
+-    }
+-    else
+-    {
+-      Matrix44::LoadIdentity(camera_position_matrix);
+-    }
+-  }
+-
+-  if (bIsPerspective && !bIsHudElement && !bIsOffscreen)
+-  {
+-    // Transformations must be applied in the following order for VR:
+-    // camera position stabilisation
+-    // camera forward
+-    // camera pitch
+-    // free look
+-    // leaning back
+-    // head position tracking
+-    // head rotation tracking
+-    if (bNoForward || bIsSkybox || bStuckToHead)
+-    {
+-      Matrix44::LoadIdentity(camera_forward_matrix);
+-    }
+-    else
+-    {
+-      float pos[3];
+-      pos[0] = 0;
+-      pos[1] = 0;
+-      pos[2] = (g_ActiveConfig.fCameraForward + zoom_forward) * UnitsPerMetre;
+-      Matrix44::Translate(camera_forward_matrix, pos);
+-    }
+-
+-    look_matrix = camera_forward_matrix * camera_position_matrix * camera_pitch_matrix *
+-                  free_look_matrix * lean_back_matrix * head_position_matrix * rotation_matrix;
+-  }
+-  else
+-  {
+-    float HudWidth, HudHeight, HudThickness, HudDistance, HudUp, CameraForward, AimDistance;
+-
+-    // 2D Screen
+-    if (!bHasWidest)
+-    {
+-      HudThickness = g_ActiveConfig.fScreenThickness * UnitsPerMetre;
+-      HudDistance = g_ActiveConfig.fScreenDistance * UnitsPerMetre;
+-      HudHeight = g_ActiveConfig.fScreenHeight * UnitsPerMetre;
+-      HudHeight = g_ActiveConfig.fScreenHeight * UnitsPerMetre;
+-      // NES games are supposed to be 1.175:1 (16:13.62) even though VC normally renders them as
+-      // 16:9
+-      // http://forums.nesdev.com/viewtopic.php?t=8063
+-      if (g_is_nes)
+-        HudWidth = HudHeight * 1.175f;
+-      else if (bAspectWide)
+-        HudWidth = HudHeight * (float)16 / 9;
+-      else
+-        HudWidth = HudHeight * (float)4 / 3;
+-      CameraForward = 0;
+-      HudUp = g_ActiveConfig.fScreenUp * UnitsPerMetre;
+-      AimDistance = HudDistance;
+-    }
+-    else
+-    // HUD over 3D world
+-    {
+-      // The HUD distance might have been carefully chosen to line up with objects, so we should
+-      // scale it with the world
+-      // But we can't make the HUD too close or it's hard to look at, and we should't make the HUD
+-      // too far or it stops looking 3D
+-      const float MinHudDistance = 0.28f, MaxHudDistance = 3.00f;  // HUD shouldn't go closer than
+-                                                                   // 28 cm when shrinking scale, or
+-                                                                   // further than 3m when growing
+-      float HUDScale = g_ActiveConfig.fScale;
+-      if (HUDScale < 1.0f && g_ActiveConfig.fHudDistance >= MinHudDistance &&
+-          g_ActiveConfig.fHudDistance * HUDScale < MinHudDistance)
+-        HUDScale = MinHudDistance / g_ActiveConfig.fHudDistance;
+-      else if (HUDScale > 1.0f && g_ActiveConfig.fHudDistance <= MaxHudDistance &&
+-               g_ActiveConfig.fHudDistance * HUDScale > MaxHudDistance)
+-        HUDScale = MaxHudDistance / g_ActiveConfig.fHudDistance;
+-
+-      // Give the 2D layer a 3D effect if different parts of the 2D layer are rendered at different
+-      // z coordinates
+-      HudThickness = g_ActiveConfig.fHudThickness * HUDScale *
+-                     UnitsPerMetre;  // the 2D layer is actually a 3D box this many game units thick
+-      HudDistance = g_ActiveConfig.fHudDistance * HUDScale *
+-                    UnitsPerMetre;  // depth 0 on the HUD should be this far away
+-
+-      HudUp = 0;
+-      if (bNoForward)
+-        CameraForward = 0;
+-      else
+-        CameraForward =
+-            (g_ActiveConfig.fCameraForward + zoom_forward) * g_ActiveConfig.fScale * UnitsPerMetre;
+-      // When moving the camera forward, correct the size of the HUD so that aiming is correct at
+-      // AimDistance
+-      AimDistance = g_ActiveConfig.fAimDistance * g_ActiveConfig.fScale * UnitsPerMetre;
+-      if (AimDistance <= 0)
+-        AimDistance = HudDistance;
+-      if (bShowAim)
+-      {
+-        HudThickness = 0;
+-        HudDistance = AimDistance;
+-        HUDScale = g_ActiveConfig.fScale;
+-      }
+-      // Now that we know how far away the box is, and what FOV it should fill, we can work out the
+-      // width and height in game units
+-      // Note: the HUD won't line up exactly (except at AimDistance) if CameraForward is non-zero
+-      // float HudWidth = 2.0f * tanf(hfov / 2.0f * 3.14159f / 180.0f) * (HudDistance) * Correction;
+-      // float HudHeight = 2.0f * tanf(vfov / 2.0f * 3.14159f / 180.0f) * (HudDistance) *
+-      // Correction;
+-      HudWidth = 2.0f * tanf(DEGREES_TO_RADIANS(hfov / 2.0f)) * HudDistance *
+-                 (AimDistance + CameraForward) / AimDistance;
+-      HudHeight = 2.0f * tanf(DEGREES_TO_RADIANS(vfov / 2.0f)) * HudDistance *
+-                  (AimDistance + CameraForward) / AimDistance;
+-    }
+-
+-    float scale[3];  // width, height, and depth of box in game units divided by 2D width, height,
+-                     // and depth
+-    float position[3];  // position of front of box relative to the camera, in game units
+-
+-    float viewport_scale[2];
+-    float viewport_offset[2];  // offset as a fraction of the viewport's width
+-    if (!bIsHudElement && !bIsOffscreen)
+-    {
+-      viewport_scale[0] = 1.0f;
+-      viewport_scale[1] = 1.0f;
+-      viewport_offset[0] = 0.0f;
+-      viewport_offset[1] = 0.0f;
+-    }
+-    else
+-    {
+-      Viewport& v = xfmem.viewport;
+-      float left, top, width, height;
+-      left = v.xOrig - v.wd - 342;
+-      top = v.yOrig + v.ht - 342;
+-      width = 2 * v.wd;
+-      height = -2 * v.ht;
+-      float screen_width = (float)g_final_screen_region.GetWidth();
+-      float screen_height = (float)g_final_screen_region.GetHeight();
+-      viewport_scale[0] = width / screen_width;
+-      viewport_scale[1] = height / screen_height;
+-      viewport_offset[0] = ((left + (width / 2)) - (0 + (screen_width / 2))) / screen_width;
+-      viewport_offset[1] = -((top + (height / 2)) - (0 + (screen_height / 2))) / screen_height;
+-    }
+-
+-    // 3D HUD elements (may be part of 2D screen or HUD)
+-    if (bIsPerspective)
+-    {
+-      // these are the edges of the near clipping plane in game coordinates
+-      float left2D = 0;
+-      float right2D = 1;
+-      float bottom2D = 1;
+-      float top2D = 0;
+-      float zFar2D = 1;
+-      float zNear2D = -1;
+-      float zObj = zNear2D + (zFar2D - zNear2D) * g_ActiveConfig.fHud3DCloser;
+-
+-      left2D *= zObj;
+-      right2D *= zObj;
+-      bottom2D *= zObj;
+-      top2D *= zObj;
+-
+-      // Scale the width and height to fit the HUD in metres
+-      if (right2D == left2D)
+-      {
+-        scale[0] = 0;
+-      }
+-      else
+-      {
+-        scale[0] = viewport_scale[0] * HudWidth / (right2D - left2D);
+-      }
+-      if (top2D == bottom2D)
+-      {
+-        scale[1] = 0;
+-      }
+-      else
+-      {
+-        scale[1] = viewport_scale[1] * HudHeight /
+-                   (top2D - bottom2D);  // note that positive means up in 3D
+-      }
+-      // Keep depth the same scale as width, so it looks like a real object
+-      if (zFar2D == zNear2D)
+-      {
+-        scale[2] = scale[0];
+-      }
+-      else
+-      {
+-        scale[2] = scale[0];
+-      }
+-      // Adjust the position for off-axis projection matrices, and shifting the 2D screen
+-      position[0] = scale[0] * (-(right2D + left2D) / 2.0f) +
+-                    viewport_offset[0] * HudWidth;  // shift it right into the centre of the view
+-      position[1] = scale[1] * (-(top2D + bottom2D) / 2.0f) + viewport_offset[1] * HudHeight +
+-                    HudUp;  // shift it up into the centre of the view;
+-      // Shift it from the old near clipping plane to the HUD distance, and shift the camera forward
+-      if (!bHasWidest)
+-        position[2] = scale[2] * zObj - HudDistance;
+-      else
+-        position[2] = scale[2] * zObj - HudDistance;  // - CameraForward;
+-    }
+-    // 2D layer, or 2D viewport (may be part of 2D screen or HUD)
+-    else
+-    {
+-      float left2D = 0;
+-      float right2D = 1;
+-      float bottom2D = 1;
+-      float top2D = 0;
+-      float zNear2D = -1;
+-      float zFar2D = 1;
+-
+-      // for 2D, work out the fraction of the HUD we should fill, and multiply the scale by that
+-      // also work out what fraction of the height we should shift it up, and what fraction of the
+-      // width we should shift it left
+-      // only multiply by the extra scale after adjusting the position?
+-
+-      if (right2D == left2D)
+-      {
+-        scale[0] = 0;
+-      }
+-      else
+-      {
+-        scale[0] = viewport_scale[0] * HudWidth / (right2D - left2D);
+-      }
+-      if (top2D == bottom2D)
+-      {
+-        scale[1] = 0;
+-      }
+-      else
+-      {
+-        scale[1] = viewport_scale[1] * HudHeight /
+-                   (top2D - bottom2D);  // note that positive means up in 3D
+-      }
+-      if (zFar2D == zNear2D)
+-      {
+-        scale[2] = 0;  // The 2D layer was flat, so we make it flat instead of a box to avoid
+-                       // dividing by zero
+-      }
+-      else
+-      {
+-        scale[2] = HudThickness /
+-                   (zFar2D -
+-                    zNear2D);  // Scale 2D z values into 3D game units so it is the right thickness
+-      }
+-      position[0] = scale[0] * (-(right2D + left2D) / 2.0f) +
+-                    viewport_offset[0] * HudWidth;  // shift it right into the centre of the view
+-      position[1] = scale[1] * (-(top2D + bottom2D) / 2.0f) + viewport_offset[1] * HudHeight +
+-                    HudUp;  // shift it up into the centre of the view;
+-      // Shift it from the zero plane to the HUD distance, and shift the camera forward
+-      if (!bHasWidest)
+-        position[2] = -HudDistance;
+-      else
+-        position[2] = -HudDistance;  // - CameraForward;
+-    }
+-
+-    Matrix44 scale_matrix, position_matrix;
+-    Matrix44::Scale(scale_matrix, scale);
+-    Matrix44::Translate(position_matrix, position);
+-
+-    // order: scale, position
+-    look_matrix = scale_matrix * position_matrix * camera_position_matrix * camera_pitch_matrix *
+-                  free_look_matrix * lean_back_matrix * head_position_matrix * rotation_matrix;
+-  }
+-  return true;
+-}
+-
+-void VRCalculateIRPointer()
+-{
+-  float wmpos[3], thumb[3];
+-  Matrix33 wmrot;
+-  ControllerStyle cs = CS_HYDRA_RIGHT;
+-  bool has_right_controller = VR_GetRightControllerPos(wmpos, thumb, &wmrot);
+-  if (has_right_controller)
+-    cs = VR_GetHydraStyle(1);
+-  if (cs != CS_WIIMOTE_IR)
+-  {
+-    g_vr_has_ir = false;
+-    return;
+-  }
+-
+-  Matrix44 ToAimSpace, WiimoteRot;
+-  CalculateTrackingSpaceToViewSpaceMatrix(0, ToAimSpace);
+-  WiimoteRot = wmrot;
+-
+-  float r[3], rp[3], d[3], v[3] = {0, 0, -1.0f}, ppos[3], aimpoint[3];
+-
+-  // find pointer position
+-  Matrix44::Multiply(WiimoteRot, v, ppos);
+-  for (int i = 0; i < 3; ++i)
+-    ppos[i] += wmpos[i];
+-
+-  Matrix44::Multiply(ToAimSpace, wmpos, r);
+-  Matrix44::Multiply(ToAimSpace, ppos, rp);
+-  for (int i = 0; i < 3; ++i)
+-    d[i] = rp[i] - r[i];
+-  float s = -r[2] / d[2];
+-  if (s < 0)
+-  {
+-    // aimed away from screen, so set aim point to infinity on the closest side
+-    // this is for first person games where we will turn the camera towards the IR point if it is
+-    // off-screen
+-    s = std::numeric_limits<float>::infinity();
+-  }
+-
+-  for (int i = 0; i < 3; ++i)
+-    aimpoint[i] = r[i] + d[i] * s;
+-
+-  // NOTICE_LOG(VR, "r=%8f, %8f, %8f       %8f     d=%8f, %8f, %8f     a=%8f, %8f, %8f", r[0], r[1],
+-  // r[2], rp[2]-r[2], d[0], d[1], d[2], aimpoint[0], aimpoint[1], aimpoint[2]);
+-  g_vr_ir_x = aimpoint[0] * 2 - 1;
+-  g_vr_ir_y = 1 - (aimpoint[1] * 2);
+-  g_vr_ir_z = aimpoint[2];  // todo: currently always 0, but should be based on actual controller
+-                            // distance from screen, not aimpoint
+-  g_vr_has_ir = true;
+-}
+-
+-bool CalculateTrackingSpaceToViewSpaceMatrix(int kind, Matrix44& look_matrix)
+-{
+-  bool bStuckToHead = false, bIsSkybox = false, bIsPerspective = false,
+-       bHasWidest = (vr_widest_3d_HFOV > 0);
+-  bool bIsHudElement = false, bIsOffscreen = false, bAspectWide = true, bNoForward = false,
+-       bShowAim = false;
+-  float UnitsPerMetre = 1.0f;
+-
+-  // HUD space
+-  if (kind == 1)
+-  {
+-    if (!bHasWidest)
+-      return false;
+-  }
+-  // Aim space
+-  else if (kind == 0)
+-  {
+-    if (bHasWidest)
+-      bShowAim = true;
+-  }
+-  // 2D space
+-  else if (kind == 2)
+-  {
+-    bHasWidest = false;
+-  }
+-
+-  float zoom_forward = 0.0f;
+-  if (vr_widest_3d_HFOV <= g_ActiveConfig.fMinFOV && bHasWidest)
+-  {
+-    zoom_forward = g_ActiveConfig.fAimDistance *
+-                   tanf(DEGREES_TO_RADIANS(g_ActiveConfig.fMinFOV) / 2) /
+-                   tanf(DEGREES_TO_RADIANS(vr_widest_3d_HFOV) / 2);
+-    zoom_forward -= g_ActiveConfig.fAimDistance;
+-  }
+-
+-  float hfov = 0, vfov = 0;
+-  hfov = vr_widest_3d_HFOV;
+-  vfov = vr_widest_3d_VFOV;
+-
+-  // VR ~Headtracking and~ leaning back compensation
+-  Matrix44 rotation_matrix;
+-  Matrix44 lean_back_matrix;
+-  Matrix44 camera_pitch_matrix;
+-  if (bStuckToHead)
+-  {
+-    Matrix44::LoadIdentity(rotation_matrix);
+-    Matrix44::LoadIdentity(lean_back_matrix);
+-    Matrix44::LoadIdentity(camera_pitch_matrix);
+-  }
+-  else
+-  {
+-    // no head tracking
+-    Matrix44::LoadIdentity(rotation_matrix);
+-
+-    Matrix33 pitch_matrix33;
+-
+-    // leaning back
+-    float extra_pitch = -g_ActiveConfig.fLeanBackAngle;
+-    Matrix33::RotateX(pitch_matrix33, -DEGREES_TO_RADIANS(extra_pitch));
+-    lean_back_matrix = pitch_matrix33;
+-
+-    // camera pitch
+-    if ((g_ActiveConfig.bStabilizePitch || g_ActiveConfig.bStabilizeRoll ||
+-         g_ActiveConfig.bStabilizeYaw) &&
+-        g_ActiveConfig.bCanReadCameraAngles &&
+-        (g_ActiveConfig.iMotionSicknessSkybox != 2 || !bIsSkybox))
+-    {
+-      if (!g_ActiveConfig.bStabilizePitch)
+-      {
+-        Matrix44 user_pitch44;
+-        Matrix44 roll_and_yaw_matrix;
+-
+-        if (bIsPerspective || bHasWidest)
+-          extra_pitch = g_ActiveConfig.fCameraPitch;
+-        else
+-          extra_pitch = g_ActiveConfig.fScreenPitch;
+-        Matrix33::RotateX(pitch_matrix33, -DEGREES_TO_RADIANS(extra_pitch));
+-        user_pitch44 = pitch_matrix33;
+-        roll_and_yaw_matrix = g_game_camera_rotmat;
+-        camera_pitch_matrix = user_pitch44 * roll_and_yaw_matrix;
+-      }
+-      else
+-      {
+-        camera_pitch_matrix = g_game_camera_rotmat;
+-      }
+-    }
+-    else
+-    {
+-      if (xfmem.projection.type == GX_PERSPECTIVE || bHasWidest)
+-        extra_pitch = g_ActiveConfig.fCameraPitch;
+-      else
+-        extra_pitch = g_ActiveConfig.fScreenPitch;
+-      Matrix33::RotateX(pitch_matrix33, -DEGREES_TO_RADIANS(extra_pitch));
+-      camera_pitch_matrix = pitch_matrix33;
+-    }
+-  }
+-
+-  // Position matrices
+-  Matrix44 head_position_matrix, free_look_matrix, camera_forward_matrix, camera_position_matrix;
+-  if (bStuckToHead || bIsSkybox)
+-  {
+-    Matrix44::LoadIdentity(head_position_matrix);
+-    Matrix44::LoadIdentity(free_look_matrix);
+-    Matrix44::LoadIdentity(camera_position_matrix);
+-  }
+-  else
+-  {
+-    float pos[3];
+-    // no head tracking
+-    Matrix44::LoadIdentity(head_position_matrix);
+-
+-    // freelook camera position
+-    for (int i = 0; i < 3; ++i)
+-      pos[i] = s_fViewTranslationVector[i] * UnitsPerMetre;
+-    Matrix44::Translate(free_look_matrix, pos);
+-
+-    // camera position stabilisation
+-    if (g_ActiveConfig.bStabilizeX || g_ActiveConfig.bStabilizeY || g_ActiveConfig.bStabilizeZ)
+-    {
+-      for (int i = 0; i < 3; ++i)
+-        pos[i] = -g_game_camera_pos[i] * UnitsPerMetre;
+-      Matrix44::Translate(camera_position_matrix, pos);
+-    }
+-    else
+-    {
+-      Matrix44::LoadIdentity(camera_position_matrix);
+-    }
+-  }
+-
+-  if (bIsPerspective && !bIsHudElement && !bIsOffscreen)
+-  {
+-    // Transformations must be applied in the following order for VR:
+-    // camera position stabilisation
+-    // camera forward
+-    // camera pitch
+-    // free look
+-    // leaning back
+-    // head position tracking
+-    // head rotation tracking
+-    if (bNoForward || bIsSkybox || bStuckToHead)
+-    {
+-      Matrix44::LoadIdentity(camera_forward_matrix);
+-    }
+-    else
+-    {
+-      float pos[3];
+-      pos[0] = 0;
+-      pos[1] = 0;
+-      pos[2] = (g_ActiveConfig.fCameraForward + zoom_forward) * UnitsPerMetre;
+-      Matrix44::Translate(camera_forward_matrix, pos);
+-    }
+-
+-    Matrix44::InvertRotation(camera_pitch_matrix);
+-    Matrix44::InvertRotation(lean_back_matrix);
+-    Matrix44::InvertRotation(rotation_matrix);
+-    Matrix44::InvertTranslation(camera_position_matrix);
+-    Matrix44::InvertTranslation(camera_forward_matrix);
+-    Matrix44::InvertTranslation(free_look_matrix);
+-    Matrix44::InvertTranslation(head_position_matrix);
+-
+-    look_matrix = rotation_matrix * head_position_matrix * lean_back_matrix * free_look_matrix *
+-                  camera_pitch_matrix * camera_position_matrix * camera_forward_matrix;
+-  }
+-  else
+-  {
+-    float HudWidth, HudHeight, HudThickness, HudDistance, HudUp, CameraForward, AimDistance;
+-
+-    // 2D Screen
+-    if (!bHasWidest)
+-    {
+-      HudThickness = g_ActiveConfig.fScreenThickness * UnitsPerMetre;
+-      HudDistance = g_ActiveConfig.fScreenDistance * UnitsPerMetre;
+-      HudHeight = g_ActiveConfig.fScreenHeight * UnitsPerMetre;
+-      HudHeight = g_ActiveConfig.fScreenHeight * UnitsPerMetre;
+-      // NES games are supposed to be 1.175:1 (16:13.62) even though VC normally renders them as
+-      // 16:9
+-      // http://forums.nesdev.com/viewtopic.php?t=8063
+-      if (g_is_nes)
+-        HudWidth = HudHeight * 1.175f;
+-      else if (bAspectWide)
+-        HudWidth = HudHeight * (float)16 / 9;
+-      else
+-        HudWidth = HudHeight * (float)4 / 3;
+-      CameraForward = 0;
+-      HudUp = g_ActiveConfig.fScreenUp * UnitsPerMetre;
+-      AimDistance = HudDistance;
+-    }
+-    else
+-    // HUD over 3D world
+-    {
+-      // The HUD distance might have been carefully chosen to line up with objects, so we should
+-      // scale it with the world
+-      // But we can't make the HUD too close or it's hard to look at, and we should't make the HUD
+-      // too far or it stops looking 3D
+-      const float MinHudDistance = 0.28f, MaxHudDistance = 3.00f;  // HUD shouldn't go closer than
+-                                                                   // 28 cm when shrinking scale, or
+-                                                                   // further than 3m when growing
+-      float HUDScale = g_ActiveConfig.fScale;
+-      if (HUDScale < 1.0f && g_ActiveConfig.fHudDistance >= MinHudDistance &&
+-          g_ActiveConfig.fHudDistance * HUDScale < MinHudDistance)
+-        HUDScale = MinHudDistance / g_ActiveConfig.fHudDistance;
+-      else if (HUDScale > 1.0f && g_ActiveConfig.fHudDistance <= MaxHudDistance &&
+-               g_ActiveConfig.fHudDistance * HUDScale > MaxHudDistance)
+-        HUDScale = MaxHudDistance / g_ActiveConfig.fHudDistance;
+-
+-      // Give the 2D layer a 3D effect if different parts of the 2D layer are rendered at different
+-      // z coordinates
+-      HudThickness = g_ActiveConfig.fHudThickness * HUDScale *
+-                     UnitsPerMetre;  // the 2D layer is actually a 3D box this many game units thick
+-      HudDistance = g_ActiveConfig.fHudDistance * HUDScale *
+-                    UnitsPerMetre;  // depth 0 on the HUD should be this far away
+-
+-      HudUp = 0;
+-      if (bNoForward)
+-        CameraForward = 0;
+-      else
+-        CameraForward =
+-            (g_ActiveConfig.fCameraForward + zoom_forward) * g_ActiveConfig.fScale * UnitsPerMetre;
+-      // When moving the camera forward, correct the size of the HUD so that aiming is correct at
+-      // AimDistance
+-      AimDistance = g_ActiveConfig.fAimDistance * g_ActiveConfig.fScale * UnitsPerMetre;
+-      if (AimDistance <= 0)
+-        AimDistance = HudDistance;
+-      if (bShowAim)
+-      {
+-        HudThickness = 0;
+-        HudDistance = AimDistance;
+-        HUDScale = g_ActiveConfig.fScale;
+-      }
+-      // Now that we know how far away the box is, and what FOV it should fill, we can work out the
+-      // width and height in game units
+-      // Note: the HUD won't line up exactly (except at AimDistance) if CameraForward is non-zero
+-      // float HudWidth = 2.0f * tanf(hfov / 2.0f * 3.14159f / 180.0f) * (HudDistance) * Correction;
+-      // float HudHeight = 2.0f * tanf(vfov / 2.0f * 3.14159f / 180.0f) * (HudDistance) *
+-      // Correction;
+-      HudWidth = 2.0f * tanf(DEGREES_TO_RADIANS(hfov / 2.0f)) * HudDistance *
+-                 (AimDistance + CameraForward) / AimDistance;
+-      HudHeight = 2.0f * tanf(DEGREES_TO_RADIANS(vfov / 2.0f)) * HudDistance *
+-                  (AimDistance + CameraForward) / AimDistance;
+-    }
+-    if (kind == 0 || bShowAim)
+-      HudThickness = HudWidth;
+-
+-    float scale[3];  // width, height, and depth of box in game units divided by 2D width, height,
+-                     // and depth
+-    float position[3];  // position of front of box relative to the camera, in game units
+-
+-    float viewport_scale[2];
+-    float viewport_offset[2];  // offset as a fraction of the viewport's width
+-    if (!bIsHudElement && !bIsOffscreen)
+-    {
+-      viewport_scale[0] = 1.0f;
+-      viewport_scale[1] = 1.0f;
+-      viewport_offset[0] = 0.0f;
+-      viewport_offset[1] = 0.0f;
+-    }
+-    else
+-    {
+-      Viewport& v = xfmem.viewport;
+-      float left, top, width, height;
+-      left = v.xOrig - v.wd - 342;
+-      top = v.yOrig + v.ht - 342;
+-      width = 2 * v.wd;
+-      height = -2 * v.ht;
+-      float screen_width = (float)g_final_screen_region.GetWidth();
+-      float screen_height = (float)g_final_screen_region.GetHeight();
+-      viewport_scale[0] = width / screen_width;
+-      viewport_scale[1] = height / screen_height;
+-      viewport_offset[0] = ((left + (width / 2)) - (0 + (screen_width / 2))) / screen_width;
+-      viewport_offset[1] = -((top + (height / 2)) - (0 + (screen_height / 2))) / screen_height;
+-    }
+-
+-    // 3D HUD elements (may be part of 2D screen or HUD)
+-    if (bIsPerspective)
+-    {
+-      // these are the edges of the near clipping plane in game coordinates
+-      float left2D = 0;
+-      float right2D = 1;
+-      float bottom2D = 1;
+-      float top2D = 0;
+-      float zFar2D = 1;
+-      float zNear2D = -1;
+-      float zObj = zNear2D + (zFar2D - zNear2D) * g_ActiveConfig.fHud3DCloser;
+-
+-      left2D *= zObj;
+-      right2D *= zObj;
+-      bottom2D *= zObj;
+-      top2D *= zObj;
+-
+-      // Scale the width and height to fit the HUD in metres
+-      if (right2D == left2D)
+-      {
+-        scale[0] = 0;
+-      }
+-      else
+-      {
+-        scale[0] = viewport_scale[0] * HudWidth / (right2D - left2D);
+-      }
+-      if (top2D == bottom2D)
+-      {
+-        scale[1] = 0;
+-      }
+-      else
+-      {
+-        scale[1] = viewport_scale[1] * HudHeight /
+-                   (top2D - bottom2D);  // note that positive means up in 3D
+-      }
+-      // Keep depth the same scale as width, so it looks like a real object
+-      if (zFar2D == zNear2D)
+-      {
+-        scale[2] = scale[0];
+-      }
+-      else
+-      {
+-        scale[2] = scale[0];
+-      }
+-      // Adjust the position for off-axis projection matrices, and shifting the 2D screen
+-      position[0] = scale[0] * (-(right2D + left2D) / 2.0f) +
+-                    viewport_offset[0] * HudWidth;  // shift it right into the centre of the view
+-      position[1] = scale[1] * (-(top2D + bottom2D) / 2.0f) + viewport_offset[1] * HudHeight +
+-                    HudUp;  // shift it up into the centre of the view;
+-      // Shift it from the old near clipping plane to the HUD distance, and shift the camera forward
+-      if (!bHasWidest)
+-        position[2] = scale[2] * zObj - HudDistance;
+-      else
+-        position[2] = scale[2] * zObj - HudDistance;  // - CameraForward;
+-    }
+-    // 2D layer, or 2D viewport (may be part of 2D screen or HUD)
+-    else
+-    {
+-      float left2D = 0;
+-      float right2D = 1;
+-      float bottom2D = 1;
+-      float top2D = 0;
+-      float zNear2D = -1;
+-      float zFar2D = 1;
+-
+-      // for 2D, work out the fraction of the HUD we should fill, and multiply the scale by that
+-      // also work out what fraction of the height we should shift it up, and what fraction of the
+-      // width we should shift it left
+-      // only multiply by the extra scale after adjusting the position?
+-
+-      if (right2D == left2D)
+-      {
+-        scale[0] = 0;
+-      }
+-      else
+-      {
+-        scale[0] = viewport_scale[0] * HudWidth / (right2D - left2D);
+-      }
+-      if (top2D == bottom2D)
+-      {
+-        scale[1] = 0;
+-      }
+-      else
+-      {
+-        scale[1] = viewport_scale[1] * HudHeight /
+-                   (top2D - bottom2D);  // note that positive means up in 3D
+-      }
+-      if (zFar2D == zNear2D)
+-      {
+-        scale[2] = 0;  // The 2D layer was flat, so we make it flat instead of a box to avoid
+-                       // dividing by zero
+-      }
+-      else
+-      {
+-        scale[2] = HudThickness /
+-                   (zFar2D -
+-                    zNear2D);  // Scale 2D z values into 3D game units so it is the right thickness
+-      }
+-      position[0] = scale[0] * (-(right2D + left2D) / 2.0f) +
+-                    viewport_offset[0] * HudWidth;  // shift it right into the centre of the view
+-      position[1] = scale[1] * (-(top2D + bottom2D) / 2.0f) + viewport_offset[1] * HudHeight +
+-                    HudUp;  // shift it up into the centre of the view;
+-      // Shift it from the zero plane to the HUD distance, and shift the camera forward
+-      if (!bHasWidest)
+-        position[2] = -HudDistance;
+-      else
+-        position[2] = -HudDistance;  // - CameraForward;
+-    }
+-
+-    Matrix44 scale_matrix, position_matrix;
+-    Matrix44::Scale(scale_matrix, scale);
+-    Matrix44::Translate(position_matrix, position);
+-
+-    Matrix44::InvertScale(scale_matrix);
+-    Matrix44::InvertTranslation(position_matrix);
+-    Matrix44::InvertRotation(camera_pitch_matrix);
+-    Matrix44::InvertRotation(lean_back_matrix);
+-    Matrix44::InvertRotation(rotation_matrix);
+-    Matrix44::InvertTranslation(camera_position_matrix);
+-    Matrix44::InvertTranslation(free_look_matrix);
+-    Matrix44::InvertTranslation(head_position_matrix);
+-
+-    // invert order: position, scale
+-    look_matrix = rotation_matrix * head_position_matrix * lean_back_matrix * free_look_matrix *
+-                  camera_pitch_matrix * camera_position_matrix * position_matrix * scale_matrix;
+-  }
+-  // done
+-  return true;
+-}
+diff --git a/Source/Core/VideoCommon/VROpenVR.h b/Source/Core/VideoCommon/VROpenVR.h
+deleted file mode 100644
+index e9b247484..000000000
+--- a/Source/Core/VideoCommon/VROpenVR.h
++++ /dev/null
+@@ -1,51 +0,0 @@
+-// Copyright 2016 Dolphin Emulator Project
+-// Licensed under GPLv2+
+-// Refer to the license.txt file included.
+-
+-#pragma once
+-
+-#ifdef __INTELLISENSE__
+-#define HAVE_OPENVR
+-#endif
+-
+-#ifdef HAVE_OPENVR
+-// Supports OpenVR versions 1.0.5, 1.0.2 - 0.9.17
+-// Does not support 1.0.4 - 1.0.3, or 0.9.16 or below
+-#include <openvr.h>
+-#include <string>
+-
+-// These change their names depending on OpenVR version, so just define them ourselves.
+-// Handle is an ID3D11Texture. Normalized Z goes from 0 at the viewer to 1 at the far clip plane.
+-#define OPENVR_DirectX (decltype(vr::Texture_t::eType))0
+-// Handle is an OpenGL texture name or an OpenGL render buffer name, depending on submit flags. Normalized Z goes from 1 at the viewer to -1 at the far clip plane.
+-#define OPENVR_OpenGL (decltype(vr::Texture_t::eType))1
+-// Handle is a pointer to a VRVulkanTextureData_t structure
+-#define OPENVR_Vulkan (decltype(vr::Texture_t::eType))2
+-
+-#ifdef INVALID_SHARED_TEXTURE_HANDLE
+-#define OPENVR_103_OR_ABOVE
+-#define OPENVR_0921_OR_ABOVE
+-#define OPENVR_0903_OR_ABOVE
+-#elif defined(INVALID_TRACKED_CAMERA_HANDLE)
+-#define OPENVR_0921_OR_ABOVE
+-#define OPENVR_0903_OR_ABOVE
+-#elif defined(VR_INTERFACE)
+-#define OPENVR_0903_OR_ABOVE
+-#endif
+-
+-// There's no way to detect 1.04 or 1.05, so just assume
+-#ifdef OPENVR_103_OR_ABOVE
+-#define OPENVR_104_OR_ABOVE
+-#define OPENVR_105_OR_ABOVE
+-#endif
+-
+-extern vr::IVRSystem *m_pHMD;
+-extern vr::IVRRenderModels *m_pRenderModels;
+-extern vr::IVRCompositor *m_pCompositor;
+-extern std::string m_strDriver;
+-extern std::string m_strDisplay;
+-extern vr::TrackedDevicePose_t m_rTrackedDevicePose[vr::k_unMaxTrackedDeviceCount];
+-extern bool m_bUseCompositor;
+-extern bool m_rbShowTrackedDevice[vr::k_unMaxTrackedDeviceCount];
+-extern int m_iValidPoseCount;
+-#endif
+diff --git a/Source/Core/VideoCommon/VideoConfig.cpp b/Source/Core/VideoCommon/VideoConfig.cpp
+index d0ee06597..257cc61fc 100644
+--- a/Source/Core/VideoCommon/VideoConfig.cpp
++++ b/Source/Core/VideoCommon/VideoConfig.cpp
+@@ -3,595 +3,327 @@
+ // Refer to the license.txt file included.
+
+ #include <algorithm>
++#include <cmath>
+
+-#include "Common/CPUDetect.h"
+ #include "Common/CommonTypes.h"
+-#include "Common/Logging/Log.h"
+-#include "Common/MsgHandler.h"
++#include "Common/FileUtil.h"
++#include "Common/IniFile.h"
+ #include "Common/StringUtil.h"
+-#include "Core/ARBruteForcer.h"
+-#include "Core/Config/GraphicsSettings.h"
++#include "Core/ConfigManager.h"
+ #include "Core/Core.h"
+ #include "Core/Movie.h"
+ #include "VideoCommon/OnScreenDisplay.h"
+-#include "VideoCommon/VR.h"
+ #include "VideoCommon/VideoCommon.h"
+ #include "VideoCommon/VideoConfig.h"
+
+ VideoConfig g_Config;
+ VideoConfig g_ActiveConfig;
+-static bool s_has_registered_callback = false;
+-
+-// VR settings need to be saved manually, with a prompt if settings are changed. This detects when
+-// they have changed.
+-VideoConfig g_SavedConfig;
+
+ void UpdateActiveConfig()
+ {
+-  if (Movie::IsPlayingInput() && Movie::IsConfigSaved())
+-    Movie::SetGraphicsConfig();
+-
+-  g_ActiveConfig = g_Config;
+-  if (g_has_hmd)
+-    g_ActiveConfig.bUseRealXFB = false;
++	if (Movie::IsPlayingInput() && Movie::IsConfigSaved())
++		Movie::SetGraphicsConfig();
++	g_ActiveConfig = g_Config;
+ }
+
+ VideoConfig::VideoConfig()
+ {
+-  // Needed for the first frame, I think
+-  fAspectRatioHackW = 1;
+-  fAspectRatioHackH = 1;
+-
+-  // disable all features by default
+-  backend_info.api_type = APIType::Nothing;
+-  backend_info.MaxTextureSize = 16384;
+-  backend_info.bSupportsExclusiveFullscreen = false;
+-  backend_info.bSupportsMultithreading = false;
+-  backend_info.bSupportsInternalResolutionFrameDumps = false;
+-  backend_info.bSupportsST3CTextures = false;
+-  backend_info.bSupportsBPTCTextures = false;
+-
+-  bEnableValidationLayer = false;
+-  bBackendMultithreading = true;
+-
+-  // VR
+-  fScale = 1.0f;
+-  fLeanBackAngle = 0;
+-  bStabilizePitch = true;
+-  bStabilizeRoll = true;
+-  bStabilizeYaw = false;
+-  bStabilizeX = false;
+-  bStabilizeY = false;
+-  bStabilizeZ = false;
+-  bPullUp20fps = false;
+-  bPullUp30fps = false;
+-  bPullUp60fps = false;
+-  bPullUpAuto = false;
+-  bOpcodeWarningDisable = false;
+-  bReplayVertexData = false;
+-  bPullUp20fpsTimewarp = false;
+-  bPullUp30fpsTimewarp = false;
+-  bPullUp60fpsTimewarp = false;
+-  bPullUpAutoTimewarp = false;
+-  bEnableVR = true;
+-  bAsynchronousTimewarp = false;
+-  bLowPersistence = true;
+-  bDynamicPrediction = true;
+-  bOrientationTracking = true;
+-  bMagYawCorrection = true;
+-  bPositionTracking = true;
+-  bChromatic = true;
+-  bTimewarp = true;
+-  bVignette = false;
+-  bNoRestore = false;
+-  bFlipVertical = false;
+-  bSRGB = false;
+-  bOverdrive = true;
+-  bHqDistortion = false;
+-  bDisableNearClipping = true;
+-  bAutoPairViveControllers = false;
+-  bShowHands = false;
+-  bShowFeet = false;
+-  bShowController = true;
+-  bShowLaserPointer = false;
+-  bShowAimRectangle = false;
+-  bShowHudBox = false;
+-  bShow2DBox = false;
+-  bShowSensorBar = false;
+-  bShowGameCamera = false;
+-  bShowGameFrustum = false;
+-  bShowTrackingCamera = false;
+-  bShowTrackingVolume = false;
+-  bShowBaseStation = false;
+-
+-  bMotionSicknessAlways = false;
+-  bMotionSicknessFreelook = false;
+-  bMotionSickness2D = false;
+-  bMotionSicknessLeftStick = false;
+-  bMotionSicknessRightStick = false;
+-  bMotionSicknessDPad = false;
+-  iMotionSicknessMethod = 0;
+-  iMotionSicknessSkybox = 0;
+-  fMotionSicknessFOV = 45.0f;
+-
+-  iVRPlayer = VR_PLAYER1;
+-  iVRPlayer2 = VR_PLAYER2;
+-  iMirrorPlayer = VR_PLAYER_DEFAULT;
+-  iMirrorStyle = VR_MIRROR_LEFT;
+-  fTimeWarpTweak = DEFAULT_VR_TIMEWARP_TWEAK;
+-  iExtraTimewarpedFrames = DEFAULT_VR_EXTRA_FRAMES;
+-  iExtraVideoLoops = DEFAULT_VR_EXTRA_VIDEO_LOOPS;
+-  iExtraVideoLoopsDivider = DEFAULT_VR_EXTRA_VIDEO_LOOPS_DIVIDER;
+-
+-  sLeftTexture = "";
+-  sRightTexture = "";
+-  sGCLeftTexture = "";
+-  sGCRightTexture = "";
+-
+-  fUnitsPerMetre = DEFAULT_VR_UNITS_PER_METRE;
+-  // in metres
+-  fFreeLookSensitivity = DEFAULT_VR_FREE_LOOK_SENSITIVITY;
+-  fHudDistance = DEFAULT_VR_HUD_DISTANCE;
+-  fHudThickness = DEFAULT_VR_HUD_THICKNESS;
+-  fHud3DCloser = DEFAULT_VR_HUD_3D_CLOSER;
+-  fAimDistance = DEFAULT_VR_AIM_DISTANCE;
+-  fScreenDistance = DEFAULT_VR_SCREEN_DISTANCE;
+-  fScreenHeight = DEFAULT_VR_SCREEN_HEIGHT;
+-  iMetroidPrime = 0;
+-  iTelescopeEye = 0;
+-  fTelescopeMaxFOV = 0;
+-  fMinFOV = DEFAULT_VR_MIN_FOV;
+-  fN64FOV = DEFAULT_VR_N64_FOV;
+-  fHudDespPosition0 = 0;
+-  fHudDespPosition1 = 0;
+-  fHudDespPosition2 = 0;
+-  Matrix33::LoadIdentity(matrixHudrot);
+-
+-  iSelectedLayer = -2;
+-  iFlashState = 0;
+-}
++	bRunning = false;
+
+-void VideoConfig::Refresh()
+-{
+-  INFO_LOG(CORE, "VideoConfig::Refresh();");
+-  if (!s_has_registered_callback)
+-  {
+-    // There was a race condition between the video thread and the host thread here, if
+-    // corrections need to be made by VerifyValidity(). Briefly, the config will contain
+-    // invalid values. Instead, pause emulation first, which will flush the video thread,
+-    // update the config and correct it, then resume emulation, after which the video
+-    // thread will detect the config has changed and act accordingly.
+-    Config::AddConfigChangedCallback([]() { Core::RunAsCPUThread([]() { g_Config.Refresh(); }); });
+-    s_has_registered_callback = true;
+-  }
+-
+-  if (ARBruteForcer::ch_bruteforce)
+-    bVSync = false;
+-  else
+-    bVSync = Config::Get(Config::GFX_VSYNC);
+-  iAdapter = Config::Get(Config::GFX_ADAPTER);
+-
+-  bWidescreenHack = Config::Get(Config::GFX_WIDESCREEN_HACK);
+-  const int aspect_ratio = Config::Get(Config::GFX_ASPECT_RATIO);
+-  if (aspect_ratio == ASPECT_AUTO)
+-    iAspectRatio = Config::Get(Config::GFX_SUGGESTED_ASPECT_RATIO);
+-  else
+-    iAspectRatio = aspect_ratio;
+-  bCrop = Config::Get(Config::GFX_CROP);
+-  bUseXFB = Config::Get(Config::GFX_USE_XFB);
+-  bUseRealXFB = Config::Get(Config::GFX_USE_REAL_XFB);
+-  iSafeTextureCache_ColorSamples = Config::Get(Config::GFX_SAFE_TEXTURE_CACHE_COLOR_SAMPLES);
+-  bShowFPS = Config::Get(Config::GFX_SHOW_FPS);
+-  bShowNetPlayPing = Config::Get(Config::GFX_SHOW_NETPLAY_PING);
+-  bShowNetPlayMessages = Config::Get(Config::GFX_SHOW_NETPLAY_MESSAGES);
+-  bLogRenderTimeToFile = Config::Get(Config::GFX_LOG_RENDER_TIME_TO_FILE);
+-  bOverlayStats = Config::Get(Config::GFX_OVERLAY_STATS);
+-  bOverlayProjStats = Config::Get(Config::GFX_OVERLAY_PROJ_STATS);
+-  bDumpTextures = Config::Get(Config::GFX_DUMP_TEXTURES);
+-  bHiresTextures = Config::Get(Config::GFX_HIRES_TEXTURES);
+-  bConvertHiresTextures = Config::Get(Config::GFX_CONVERT_HIRES_TEXTURES);
+-  bCacheHiresTextures = Config::Get(Config::GFX_CACHE_HIRES_TEXTURES);
+-  bDumpEFBTarget = Config::Get(Config::GFX_DUMP_EFB_TARGET);
+-  bDumpFramesAsImages = Config::Get(Config::GFX_DUMP_FRAMES_AS_IMAGES);
+-  bFreeLook = Config::Get(Config::GFX_FREE_LOOK);
+-  bUseFFV1 = Config::Get(Config::GFX_USE_FFV1);
+-  sDumpFormat = Config::Get(Config::GFX_DUMP_FORMAT);
+-  sDumpCodec = Config::Get(Config::GFX_DUMP_CODEC);
+-  sDumpPath = Config::Get(Config::GFX_DUMP_PATH);
+-  iBitrateKbps = Config::Get(Config::GFX_BITRATE_KBPS);
+-  bInternalResolutionFrameDumps = Config::Get(Config::GFX_INTERNAL_RESOLUTION_FRAME_DUMPS);
+-  bEnableGPUTextureDecoding = Config::Get(Config::GFX_ENABLE_GPU_TEXTURE_DECODING);
+-  bEnablePixelLighting = Config::Get(Config::GFX_ENABLE_PIXEL_LIGHTING);
+-  bFastDepthCalc = Config::Get(Config::GFX_FAST_DEPTH_CALC);
+-
+-  if (ARBruteForcer::ch_bruteforce)
+-  {
+-    iMultisamples = 0;
+-    bSSAA = false;
+-    iEFBScale = SCALE_1X;
+-	iInternalResolution = 1;
+-  }
+-  else
+-  {
+-    iMultisamples = Config::Get(Config::GFX_MSAA);
+-    bSSAA = Config::Get(Config::GFX_SSAA);
+-    iEFBScale = Config::Get(Config::GFX_EFB_SCALE);
+-	iInternalResolution = Config::Get(Config::GFX_INTERNAL_RESOLUTION);
+-	if (iInternalResolution > -2)
+-	{
+-      iEFBScale = iInternalResolution + (iInternalResolution >= 0) + (iInternalResolution > 1) + (iInternalResolution > 2);
+-	}
+-  }
+-
+-  bTexFmtOverlayEnable = Config::Get(Config::GFX_TEXFMT_OVERLAY_ENABLE);
+-  bTexFmtOverlayCenter = Config::Get(Config::GFX_TEXFMT_OVERLAY_CENTER);
+-  bWireFrame = Config::Get(Config::GFX_ENABLE_WIREFRAME);
+-  bDisableFog = Config::Get(Config::GFX_DISABLE_FOG);
+-  bBorderlessFullscreen = Config::Get(Config::GFX_BORDERLESS_FULLSCREEN);
+-  bEnableValidationLayer = Config::Get(Config::GFX_ENABLE_VALIDATION_LAYER);
+-  bBackendMultithreading = Config::Get(Config::GFX_BACKEND_MULTITHREADING);
+-  iCommandBufferExecuteInterval = Config::Get(Config::GFX_COMMAND_BUFFER_EXECUTE_INTERVAL);
+-  bShaderCache = Config::Get(Config::GFX_SHADER_CACHE);
+-  bBackgroundShaderCompiling = Config::Get(Config::GFX_BACKGROUND_SHADER_COMPILING);
+-  bDisableSpecializedShaders = Config::Get(Config::GFX_DISABLE_SPECIALIZED_SHADERS);
+-  bPrecompileUberShaders = Config::Get(Config::GFX_PRECOMPILE_UBER_SHADERS);
+-  iShaderCompilerThreads = Config::Get(Config::GFX_SHADER_COMPILER_THREADS);
+-  iShaderPrecompilerThreads = Config::Get(Config::GFX_SHADER_PRECOMPILER_THREADS);
+-
+-  bZComploc = Config::Get(Config::GFX_SW_ZCOMPLOC);
+-  bZFreeze = Config::Get(Config::GFX_SW_ZFREEZE);
+-  bDumpObjects = Config::Get(Config::GFX_SW_DUMP_OBJECTS);
+-  bDumpTevStages = Config::Get(Config::GFX_SW_DUMP_TEV_STAGES);
+-  bDumpTevTextureFetches = Config::Get(Config::GFX_SW_DUMP_TEV_TEX_FETCHES);
+-  drawStart = Config::Get(Config::GFX_SW_DRAW_START);
+-  drawEnd = Config::Get(Config::GFX_SW_DRAW_END);
+-
+-  bForceFiltering = Config::Get(Config::GFX_ENHANCE_FORCE_FILTERING);
+-  iMaxAnisotropy = Config::Get(Config::GFX_ENHANCE_MAX_ANISOTROPY);
+-  sPostProcessingShader = Config::Get(Config::GFX_ENHANCE_POST_SHADER);
+-  bForceTrueColor = Config::Get(Config::GFX_ENHANCE_FORCE_TRUE_COLOR);
+-  if ((g_has_rift || g_has_openvr) && backend_info.bSupportsGeometryShaders)
+-    iStereoMode = STEREO_OCULUS;
+-
+-  iStereoMode = Config::Get(Config::GFX_STEREO_MODE);
+-  iStereoDepth = Config::Get(Config::GFX_STEREO_DEPTH);
+-  iStereoConvergencePercentage = Config::Get(Config::GFX_STEREO_CONVERGENCE_PERCENTAGE);
+-  bStereoSwapEyes = Config::Get(Config::GFX_STEREO_SWAP_EYES);
+-  iStereoConvergence = Config::Get(Config::GFX_STEREO_CONVERGENCE);
+-  bStereoEFBMonoDepth = Config::Get(Config::GFX_STEREO_EFB_MONO_DEPTH);
+-  iStereoDepthPercentage = Config::Get(Config::GFX_STEREO_DEPTH_PERCENTAGE);
+-
+-  bEFBAccessEnable = Config::Get(Config::GFX_HACK_EFB_ACCESS_ENABLE);
+-  bBBoxEnable = Config::Get(Config::GFX_HACK_BBOX_ENABLE);
+-  bBBoxPreferStencilImplementation =
+-      Config::Get(Config::GFX_HACK_BBOX_PREFER_STENCIL_IMPLEMENTATION);
+-  bForceProgressive = Config::Get(Config::GFX_HACK_FORCE_PROGRESSIVE);
+-  bEFBCopyEnable = Config::Get(Config::GFX_HACK_EFB_COPY_ENABLE);
+-  bEFBCopyClearDisable = Config::Get(Config::GFX_HACK_EFB_COPY_CLEAR_DISABLE);
+-  bSkipEFBCopyToRam = Config::Get(Config::GFX_HACK_SKIP_EFB_COPY_TO_RAM);
+-  bCopyEFBScaled = Config::Get(Config::GFX_HACK_COPY_EFB_ENABLED);
+-  bEFBEmulateFormatChanges = Config::Get(Config::GFX_HACK_EFB_EMULATE_FORMAT_CHANGES);
+-  bVertexRounding = Config::Get(Config::GFX_HACK_VERTEX_ROUDING);
+-
+-  phack.m_enable = Config::Get(Config::GFX_PROJECTION_HACK) == 1;
+-  phack.m_sznear = Config::Get(Config::GFX_PROJECTION_HACK_SZNEAR) == 1;
+-  phack.m_szfar = Config::Get(Config::GFX_PROJECTION_HACK_SZFAR) == 1;
+-  phack.m_znear = Config::Get(Config::GFX_PROJECTION_HACK_ZNEAR);
+-  phack.m_zfar = Config::Get(Config::GFX_PROJECTION_HACK_ZFAR);
+-  bPerfQueriesEnable = Config::Get(Config::GFX_PERF_QUERIES_ENABLE);
+-
+-  bDisable3D = Config::Get(Config::GFX_VR_DISABLE_3D);
+-  bHudFullscreen = Config::Get(Config::GFX_VR_HUD_FULLSCREEN);
+-  bHudOnTop = Config::Get(Config::GFX_VR_HUD_ON_TOP);
+-  bDontClearScreen = Config::Get(Config::GFX_VR_DONT_CLEAR_SCREEN);
+-  bCanReadCameraAngles = Config::Get(Config::GFX_VR_CAN_READ_CAMERA_ANGLES);
+-  bDetectSkybox = Config::Get(Config::GFX_VR_DETECT_SKYBOX);
+-  fUnitsPerMetre = Config::Get(Config::GFX_VR_UNITS_PER_METRE);
+-  fHudThickness = Config::Get(Config::GFX_VR_HUD_THICKNESS);
+-  fHudDistance = Config::Get(Config::GFX_VR_HUD_DISTANCE);
+-  fHud3DCloser = Config::Get(Config::GFX_VR_HUD_3D_CLOSER);
+-  fCameraForward = Config::Get(Config::GFX_VR_CAMERA_FORWARD);
+-  fCameraPitch = Config::Get(Config::GFX_VR_CAMERA_PITCH);
+-  fAimDistance = Config::Get(Config::GFX_VR_AIM_DISTANCE);
+-  fMinFOV = Config::Get(Config::GFX_VR_MIN_FOV);
+-  fN64FOV = Config::Get(Config::GFX_VR_N64_FOV);
+-  fScreenHeight = Config::Get(Config::GFX_VR_SCREEN_HEIGHT);
+-  fScreenThickness = Config::Get(Config::GFX_VR_SCREEN_THICKNESS);
+-  fScreenDistance = Config::Get(Config::GFX_VR_SCREEN_DISTANCE);
+-  fScreenRight = Config::Get(Config::GFX_VR_SCREEN_RIGHT);
+-  fScreenUp = Config::Get(Config::GFX_VR_SCREEN_UP);
+-  fScreenPitch = Config::Get(Config::GFX_VR_SCREEN_PITCH);
+-  iMetroidPrime = Config::Get(Config::GFX_VR_METROID_PRIME);
+-  iTelescopeEye = Config::Get(Config::GFX_VR_TELESCOPE_EYE);
+-  fTelescopeMaxFOV = Config::Get(Config::GFX_VR_TELESCOPE_MAX_FOV);
+-  fReadPitch = Config::Get(Config::GFX_VR_READ_PITCH);
+-  iCameraMinPoly = Config::Get(Config::GFX_VR_CAMERA_MIN_POLY);
+-  fHudDespPosition0 = Config::Get(Config::GFX_VR_HUD_DESP_POSITION_0);
+-  fHudDespPosition1 = Config::Get(Config::GFX_VR_HUD_DESP_POSITION_1);
+-  fHudDespPosition2 = Config::Get(Config::GFX_VR_HUD_DESP_POSITION_2);
+-
+-  if (iEFBScale == SCALE_FORCE_INTEGRAL)
+-  {
+-    // Round down to multiple of native IR
+-    switch (Config::GetBase(Config::GFX_EFB_SCALE))
+-    {
+-    case SCALE_AUTO:
+-      iEFBScale = SCALE_AUTO_INTEGRAL;
+-      break;
+-    case SCALE_1_5X:
+-      iEFBScale = SCALE_1X;
+-      break;
+-    case SCALE_2_5X:
+-      iEFBScale = SCALE_2X;
+-      break;
+-    default:
+-      iEFBScale = Config::GetBase(Config::GFX_EFB_SCALE);
+-      break;
+-    }
+-  }
+-
+-  bool bNoMirrorToWindow;
+-
+-  fScale = Config::Get(Config::GLOBAL_VR_SCALE);
+-  fFreeLookSensitivity = Config::Get(Config::GLOBAL_VR_FREE_LOOK_SENSITIVITY);
+-  fLeanBackAngle = Config::Get(Config::GLOBAL_VR_LEAN_BACK_ANGLE);
+-  bEnableVR = Config::Get(Config::GLOBAL_VR_ENABLE_VR);
+-  bLowPersistence = Config::Get(Config::GLOBAL_VR_LOW_PERSISTENCE);
+-  bDynamicPrediction = Config::Get(Config::GLOBAL_VR_DYNAMIC_PREDICTION);
+-  bNoMirrorToWindow = Config::Get(Config::GLOBAL_VR_NO_MIRROR_TO_WINDOW);
+-  bOrientationTracking = Config::Get(Config::GLOBAL_VR_ORIENTATION_TRACKING);
+-  bMagYawCorrection = Config::Get(Config::GLOBAL_VR_MAG_YAW_CORRECTION);
+-  bPositionTracking = Config::Get(Config::GLOBAL_VR_POSITION_TRACKING);
+-  bChromatic = Config::Get(Config::GLOBAL_VR_CHROMATIC);
+-  bTimewarp = Config::Get(Config::GLOBAL_VR_TIMEWARP);
+-  bVignette = Config::Get(Config::GLOBAL_VR_VIGNETTE);
+-  bNoRestore = Config::Get(Config::GLOBAL_VR_NO_RESTORE);
+-  bFlipVertical = Config::Get(Config::GLOBAL_VR_FLIP_VERTICAL);
+-  bSRGB = Config::Get(Config::GLOBAL_VR_SRGB);
+-  bOverdrive = Config::Get(Config::GLOBAL_VR_OVERDRIVE);
+-  bHqDistortion = Config::Get(Config::GLOBAL_VR_HQ_DISTORTION);
+-  bDisableNearClipping = Config::Get(Config::GLOBAL_VR_DISABLE_NEAR_CLIPPING);
+-  bAutoPairViveControllers = Config::Get(Config::GLOBAL_VR_AUTO_PAIR_VIVE_CONTROLLERS);
+-  bShowHands = Config::Get(Config::GLOBAL_VR_SHOW_HANDS);
+-  bShowFeet = Config::Get(Config::GLOBAL_VR_SHOW_FEET);
+-  bShowController = Config::Get(Config::GLOBAL_VR_SHOW_CONTROLLER);
+-  bShowLaserPointer = Config::Get(Config::GLOBAL_VR_SHOW_LASER_POINTER);
+-  bShowAimRectangle = Config::Get(Config::GLOBAL_VR_SHOW_AIM_RECTANGLE);
+-  bShowHudBox = Config::Get(Config::GLOBAL_VR_SHOW_HUD_BOX);
+-  bShow2DBox = Config::Get(Config::GLOBAL_VR_SHOW_2D_SCREEN_BOX);
+-  bShowSensorBar = Config::Get(Config::GLOBAL_VR_SHOW_SENSOR_BAR);
+-  bShowGameCamera = Config::Get(Config::GLOBAL_VR_SHOW_GAME_CAMERA);
+-  bShowGameFrustum = Config::Get(Config::GLOBAL_VR_SHOW_GAME_FRUSTUM);
+-  bShowTrackingCamera = Config::Get(Config::GLOBAL_VR_SHOW_TRACKING_CAMERA);
+-  bShowTrackingVolume = Config::Get(Config::GLOBAL_VR_SHOW_TRACKING_VOLUME);
+-  bShowBaseStation = Config::Get(Config::GLOBAL_VR_SHOW_BASE_STATION);
+-  bMotionSicknessAlways = Config::Get(Config::GLOBAL_VR_MOTION_SICKNESS_ALWAYS);
+-  bMotionSicknessFreelook = Config::Get(Config::GLOBAL_VR_MOTION_SICKNESS_FREELOOK);
+-  bMotionSickness2D = Config::Get(Config::GLOBAL_VR_MOTION_SICKNESS_2D);
+-  bMotionSicknessLeftStick = Config::Get(Config::GLOBAL_VR_MOTION_SICKNESS_LEFT_STICK);
+-  bMotionSicknessRightStick = Config::Get(Config::GLOBAL_VR_MOTION_SICKNESS_RIGHT_STICK);
+-  bMotionSicknessDPad = Config::Get(Config::GLOBAL_VR_MOTION_SICKNESS_DPAD);
+-  bMotionSicknessIR = Config::Get(Config::GLOBAL_VR_MOTION_SICKNESS_IR);
+-  iMotionSicknessMethod = Config::Get(Config::GLOBAL_VR_MOTION_SICKNESS_METHOD);
+-  iMotionSicknessSkybox = Config::Get(Config::GLOBAL_VR_MOTION_SICKNESS_SKYBOX);
+-  fMotionSicknessFOV = Config::Get(Config::GLOBAL_VR_MOTION_SICKNESS_FOV);
+-  iVRPlayer = Config::Get(Config::GLOBAL_VR_PLAYER);
+-  iVRPlayer2 = Config::Get(Config::GLOBAL_VR_PLAYER_2);
+-  iMirrorPlayer = Config::Get(Config::GLOBAL_VR_MIRROR_PLAYER);
+-
+-  // TODO: This doesn't work anymore, because we want to specify a default for a setting based on
+-  // another existing setting
+-  iMirrorStyle = bNoMirrorToWindow ? VR_MIRROR_DISABLED : VR_MIRROR_LEFT;
+-  iMirrorStyle = Config::Get(Config::GLOBAL_VR_MIRROR_STYLE);
+-
+-  fTimeWarpTweak = Config::Get(Config::GLOBAL_VR_TIMEWARP_TWEAK);
+-  iExtraTimewarpedFrames = Config::Get(Config::GLOBAL_VR_NUM_EXTRA_FRAMES);
+-  iExtraVideoLoops = Config::Get(Config::GLOBAL_VR_NUM_EXTRA_VIDEO_LOOPS);
+-  iExtraVideoLoopsDivider = Config::Get(Config::GLOBAL_VR_NUM_EXTRA_VIDEO_LOOPS_DIVIDER);
+-  bStabilizeRoll = Config::Get(Config::GLOBAL_VR_STABILIZE_ROLL);
+-  bStabilizePitch = Config::Get(Config::GLOBAL_VR_STABILIZE_PITCH);
+-  bStabilizeYaw = Config::Get(Config::GLOBAL_VR_STABILIZE_YAW);
+-  bStabilizeX = Config::Get(Config::GLOBAL_VR_STABILIZE_X);
+-  bStabilizeY = Config::Get(Config::GLOBAL_VR_STABILIZE_Y);
+-  bStabilizeZ = Config::Get(Config::GLOBAL_VR_STABILIZE_Z);
+-  bKeyhole = Config::Get(Config::GLOBAL_VR_KEYHOLE);
+-  fKeyholeWidth = Config::Get(Config::GLOBAL_VR_KEYHOLE_WIDTH);
+-  bKeyholeSnap = Config::Get(Config::GLOBAL_VR_KEYHOLE_SNAP);
+-  fKeyholeSnapSize = Config::Get(Config::GLOBAL_VR_KEYHOLE_SIZE);
+-  bPullUp20fps = Config::Get(Config::GLOBAL_VR_PULL_UP_20_FPS);
+-  bPullUp30fps = Config::Get(Config::GLOBAL_VR_PULL_UP_30_FPS);
+-  bPullUp60fps = Config::Get(Config::GLOBAL_VR_PULL_UP_60_FPS);
+-  bPullUpAuto = Config::Get(Config::GLOBAL_VR_PULL_UP_AUTO);
+-  bOpcodeReplay = Config::Get(Config::GLOBAL_VR_OPCODE_REPLAY);
+-  bOpcodeWarningDisable = Config::Get(Config::GLOBAL_VR_OPCODE_WARNING_DISABLE);
+-  bReplayVertexData = Config::Get(Config::GLOBAL_VR_REPLAY_VERTEX_DATA);
+-  bReplayOtherData = Config::Get(Config::GLOBAL_VR_REPLAY_OTHER_DATA);
+-  bPullUp20fpsTimewarp = Config::Get(Config::GLOBAL_VR_PULL_UP_20_FPS_TIMEWARP);
+-  bPullUp30fpsTimewarp = Config::Get(Config::GLOBAL_VR_PULL_UP_30_FPS_TIMEWARP);
+-  bPullUp60fpsTimewarp = Config::Get(Config::GLOBAL_VR_PULL_UP_60_FPS_TIMEWARP);
+-  bPullUpAutoTimewarp = Config::Get(Config::GLOBAL_VR_PULL_UP_AUTO_TIMEWARP);
+-  bSynchronousTimewarp = Config::Get(Config::GLOBAL_VR_SYNCHRONOUS_TIMEWARP);
+-  sLeftTexture = Config::Get(Config::GLOBAL_VR_LEFT_TEXTURE);
+-  sRightTexture = Config::Get(Config::GLOBAL_VR_RIGHT_TEXTURE);
+-  sGCLeftTexture = Config::Get(Config::GLOBAL_VR_GC_LEFT_TEXTURE);
+-  sGCRightTexture = Config::Get(Config::GLOBAL_VR_GC_RIGHT_TEXTURE);
+-
+-  // LoadVR(File::GetUserPath(D_CONFIG_IDX) + "Dolphin.ini");
+-
+-  VerifyValidity();
+-}
++	// Exclusive fullscreen flags
++	bFullscreen = false;
++	bExclusiveMode = false;
+
+-void VideoConfig::GameIniSave()
+-{
+-  // Save game ini
+-  INFO_LOG(CORE, "VideoConfig::GameIniSave()");
+-
+-  if (!Config::LayerExists(Config::LayerType::LocalGame))
+-    return;
+-
+-  Config::SaveIfNotDefault(Config::GFX_VR_DISABLE_3D);
+-
+-  Config::SaveIfNotDefault(Config::GFX_VR_UNITS_PER_METRE);
+-  Config::SaveIfNotDefault(Config::GFX_VR_HUD_FULLSCREEN);
+-  Config::SaveIfNotDefault(Config::GFX_VR_HUD_ON_TOP);
+-  Config::SaveIfNotDefault(Config::GFX_VR_DONT_CLEAR_SCREEN);
+-  Config::SaveIfNotDefault(Config::GFX_VR_CAN_READ_CAMERA_ANGLES);
+-  Config::SaveIfNotDefault(Config::GFX_VR_DETECT_SKYBOX);
+-  Config::SaveIfNotDefault(Config::GFX_VR_HUD_DISTANCE);
+-  Config::SaveIfNotDefault(Config::GFX_VR_HUD_THICKNESS);
+-  Config::SaveIfNotDefault(Config::GFX_VR_HUD_3D_CLOSER);
+-  Config::SaveIfNotDefault(Config::GFX_VR_CAMERA_FORWARD);
+-  Config::SaveIfNotDefault(Config::GFX_VR_CAMERA_PITCH);
+-  Config::SaveIfNotDefault(Config::GFX_VR_AIM_DISTANCE);
+-  Config::SaveIfNotDefault(Config::GFX_VR_MIN_FOV);
+-  Config::SaveIfNotDefault(Config::GFX_VR_N64_FOV);
+-  Config::SaveIfNotDefault(Config::GFX_VR_SCREEN_HEIGHT);
+-  Config::SaveIfNotDefault(Config::GFX_VR_SCREEN_DISTANCE);
+-  Config::SaveIfNotDefault(Config::GFX_VR_SCREEN_THICKNESS);
+-  Config::SaveIfNotDefault(Config::GFX_VR_SCREEN_UP);
+-  Config::SaveIfNotDefault(Config::GFX_VR_SCREEN_RIGHT);
+-  Config::SaveIfNotDefault(Config::GFX_VR_SCREEN_PITCH);
+-  Config::SaveIfNotDefault(Config::GFX_VR_READ_PITCH);
+-  Config::SaveIfNotDefault(Config::GFX_VR_HUD_DESP_POSITION_0);
+-  Config::SaveIfNotDefault(Config::GFX_VR_HUD_DESP_POSITION_1);
+-  Config::SaveIfNotDefault(Config::GFX_VR_HUD_DESP_POSITION_2);
+-  Config::SaveIfNotDefault(Config::GFX_VR_CAMERA_MIN_POLY);
+-  Config::Layer* local = Config::GetLayer(Config::LayerType::LocalGame);
+-  if (local)
+-    local->Save();
+-  Refresh();
+-  g_SavedConfig = *this;
+-}
++	// Needed for the first frame, I think
++	fAspectRatioHackW = 1;
++	fAspectRatioHackH = 1;
+
+-void VideoConfig::GameIniReset()
+-{
+-  Config::ResetToGameDefault(Config::GFX_VR_DISABLE_3D);
+-  Config::ResetToGameDefault(Config::GFX_VR_UNITS_PER_METRE);
+-  Config::ResetToGameDefault(Config::GFX_VR_HUD_FULLSCREEN);
+-  Config::ResetToGameDefault(Config::GFX_VR_HUD_3D_CLOSER);
+-  Config::ResetToGameDefault(Config::GFX_VR_HUD_DISTANCE);
+-  Config::ResetToGameDefault(Config::GFX_VR_HUD_THICKNESS);
+-  Config::ResetToGameDefault(Config::GFX_VR_CAMERA_FORWARD);
+-  Config::ResetToGameDefault(Config::GFX_VR_CAMERA_PITCH);
+-  Config::ResetToGameDefault(Config::GFX_VR_AIM_DISTANCE);
+-  Config::ResetToGameDefault(Config::GFX_VR_SCREEN_HEIGHT);
+-  Config::ResetToGameDefault(Config::GFX_VR_SCREEN_DISTANCE);
+-  Config::ResetToGameDefault(Config::GFX_VR_SCREEN_THICKNESS);
+-  Config::ResetToGameDefault(Config::GFX_VR_SCREEN_UP);
+-  Config::ResetToGameDefault(Config::GFX_VR_SCREEN_RIGHT);
+-  Config::ResetToGameDefault(Config::GFX_VR_SCREEN_PITCH);
+-  Config::ResetToGameDefault(Config::GFX_VR_MIN_FOV);
+-  Config::ResetToGameDefault(Config::GFX_VR_N64_FOV);
+-  Config::ResetToGameDefault(Config::GFX_VR_READ_PITCH);
+-  Config::ResetToGameDefault(Config::GFX_VR_CAMERA_MIN_POLY);
+-  Config::ResetToGameDefault(Config::GFX_VR_HUD_DESP_POSITION_0);
+-  Config::ResetToGameDefault(Config::GFX_VR_HUD_DESP_POSITION_1);
+-  Config::ResetToGameDefault(Config::GFX_VR_HUD_DESP_POSITION_2);
+-  Config::ResetToGameDefault(Config::GFX_VR_CAN_READ_CAMERA_ANGLES);
+-  Config::ResetToGameDefault(Config::GFX_VR_DETECT_SKYBOX);
+-  Config::ResetToGameDefault(Config::GFX_VR_HUD_ON_TOP);
+-  Config::ResetToGameDefault(Config::GFX_VR_DONT_CLEAR_SCREEN);
+-  Config::Save();
+-  g_Config.Refresh();
++	// disable all features by default
++	backend_info.APIType = API_NONE;
++	backend_info.bSupportsExclusiveFullscreen = false;
+ }
+
+-void VideoConfig::VerifyValidity()
++void VideoConfig::Load(const std::string& ini_file)
+ {
+-  INFO_LOG(CORE, "VideoConfig::VerifyValidity()");
+-  // TODO: Check iMaxAnisotropy value
+-  if (iAdapter < 0 || iAdapter > ((int)backend_info.Adapters.size() - 1))
+-    iAdapter = 0;
+-
+-  if (std::find(backend_info.AAModes.begin(), backend_info.AAModes.end(), iMultisamples) ==
+-      backend_info.AAModes.end())
+-    iMultisamples = 1;
+-
+-  if (g_has_rift || g_has_openvr)
+-    iStereoMode = STEREO_OCULUS;
+-  else if (g_has_vr920)
+-    iStereoMode = STEREO_VR920;
+-  else if (iStereoMode == STEREO_OCULUS || iStereoMode == STEREO_VR920)
+-    iStereoMode = 0;
+-  if (iStereoMode > 0)
+-  {
+-    if (!backend_info.bSupportsGeometryShaders)
+-    {
+-      PanicAlertT(
+-          "Stereoscopic 3D isn't supported by your GPU, support for OpenGL 3.2 is required.",
+-          10000);
+-      iStereoMode = 0;
+-    }
+-
+-    if (bUseXFB && bUseRealXFB && !g_has_hmd)
+-    {
+-      OSD::AddMessage("Stereoscopic 3D isn't supported with Real XFB, turning off stereoscopy.",
+-                      10000);
+-      iStereoMode = 0;
+-    }
+-  }
++	IniFile iniFile;
++	iniFile.Load(ini_file);
++
++	IniFile::Section* hardware = iniFile.GetOrCreateSection("Hardware");
++	hardware->Get("VSync", &bVSync, 0);
++	hardware->Get("Adapter", &iAdapter, 0);
++
++	IniFile::Section* settings = iniFile.GetOrCreateSection("Settings");
++	settings->Get("wideScreenHack", &bWidescreenHack, false);
++	settings->Get("AspectRatio", &iAspectRatio, (int)ASPECT_AUTO);
++	settings->Get("Crop", &bCrop, false);
++	settings->Get("UseXFB", &bUseXFB, 0);
++	settings->Get("UseRealXFB", &bUseRealXFB, 0);
++	settings->Get("SafeTextureCacheColorSamples", &iSafeTextureCache_ColorSamples, 128);
++	settings->Get("ShowFPS", &bShowFPS, false);
++	settings->Get("LogRenderTimeToFile", &bLogRenderTimeToFile, false);
++	settings->Get("OverlayStats", &bOverlayStats, false);
++	settings->Get("OverlayProjStats", &bOverlayProjStats, false);
++	settings->Get("DumpTextures", &bDumpTextures, 0);
++	settings->Get("HiresTextures", &bHiresTextures, 0);
++	settings->Get("ConvertHiresTextures", &bConvertHiresTextures, 0);
++	settings->Get("CacheHiresTextures", &bCacheHiresTextures, 0);
++	settings->Get("DumpEFBTarget", &bDumpEFBTarget, 0);
++	settings->Get("FreeLook", &bFreeLook, 0);
++	settings->Get("UseFFV1", &bUseFFV1, 0);
++	settings->Get("EnablePixelLighting", &bEnablePixelLighting, 0);
++	settings->Get("FastDepthCalc", &bFastDepthCalc, true);
++	settings->Get("MSAA", &iMultisamples, 1);
++	settings->Get("SSAA", &bSSAA, false);
++	settings->Get("EFBScale", &iEFBScale, (int)SCALE_1X); // native
++	settings->Get("TexFmtOverlayEnable", &bTexFmtOverlayEnable, 0);
++	settings->Get("TexFmtOverlayCenter", &bTexFmtOverlayCenter, 0);
++	settings->Get("WireFrame", &bWireFrame, 0);
++	settings->Get("DisableFog", &bDisableFog, 0);
++	settings->Get("EnableShaderDebugging", &bEnableShaderDebugging, false);
++	settings->Get("BorderlessFullscreen", &bBorderlessFullscreen, false);
++
++	settings->Get("SWZComploc", &bZComploc, true);
++	settings->Get("SWZFreeze", &bZFreeze, true);
++	settings->Get("SWDumpObjects", &bDumpObjects, false);
++	settings->Get("SWDumpTevStages", &bDumpTevStages, false);
++	settings->Get("SWDumpTevTexFetches", &bDumpTevTextureFetches, false);
++	settings->Get("SWDrawStart", &drawStart, 0);
++	settings->Get("SWDrawEnd", &drawEnd, 100000);
++
++
++	IniFile::Section* enhancements = iniFile.GetOrCreateSection("Enhancements");
++	enhancements->Get("ForceFiltering", &bForceFiltering, 0);
++	enhancements->Get("MaxAnisotropy", &iMaxAnisotropy, 0);  // NOTE - this is x in (1 << x)
++	enhancements->Get("PostProcessingShader", &sPostProcessingShader, "");
++
++	IniFile::Section* stereoscopy = iniFile.GetOrCreateSection("Stereoscopy");
++	stereoscopy->Get("StereoMode", &iStereoMode, 0);
++	stereoscopy->Get("StereoDepth", &iStereoDepth, 20);
++	stereoscopy->Get("StereoConvergencePercentage", &iStereoConvergencePercentage, 100);
++	stereoscopy->Get("StereoSwapEyes", &bStereoSwapEyes, false);
++
++	IniFile::Section* hacks = iniFile.GetOrCreateSection("Hacks");
++	hacks->Get("EFBAccessEnable", &bEFBAccessEnable, true);
++	hacks->Get("BBoxEnable", &bBBoxEnable, false);
++	hacks->Get("ForceProgressive", &bForceProgressive, true);
++	hacks->Get("EFBToTextureEnable", &bSkipEFBCopyToRam, true);
++	hacks->Get("EFBScaledCopy", &bCopyEFBScaled, true);
++	hacks->Get("EFBEmulateFormatChanges", &bEFBEmulateFormatChanges, false);
++
++	// hacks which are disabled by default
++	iPhackvalue[0] = 0;
++	bPerfQueriesEnable = false;
++
++	// Load common settings
++	iniFile.Load(File::GetUserPath(F_DOLPHINCONFIG_IDX));
++	IniFile::Section* interface = iniFile.GetOrCreateSection("Interface");
++	bool bTmp;
++	interface->Get("UsePanicHandlers", &bTmp, true);
++	SetEnableAlert(bTmp);
++
++	// Shader Debugging causes a huge slowdown and it's easy to forget about it
++	// since it's not exposed in the settings dialog. It's only used by
++	// developers, so displaying an obnoxious message avoids some confusion and
++	// is not too annoying/confusing for users.
++	//
++	// XXX(delroth): This is kind of a bad place to put this, but the current
++	// VideoCommon is a mess and we don't have a central initialization
++	// function to do these kind of checks. Instead, the init code is
++	// triplicated for each video backend.
++	if (bEnableShaderDebugging)
++		OSD::AddMessage("Warning: Shader Debugging is enabled, performance will suffer heavily", 15000);
++
++	VerifyValidity();
+ }
+
+-bool VideoConfig::IsVSync() const
++void VideoConfig::GameIniLoad()
+ {
+-  return bVSync && !Core::GetIsThrottlerTempDisabled();
+-}
++	bool gfx_override_exists = false;
++
++	// XXX: Again, bad place to put OSD messages at (see delroth's comment above)
++	// XXX: This will add an OSD message for each projection hack value... meh
++#define CHECK_SETTING(section, key, var) do { \
++		decltype(var) temp = var; \
++		if (iniFile.GetIfExists(section, key, &var) && var != temp) { \
++			std::string msg = StringFromFormat("Note: Option \"%s\" is overridden by game ini.", key); \
++			OSD::AddMessage(msg, 7500); \
++			gfx_override_exists = true; \
++		} \
++	} while (0)
++
++	IniFile iniFile = SConfig::GetInstance().LoadGameIni();
++
++	CHECK_SETTING("Video_Hardware", "VSync", bVSync);
++
++	CHECK_SETTING("Video_Settings", "wideScreenHack", bWidescreenHack);
++	CHECK_SETTING("Video_Settings", "AspectRatio", iAspectRatio);
++	CHECK_SETTING("Video_Settings", "Crop", bCrop);
++	CHECK_SETTING("Video_Settings", "UseXFB", bUseXFB);
++	CHECK_SETTING("Video_Settings", "UseRealXFB", bUseRealXFB);
++	CHECK_SETTING("Video_Settings", "SafeTextureCacheColorSamples", iSafeTextureCache_ColorSamples);
++	CHECK_SETTING("Video_Settings", "HiresTextures", bHiresTextures);
++	CHECK_SETTING("Video_Settings", "ConvertHiresTextures", bConvertHiresTextures);
++	CHECK_SETTING("Video_Settings", "CacheHiresTextures", bCacheHiresTextures);
++	CHECK_SETTING("Video_Settings", "EnablePixelLighting", bEnablePixelLighting);
++	CHECK_SETTING("Video_Settings", "FastDepthCalc", bFastDepthCalc);
++	CHECK_SETTING("Video_Settings", "MSAA", iMultisamples);
++	CHECK_SETTING("Video_Settings", "SSAA", bSSAA);
++
++	int tmp = -9000;
++	CHECK_SETTING("Video_Settings", "EFBScale", tmp); // integral
++	if (tmp != -9000)
++	{
++		if (tmp != SCALE_FORCE_INTEGRAL)
++		{
++			iEFBScale = tmp;
++		}
++		else // Round down to multiple of native IR
++		{
++			switch (iEFBScale)
++			{
++			case SCALE_AUTO:
++				iEFBScale = SCALE_AUTO_INTEGRAL;
++				break;
++			case SCALE_1_5X:
++				iEFBScale = SCALE_1X;
++				break;
++			case SCALE_2_5X:
++				iEFBScale = SCALE_2X;
++				break;
++			default:
++				break;
++			}
++		}
++	}
+
+-bool VideoConfig::VRSettingsModified()
+-{
+-  return fUnitsPerMetre != g_SavedConfig.fUnitsPerMetre ||
+-         fHudThickness != g_SavedConfig.fHudThickness ||
+-         fHudDistance != g_SavedConfig.fHudDistance || fHud3DCloser != g_SavedConfig.fHud3DCloser ||
+-         fCameraForward != g_SavedConfig.fCameraForward ||
+-         fCameraPitch != g_SavedConfig.fCameraPitch || fAimDistance != g_SavedConfig.fAimDistance ||
+-         fMinFOV != g_SavedConfig.fMinFOV || fScreenHeight != g_SavedConfig.fScreenHeight ||
+-         fN64FOV != g_SavedConfig.fN64FOV || fScreenThickness != g_SavedConfig.fScreenThickness ||
+-         fScreenDistance != g_SavedConfig.fScreenDistance ||
+-         fScreenRight != g_SavedConfig.fScreenRight || fScreenUp != g_SavedConfig.fScreenUp ||
+-         fScreenPitch != g_SavedConfig.fScreenPitch ||
+-         fTelescopeMaxFOV != g_SavedConfig.fTelescopeMaxFOV ||
+-         fReadPitch != g_SavedConfig.fReadPitch || iCameraMinPoly != g_SavedConfig.iCameraMinPoly ||
+-         bDisable3D != g_SavedConfig.bDisable3D || bHudFullscreen != g_SavedConfig.bHudFullscreen ||
+-         bHudOnTop != g_SavedConfig.bHudOnTop ||
+-         fHudDespPosition0 != g_SavedConfig.fHudDespPosition0 ||
+-         fHudDespPosition1 != g_SavedConfig.fHudDespPosition1 ||
+-         fHudDespPosition2 != g_SavedConfig.fHudDespPosition2 ||
+-         bDontClearScreen != g_SavedConfig.bDontClearScreen ||
+-         bCanReadCameraAngles != g_SavedConfig.bCanReadCameraAngles ||
+-         bDetectSkybox != g_SavedConfig.bDetectSkybox ||
+-         iTelescopeEye != g_SavedConfig.iTelescopeEye ||
+-         iMetroidPrime != g_SavedConfig.iMetroidPrime;
++	CHECK_SETTING("Video_Settings", "DisableFog", bDisableFog);
++
++	CHECK_SETTING("Video_Enhancements", "ForceFiltering", bForceFiltering);
++	CHECK_SETTING("Video_Enhancements", "MaxAnisotropy", iMaxAnisotropy);  // NOTE - this is x in (1 << x)
++	CHECK_SETTING("Video_Enhancements", "PostProcessingShader", sPostProcessingShader);
++
++	// These are not overrides, they are per-game stereoscopy parameters, hence no warning
++	iniFile.GetIfExists("Video_Stereoscopy", "StereoConvergence", &iStereoConvergence, 20);
++	iniFile.GetIfExists("Video_Stereoscopy", "StereoEFBMonoDepth", &bStereoEFBMonoDepth, false);
++	iniFile.GetIfExists("Video_Stereoscopy", "StereoDepthPercentage", &iStereoDepthPercentage, 100);
++
++	CHECK_SETTING("Video_Stereoscopy", "StereoMode", iStereoMode);
++	CHECK_SETTING("Video_Stereoscopy", "StereoDepth", iStereoDepth);
++	CHECK_SETTING("Video_Stereoscopy", "StereoSwapEyes", bStereoSwapEyes);
++
++	CHECK_SETTING("Video_Hacks", "EFBAccessEnable", bEFBAccessEnable);
++	CHECK_SETTING("Video_Hacks", "BBoxEnable", bBBoxEnable);
++	CHECK_SETTING("Video_Hacks", "ForceProgressive", bForceProgressive);
++	CHECK_SETTING("Video_Hacks", "EFBToTextureEnable", bSkipEFBCopyToRam);
++	CHECK_SETTING("Video_Hacks", "EFBScaledCopy", bCopyEFBScaled);
++	CHECK_SETTING("Video_Hacks", "EFBEmulateFormatChanges", bEFBEmulateFormatChanges);
++
++	CHECK_SETTING("Video", "ProjectionHack", iPhackvalue[0]);
++	CHECK_SETTING("Video", "PH_SZNear", iPhackvalue[1]);
++	CHECK_SETTING("Video", "PH_SZFar", iPhackvalue[2]);
++	CHECK_SETTING("Video", "PH_ZNear", sPhackvalue[0]);
++	CHECK_SETTING("Video", "PH_ZFar", sPhackvalue[1]);
++	CHECK_SETTING("Video", "PerfQueriesEnable", bPerfQueriesEnable);
++
++	if (gfx_override_exists)
++		OSD::AddMessage("Warning: Opening the graphics configuration will reset settings and might cause issues!", 10000);
+ }
+
+-static u32 GetNumAutoShaderCompilerThreads()
++void VideoConfig::VerifyValidity()
+ {
+-  // Automatic number. We use clamp(cpus - 3, 1, 4).
+-  return static_cast<u32>(std::min(std::max(cpu_info.num_cores - 3, 1), 4));
+-}
++	// TODO: Check iMaxAnisotropy value
++	if (iAdapter < 0 || iAdapter > ((int)backend_info.Adapters.size() - 1))
++		iAdapter = 0;
+
+-u32 VideoConfig::GetShaderCompilerThreads() const
+-{
+-  if (iShaderCompilerThreads >= 0)
+-    return static_cast<u32>(iShaderCompilerThreads);
+-  else
+-    return GetNumAutoShaderCompilerThreads();
+-}
++	if (std::find(backend_info.AAModes.begin(), backend_info.AAModes.end(), iMultisamples) == backend_info.AAModes.end())
++		iMultisamples = 1;
+
+-u32 VideoConfig::GetShaderPrecompilerThreads() const
+-{
+-  if (iShaderPrecompilerThreads >= 0)
+-    return static_cast<u32>(iShaderPrecompilerThreads);
+-  else
+-    return GetNumAutoShaderCompilerThreads();
++	if (iStereoMode > 0)
++	{
++		if (!backend_info.bSupportsGeometryShaders)
++		{
++			OSD::AddMessage("Stereoscopic 3D isn't supported by your GPU, support for OpenGL 3.2 is required.", 10000);
++			iStereoMode = 0;
++		}
++
++		if (bUseXFB && bUseRealXFB)
++		{
++			OSD::AddMessage("Stereoscopic 3D isn't supported with Real XFB, turning off stereoscopy.", 10000);
++			iStereoMode = 0;
++		}
++	}
+ }
+
+-bool VideoConfig::CanPrecompileUberShaders() const
++void VideoConfig::Save(const std::string& ini_file)
+ {
+-  // We don't want to precompile ubershaders if they're never going to be used.
+-  return bPrecompileUberShaders && (bBackgroundShaderCompiling || bDisableSpecializedShaders);
++	IniFile iniFile;
++	iniFile.Load(ini_file);
++
++	IniFile::Section* hardware = iniFile.GetOrCreateSection("Hardware");
++	hardware->Set("VSync", bVSync);
++	hardware->Set("Adapter", iAdapter);
++
++	IniFile::Section* settings = iniFile.GetOrCreateSection("Settings");
++	settings->Set("AspectRatio", iAspectRatio);
++	settings->Set("Crop", bCrop);
++	settings->Set("wideScreenHack", bWidescreenHack);
++	settings->Set("UseXFB", bUseXFB);
++	settings->Set("UseRealXFB", bUseRealXFB);
++	settings->Set("SafeTextureCacheColorSamples", iSafeTextureCache_ColorSamples);
++	settings->Set("ShowFPS", bShowFPS);
++	settings->Set("LogRenderTimeToFile", bLogRenderTimeToFile);
++	settings->Set("OverlayStats", bOverlayStats);
++	settings->Set("OverlayProjStats", bOverlayProjStats);
++	settings->Set("DumpTextures", bDumpTextures);
++	settings->Set("HiresTextures", bHiresTextures);
++	settings->Set("ConvertHiresTextures", bConvertHiresTextures);
++	settings->Set("CacheHiresTextures", bCacheHiresTextures);
++	settings->Set("DumpEFBTarget", bDumpEFBTarget);
++	settings->Set("FreeLook", bFreeLook);
++	settings->Set("UseFFV1", bUseFFV1);
++	settings->Set("EnablePixelLighting", bEnablePixelLighting);
++	settings->Set("FastDepthCalc", bFastDepthCalc);
++	settings->Set("MSAA", iMultisamples);
++	settings->Set("SSAA", bSSAA);
++	settings->Set("EFBScale", iEFBScale);
++	settings->Set("TexFmtOverlayEnable", bTexFmtOverlayEnable);
++	settings->Set("TexFmtOverlayCenter", bTexFmtOverlayCenter);
++	settings->Set("Wireframe", bWireFrame);
++	settings->Set("DisableFog", bDisableFog);
++	settings->Set("EnableShaderDebugging", bEnableShaderDebugging);
++	settings->Set("BorderlessFullscreen", bBorderlessFullscreen);
++
++	settings->Set("SWZComploc", bZComploc);
++	settings->Set("SWZFreeze", bZFreeze);
++	settings->Set("SWDumpObjects", bDumpObjects);
++	settings->Set("SWDumpTevStages", bDumpTevStages);
++	settings->Set("SWDumpTevTexFetches", bDumpTevTextureFetches);
++	settings->Set("SWDrawStart", drawStart);
++	settings->Set("SWDrawEnd", drawEnd);
++
++	IniFile::Section* enhancements = iniFile.GetOrCreateSection("Enhancements");
++	enhancements->Set("ForceFiltering", bForceFiltering);
++	enhancements->Set("MaxAnisotropy", iMaxAnisotropy);
++	enhancements->Set("PostProcessingShader", sPostProcessingShader);
++
++	IniFile::Section* stereoscopy = iniFile.GetOrCreateSection("Stereoscopy");
++	stereoscopy->Set("StereoMode", iStereoMode);
++	stereoscopy->Set("StereoDepth", iStereoDepth);
++	stereoscopy->Set("StereoConvergencePercentage", iStereoConvergencePercentage);
++	stereoscopy->Set("StereoSwapEyes", bStereoSwapEyes);
++
++	IniFile::Section* hacks = iniFile.GetOrCreateSection("Hacks");
++	hacks->Set("EFBAccessEnable", bEFBAccessEnable);
++	hacks->Set("BBoxEnable", bBBoxEnable);
++	hacks->Set("ForceProgressive", bForceProgressive);
++	hacks->Set("EFBToTextureEnable", bSkipEFBCopyToRam);
++	hacks->Set("EFBScaledCopy", bCopyEFBScaled);
++	hacks->Set("EFBEmulateFormatChanges", bEFBEmulateFormatChanges);
++
++	iniFile.Save(ini_file);
+ }
+
+-bool VideoConfig::CanBackgroundCompileShaders() const
++bool VideoConfig::IsVSync()
+ {
+-  // We require precompiled ubershaders to background compile shaders.
+-  return bBackgroundShaderCompiling && bPrecompileUberShaders;
++	return bVSync && !Core::GetIsThrottlerTempDisabled();
+ }
+diff --git a/Source/Core/VideoCommon/VideoConfig.h b/Source/Core/VideoCommon/VideoConfig.h
+index c8ed00961..fdb96d823 100644
+--- a/Source/Core/VideoCommon/VideoConfig.h
++++ b/Source/Core/VideoCommon/VideoConfig.h
+@@ -2,6 +2,7 @@
+ // Licensed under GPLv2+
+ // Refer to the license.txt file included.
+
++
+ // IMPORTANT: UI etc should modify g_Config. Graphics code should read g_ActiveConfig.
+ // The reason for this is to get rid of race conditions etc when the configuration
+ // changes in the middle of a frame. This is done by copying g_Config to g_ActiveConfig
+@@ -17,383 +18,167 @@
+ #include "VideoCommon/VideoCommon.h"
+
+ // Log in two categories, and save three other options in the same byte
+-#define CONF_LOG 1
+-#define CONF_PRIMLOG 2
+-#define CONF_SAVETARGETS 8
+-#define CONF_SAVESHADERS 16
++#define CONF_LOG          1
++#define CONF_PRIMLOG      2
++#define CONF_SAVETARGETS  8
++#define CONF_SAVESHADERS  16
+
+ enum AspectMode
+ {
+-  ASPECT_AUTO = 0,
+-  ASPECT_ANALOG_WIDE = 1,
+-  ASPECT_ANALOG = 2,
+-  ASPECT_STRETCH = 3,
++	ASPECT_AUTO        = 0,
++	ASPECT_ANALOG_WIDE = 1,
++	ASPECT_ANALOG      = 2,
++	ASPECT_STRETCH     = 3,
+ };
+
+ enum EFBScale
+ {
+-  SCALE_FORCE_INTEGRAL = -1,
+-  SCALE_AUTO,
+-  SCALE_AUTO_INTEGRAL,
+-  SCALE_1X,
+-  SCALE_1_5X,
+-  SCALE_2X,
+-  SCALE_2_5X,
++	SCALE_FORCE_INTEGRAL = -1,
++	SCALE_AUTO,
++	SCALE_AUTO_INTEGRAL,
++	SCALE_1X,
++	SCALE_1_5X,
++	SCALE_2X,
++	SCALE_2_5X,
+ };
+
+ enum StereoMode
+ {
+-  STEREO_OFF = 0,
+-  STEREO_SBS,
+-  STEREO_TAB,
+-  STEREO_ANAGLYPH,
+-  STEREO_OSVR,
+-  STEREO_QUADBUFFER,
+-  STEREO_3DVISION,
+-  STEREO_OCULUS,
+-  STEREO_VR920,
+-};
+-
+-enum TGameCamera
+-{
+-  CAMERA_YAWPITCHROLL = 0,
+-  CAMERA_YAWPITCH,
+-  CAMERA_YAW,
+-  CAMERA_NONE
+-};
+-
+-struct ProjectionHackConfig final
+-{
+-  bool m_enable;
+-  bool m_sznear;
+-  bool m_szfar;
+-  std::string m_znear;
+-  std::string m_zfar;
++	STEREO_OFF = 0,
++	STEREO_SBS,
++	STEREO_TAB,
++	STEREO_ANAGLYPH,
++	STEREO_3DVISION
+ };
+
+ // NEVER inherit from this class.
+ struct VideoConfig final
+ {
+-  VideoConfig();
+-  void Refresh();
+-  void GameIniSave();
+-  void GameIniReset();
+-  void VerifyValidity();
+-  void UpdateProjectionHack();
+-  bool IsVSync() const;
+-  bool VRSettingsModified();
+-
+-  // General
+-  bool bVSync;
+-  bool bWidescreenHack;
+-  int iAspectRatio;
+-  bool bCrop;  // Aspect ratio controls.
+-  bool bUseXFB;
+-  bool bUseRealXFB;
+-  bool bShaderCache;
+-
+-  // Enhancements
+-  u32 iMultisamples;
+-  bool bSSAA;
+-  int iEFBScale;
+-  int iInternalResolution;
+-  bool bForceFiltering;
+-  int iMaxAnisotropy;
+-  std::string sPostProcessingShader;
+-  bool bForceTrueColor;
+-
+-  // Information
+-  bool bShowFPS;
+-  bool bShowNetPlayPing;
+-  bool bShowNetPlayMessages;
+-  bool bOverlayStats;
+-  bool bOverlayProjStats;
+-  bool bTexFmtOverlayEnable;
+-  bool bTexFmtOverlayCenter;
+-  bool bLogRenderTimeToFile;
+-
+-  // Render
+-  bool bWireFrame;
+-  bool bDisableFog;
+-
+-  // Utility
+-  bool bDumpTextures;
+-  bool bHiresTextures;
+-  bool bConvertHiresTextures;
+-  bool bCacheHiresTextures;
+-  bool bDumpEFBTarget;
+-  bool bDumpFramesAsImages;
+-  bool bUseFFV1;
+-  std::string sDumpCodec;
+-  std::string sDumpFormat;
+-  std::string sDumpPath;
+-  bool bInternalResolutionFrameDumps;
+-  bool bFreeLook;
+-  bool bBorderlessFullscreen;
+-  bool bEnableGPUTextureDecoding;
+-  int iBitrateKbps;
+-
+-  // Hacks
+-  bool bEFBAccessEnable;
+-  bool bPerfQueriesEnable;
+-  bool bBBoxEnable;
+-  bool bBBoxPreferStencilImplementation;  // OpenGL-only, to see how slow it is compared to SSBOs
+-  bool bForceProgressive;
+-
+-  bool bEFBCopyEnable;
+-  bool bEFBCopyClearDisable;
+-  bool bEFBEmulateFormatChanges;
+-  bool bSkipEFBCopyToRam;
+-  bool bCopyEFBScaled;
+-  int iSafeTextureCache_ColorSamples;
+-  ProjectionHackConfig phack;
+-  float fAspectRatioHackW, fAspectRatioHackH;
+-  bool bEnablePixelLighting;
+-  bool bFastDepthCalc;
+-  bool bVertexRounding;
+-  int iLog;           // CONF_ bits
+-  int iSaveTargetId;  // TODO: Should be dropped
+-
+-  // Stereoscopy
+-  int iStereoMode;
+-  int iStereoDepth;
+-  int iStereoConvergence;
+-  int iStereoConvergencePercentage;
+-  bool bStereoSwapEyes;
+-  bool bStereoEFBMonoDepth;
+-  int iStereoDepthPercentage;
+-
+-  // VR global
+-  float fScale;
+-  float fLeanBackAngle;
+-  bool bStabilizeRoll;
+-  bool bStabilizePitch;
+-  bool bStabilizeYaw;
+-  bool bStabilizeX;
+-  bool bStabilizeY;
+-  bool bStabilizeZ;
+-  bool bKeyhole;
+-  float fKeyholeWidth;
+-  bool bKeyholeSnap;
+-  float fKeyholeSnapSize;
+-  bool bPullUp20fps;
+-  bool bPullUp30fps;
+-  bool bPullUp60fps;
+-  bool bPullUpAuto;
+-  bool bSynchronousTimewarp;
+-  bool bOpcodeWarningDisable;
+-  bool bReplayVertexData;
+-  bool bReplayOtherData;
+-  bool bPullUp20fpsTimewarp;
+-  bool bPullUp30fpsTimewarp;
+-  bool bPullUp60fpsTimewarp;
+-  bool bPullUpAutoTimewarp;
+-  bool bOpcodeReplay;
+-  bool bAsynchronousTimewarp;
+-  bool bEnableVR;
+-  bool bLowPersistence;
+-  bool bDynamicPrediction;
+-  bool bOrientationTracking;
+-  bool bMagYawCorrection;
+-  bool bPositionTracking;
+-  bool bChromatic;
+-  bool bTimewarp;
+-  bool bVignette;
+-  bool bNoRestore;
+-  bool bFlipVertical;
+-  bool bSRGB;
+-  bool bOverdrive;
+-  bool bHqDistortion;
+-  bool bDisableNearClipping;
+-  bool bAutoPairViveControllers;
+-  bool bShowHands;
+-  bool bShowFeet;
+-  bool bShowController;
+-  bool bShowLaserPointer;
+-  bool bShowAimRectangle;
+-  bool bShowHudBox;
+-  bool bShow2DBox;
+-  bool bShowSensorBar;
+-  bool bShowGameCamera;
+-  bool bShowGameFrustum;
+-  bool bShowTrackingCamera;
+-  bool bShowTrackingVolume;
+-  bool bShowBaseStation;
+-  bool bMotionSicknessAlways;
+-  bool bMotionSicknessFreelook;
+-  bool bMotionSickness2D;
+-  bool bMotionSicknessLeftStick;
+-  bool bMotionSicknessRightStick;
+-  bool bMotionSicknessDPad;
+-  bool bMotionSicknessIR;
+-  int iMotionSicknessMethod;
+-  int iMotionSicknessSkybox;
+-  float fMotionSicknessFOV;
+-
+-  int iVRPlayer, iVRPlayer2, iMirrorPlayer;
+-  int iMirrorStyle;
+-  float fTimeWarpTweak;
+-  u32 iExtraTimewarpedFrames;
+-  u32 iExtraVideoLoops;
+-  u32 iExtraVideoLoopsDivider;
+-
+-  std::string sLeftTexture;
+-  std::string sRightTexture;
+-  std::string sGCLeftTexture;
+-  std::string sGCRightTexture;
+-
+-  // VR per game
+-  float fUnitsPerMetre;
+-  float fFreeLookSensitivity;
+-  float fHudThickness;
+-  float fHudDistance;
+-  float fHud3DCloser;
+-  float fCameraForward;
+-  float fCameraPitch;
+-  float fAimDistance;
+-  float fMinFOV;
+-  float fN64FOV;
+-  float fScreenHeight;
+-  float fScreenThickness;
+-  float fScreenDistance;
+-  float fScreenRight;
+-  float fScreenUp;
+-  float fScreenPitch;
+-  float fTelescopeMaxFOV;
+-  float fReadPitch;
+-
+-  float fHudDespPosition0;
+-  float fHudDespPosition1;
+-  float fHudDespPosition2;
+-  Matrix33 matrixHudrot;
+-
+-  u32 iCameraMinPoly;
+-  bool bDisable3D;
+-  bool bHudFullscreen;
+-  bool bHudOnTop;
+-  bool bDontClearScreen;
+-  bool bCanReadCameraAngles;
+-  bool bDetectSkybox;
+-  int iTelescopeEye;
+-  int iMetroidPrime;
+-  // VR layer debugging
+-  int iSelectedLayer;
+-  int iFlashState;
+-
+-  // D3D only config, mostly to be merged into the above
+-  int iAdapter;
+-
+-  // VideoSW Debugging
+-  int drawStart;
+-  int drawEnd;
+-  bool bZComploc;
+-  bool bZFreeze;
+-  bool bDumpObjects;
+-  bool bDumpTevStages;
+-  bool bDumpTevTextureFetches;
+-
+-  // Enable API validation layers, currently only supported with Vulkan.
+-  bool bEnableValidationLayer;
+-
+-  // Multithreaded submission, currently only supported with Vulkan.
+-  bool bBackendMultithreading;
+-
+-  // Early command buffer execution interval in number of draws.
+-  // Currently only supported with Vulkan.
+-  int iCommandBufferExecuteInterval;
+-
+-  // The following options determine the ubershader mode:
+-  //   No ubershaders:
+-  //     - bBackgroundShaderCompiling = false
+-  //     - bDisableSpecializedShaders = false
+-  //   Hybrid/background compiling:
+-  //     - bBackgroundShaderCompiling = true
+-  //     - bDisableSpecializedShaders = false
+-  //   Ubershaders only:
+-  //     - bBackgroundShaderCompiling = false
+-  //     - bDisableSpecializedShaders = true
+-
+-  // Enable background shader compiling, use ubershaders while waiting.
+-  bool bBackgroundShaderCompiling;
+-
+-  // Use ubershaders only, don't compile specialized shaders.
+-  bool bDisableSpecializedShaders;
+-
+-  // Precompile ubershader variants at boot/config reload time.
+-  bool bPrecompileUberShaders;
+-
+-  // Number of shader compiler threads.
+-  // 0 disables background compilation.
+-  // -1 uses an automatic number based on the CPU threads.
+-  int iShaderCompilerThreads;
+-  int iShaderPrecompilerThreads;
+-
+-  // Static config per API
+-  // TODO: Move this out of VideoConfig
+-  struct
+-  {
+-    APIType api_type;
+-
+-    std::vector<std::string> Adapters;  // for D3D
+-    std::vector<u32> AAModes;
+-
+-    // TODO: merge AdapterName and Adapters array
+-    std::string AdapterName;  // for OpenGL
+-
+-    u32 MaxTextureSize;
+-
+-    bool bSupportsExclusiveFullscreen;
+-    bool bSupportsDualSourceBlend;
+-    bool bSupportsPrimitiveRestart;
+-    bool bSupportsOversizedViewports;
+-    bool bSupportsGeometryShaders;
+-    bool bSupportsComputeShaders;
+-    bool bSupports3DVision;
+-    bool bSupportsEarlyZ;         // needed by PixelShaderGen, so must stay in VideoCommon
+-    bool bSupportsBindingLayout;  // Needed by ShaderGen, so must stay in VideoCommon
+-    bool bSupportsBBox;
+-    bool bSupportsGSInstancing;  // Needed by GeometryShaderGen, so must stay in VideoCommon
+-    bool bSupportsPostProcessing;
+-    bool bSupportsPaletteConversion;
+-    bool bSupportsClipControl;  // Needed by VertexShaderGen, so must stay in VideoCommon
+-    bool bSupportsSSAA;
+-    bool bSupportsFragmentStoresAndAtomics;  // a.k.a. OpenGL SSBOs a.k.a. Direct3D UAVs
+-    bool bSupportsDepthClamp;  // Needed by VertexShaderGen, so must stay in VideoCommon
+-    bool bSupportsReversedDepthRange;
+-    bool bSupportsMultithreading;
+-    bool bSupportsInternalResolutionFrameDumps;
+-    bool bSupportsGPUTextureDecoding;
+-    bool bSupportsST3CTextures;
+-    bool bSupportsBitfield;                // Needed by UberShaders, so must stay in VideoCommon
+-    bool bSupportsDynamicSamplerIndexing;  // Needed by UberShaders, so must stay in VideoCommon
+-    bool bSupportsBPTCTextures;
+-  } backend_info;
+-
+-  // Utility
+-  bool RealXFBEnabled() const { return bUseXFB && bUseRealXFB; }
+-  bool VirtualXFBEnabled() const { return bUseXFB && !bUseRealXFB; }
+-  bool MultisamplingEnabled() const { return iMultisamples > 1; }
+-  bool EFBCopiesToTextureEnabled() const { return bEFBCopyEnable && bSkipEFBCopyToRam; }
+-  bool EFBCopiesToRamEnabled() const { return bEFBCopyEnable && !bSkipEFBCopyToRam; }
+-  bool ExclusiveFullscreenEnabled() const
+-  {
+-    return backend_info.bSupportsExclusiveFullscreen && !bBorderlessFullscreen;
+-  }
+-  bool BBoxUseFragmentShaderImplementation() const
+-  {
+-    if (backend_info.api_type == APIType::OpenGL && bBBoxPreferStencilImplementation)
+-      return false;
+-    return backend_info.bSupportsBBox && backend_info.bSupportsFragmentStoresAndAtomics;
+-  }
+-  bool UseGPUTextureDecoding() const
+-  {
+-    return backend_info.bSupportsGPUTextureDecoding && bEnableGPUTextureDecoding;
+-  }
+-  bool UseVertexRounding() const { return bVertexRounding && iEFBScale != SCALE_1X; }
+-  u32 GetShaderCompilerThreads() const;
+-  u32 GetShaderPrecompilerThreads() const;
+-  bool CanPrecompileUberShaders() const;
+-  bool CanBackgroundCompileShaders() const;
++	VideoConfig();
++	void Load(const std::string& ini_file);
++	void GameIniLoad();
++	void VerifyValidity();
++	void Save(const std::string& ini_file);
++	void UpdateProjectionHack();
++	bool IsVSync();
++
++	// General
++	bool bVSync;
++	bool bFullscreen;
++	bool bExclusiveMode;
++	bool bRunning;
++	bool bWidescreenHack;
++	int iAspectRatio;
++	bool bCrop;   // Aspect ratio controls.
++	bool bUseXFB;
++	bool bUseRealXFB;
++
++	// Enhancements
++	int iMultisamples;
++	bool bSSAA;
++	int iEFBScale;
++	bool bForceFiltering;
++	int iMaxAnisotropy;
++	std::string sPostProcessingShader;
++
++	// Information
++	bool bShowFPS;
++	bool bOverlayStats;
++	bool bOverlayProjStats;
++	bool bTexFmtOverlayEnable;
++	bool bTexFmtOverlayCenter;
++	bool bLogRenderTimeToFile;
++
++	// Render
++	bool bWireFrame;
++	bool bDisableFog;
++
++	// Utility
++	bool bDumpTextures;
++	bool bHiresTextures;
++	bool bConvertHiresTextures;
++	bool bCacheHiresTextures;
++	bool bDumpEFBTarget;
++	bool bUseFFV1;
++	bool bFreeLook;
++	bool bBorderlessFullscreen;
++
++	// Hacks
++	bool bEFBAccessEnable;
++	bool bPerfQueriesEnable;
++	bool bBBoxEnable;
++	bool bForceProgressive;
++
++	bool bEFBEmulateFormatChanges;
++	bool bSkipEFBCopyToRam;
++	bool bCopyEFBScaled;
++	int iSafeTextureCache_ColorSamples;
++	int iPhackvalue[3];
++	std::string sPhackvalue[2];
++	float fAspectRatioHackW, fAspectRatioHackH;
++	bool bEnablePixelLighting;
++	bool bFastDepthCalc;
++	int iLog; // CONF_ bits
++	int iSaveTargetId; // TODO: Should be dropped
++
++	// Stereoscopy
++	int iStereoMode;
++	int iStereoDepth;
++	int iStereoConvergence;
++	int iStereoConvergencePercentage;
++	bool bStereoSwapEyes;
++	bool bStereoEFBMonoDepth;
++	int iStereoDepthPercentage;
++
++	// D3D only config, mostly to be merged into the above
++	int iAdapter;
++
++	// Debugging
++	bool bEnableShaderDebugging;
++
++	// VideoSW Debugging
++	int drawStart;
++	int drawEnd;
++	bool bZComploc;
++	bool bZFreeze;
++	bool bDumpObjects;
++	bool bDumpTevStages;
++	bool bDumpTevTextureFetches;
++
++	// Static config per API
++	// TODO: Move this out of VideoConfig
++	struct
++	{
++		API_TYPE APIType;
++
++		std::vector<std::string> Adapters; // for D3D
++		std::vector<int> AAModes;
++		std::vector<std::string> PPShaders; // post-processing shaders
++		std::vector<std::string> AnaglyphShaders; // anaglyph shaders
++
++		// TODO: merge AdapterName and Adapters array
++		std::string AdapterName; // for OpenGL
++
++		bool bSupportsExclusiveFullscreen;
++		bool bSupportsDualSourceBlend;
++		bool bSupportsPrimitiveRestart;
++		bool bSupportsOversizedViewports;
++		bool bSupportsGeometryShaders;
++		bool bSupports3DVision;
++		bool bSupportsEarlyZ; // needed by PixelShaderGen, so must stay in VideoCommon
++		bool bSupportsBindingLayout; // Needed by ShaderGen, so must stay in VideoCommon
++		bool bSupportsBBox;
++		bool bSupportsGSInstancing; // Needed by GeometryShaderGen, so must stay in VideoCommon
++		bool bSupportsPostProcessing;
++		bool bSupportsPaletteConversion;
++		bool bSupportsClipControl; // Needed by VertexShaderGen, so must stay in VideoCommon
++		bool bSupportsSSAA;
++	} backend_info;
++
++	// Utility
++	bool RealXFBEnabled() const { return bUseXFB && bUseRealXFB; }
++	bool VirtualXFBEnabled() const { return bUseXFB && !bUseRealXFB; }
++	bool ExclusiveFullscreenEnabled() const { return backend_info.bSupportsExclusiveFullscreen && !bBorderlessFullscreen; }
+ };
+
+ extern VideoConfig g_Config;
