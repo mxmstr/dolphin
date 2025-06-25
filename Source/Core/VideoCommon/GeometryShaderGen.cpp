@@ -94,17 +94,21 @@ ShaderCode GenerateGeometryShaderCode(APIType api_type, const ShaderHostConfig& 
   // uniforms
   if (api_type == APIType::OpenGL || api_type == APIType::Vulkan)
   {
-    out.Write("UBO_BINDING(std140, 2) uniform VSBlock {{\n");
-    out.Write("{}", s_shader_uniforms); // Contains VertexShaderConstants layout
-    out.Write("}};\n\n");
-    out.Write("UBO_BINDING(std140, 4) uniform GSBlock {{\n");
+    // For GLSL/Vulkan, define the block type and then instance it as VSBlock
+    out.Write("UBO_BINDING(std140, 2) uniform _VSBlockLayout {{\n");
+    out.Write("{}", s_shader_uniforms); // s_shader_uniforms defines the members (projection, projection_left, etc.)
+    out.Write("}} VSBlock;\n\n"); // Instance name is VSBlock
+
+    out.Write("UBO_BINDING(std140, 4) uniform GSBlock {{\n"); // This is for cstereo etc.
   }
   else // D3D
   {
-    out.Write("cbuffer VSBlock : register(b2) {{\n"); // Assuming b2 for VSBlock like in VS
+    // D3D cbuffer declaration for VSBlock (HLSL often uses cbuffer name as accessor)
+    out.Write("cbuffer VSBlock : register(b2) {{\n");
     out.Write("{}", s_shader_uniforms);
     out.Write("}};\n\n");
-    out.Write("cbuffer GSBlock : register(b4) {{\n"); // Assuming b4 for GSBlock
+
+    out.Write("cbuffer GSBlock : register(b4) {{\n");
   }
 
   out.Write("{}", s_geometry_shader_uniforms);
