@@ -25,6 +25,7 @@
 #include "VideoCommon/VideoConfig.h"
 #include "VideoCommon/XFMemory.h"
 #include "VideoCommon/XFStateManager.h"
+#include "VideoCommon/VideoBackendBase.h"
 
 void VertexShaderManager::Init()
 {

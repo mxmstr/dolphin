@@ -28,7 +28,7 @@ std::unique_ptr<SwapChain> SwapChain::Create(const WindowSystemInfo& wsi)
   // Potentially override dimensions for VR before CreateSwapChain is called.
   // This assumes D3DCommon::SwapChain will use m_width and m_height internally,
   // or that its CreateSwapChain method can be modified to accept override dimensions.
-  if (g_ActiveConfig.bEnableStereo) // Placeholder for a specific VR config
+  if (g_ActiveConfig.stereo_mode == StereoMode::OpenVR) // Placeholder for a specific VR config
   {
     if (g_video_backend && g_video_backend->GetVROpenVR() && g_video_backend->GetVROpenVR()->IsInitialized())
     {
@@ -46,7 +46,7 @@ std::unique_ptr<SwapChain> SwapChain::Create(const WindowSystemInfo& wsi)
           swap_chain->m_width = rec_width * 2;
           swap_chain->m_height = rec_height;
           GENERIC_LOG_FMT(Common::Log::LogType::VR, Common::Log::LogLevel::LINFO,
-                           "Overriding SwapChain dimensions for VR: %u x %u",
+                           "Overriding SwapChain dimensions for VR: {} x {}",
                            swap_chain->m_width, swap_chain->m_height);
         }
       }

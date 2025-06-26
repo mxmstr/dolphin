@@ -37,7 +37,8 @@ enum class StereoMode : int
   TAB,
   Anaglyph,
   QuadBuffer,
-  Passive
+  Passive,
+  OpenVR
 };
 
 enum class ShaderCompilationMode : int
@@ -314,7 +315,6 @@ struct VideoConfig final
   bool bStereoSwapEyes = false;
   bool bStereoEFBMonoDepth = false;
   int iStereoDepthPercentage = 0;
-  bool bEnableStereo = false; // Added for new VR stereo rendering path
 
   // D3D only config, mostly to be merged into the above
   int iAdapter = 0;
@@ -392,7 +392,7 @@ struct VideoConfig final
   u32 GetShaderCompilerThreads() const;
   u32 GetShaderPrecompilerThreads() const;
 
-  float GetCustomAspectRatio() const { return (float)custom_aspect_width / custom_aspect_height; }
+  float GetCustomAspectRatio() const { return (float)custom_aspect_width / custom_aspect_height; };
 };
 
 extern VideoConfig g_Config;

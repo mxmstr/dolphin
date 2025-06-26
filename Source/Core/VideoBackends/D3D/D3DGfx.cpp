@@ -34,6 +34,8 @@
 #include "VideoCommon/RenderState.h"
 #include "VideoCommon/VideoConfig.h"
 #include "VideoCommon/XFMemory.h"
+#include "VideoCommon/VROpenVR.h"
+#include "VideoCommon/VideoBackendBase.h"
 
 namespace DX11
 {
@@ -168,7 +170,7 @@ void Gfx::PresentBackbuffer()
 {
   // VR HMD Submission
   if (g_video_backend && g_video_backend->GetVROpenVR() &&
-      g_video_backend->GetVROpenVR()->IsInitialized() && g_ActiveConfig.bEnableStereo)
+      g_video_backend->GetVROpenVR()->IsInitialized() && g_ActiveConfig.stereo_mode == StereoMode::OpenVR)
   {
     VROpenVR* vr_system = g_video_backend->GetVROpenVR();
     DXTexture* backbuffer_texture = m_swap_chain->GetTexture(); // D3D11::SwapChain specific

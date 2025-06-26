@@ -180,7 +180,7 @@ bool VROpenVR::SubmitFrames(ID3D11Texture2D* left_eye_texture, ID3D11Texture2D* 
   vr::EVRCompositorError error_left = m_ivr_compositor->Submit(vr::Eye_Left, &left_eye_vr_texture);
   if (error_left != vr::VRCompositorError_None)
   {
-    ERROR_LOG_FMT(VR, "Failed to submit left eye texture: {}", m_ivr_compositor->GetCompositorErrorNameFromEnum(error_left));
+    ERROR_LOG_FMT(VR, "Failed to submit left eye texture: {}", "");//m_ivr_compositor->GetCompositorErrorNameFromEnum(error_left));
     // Continue to submit right eye even if left fails, for more complete debugging info.
   }
 
@@ -192,7 +192,7 @@ bool VROpenVR::SubmitFrames(ID3D11Texture2D* left_eye_texture, ID3D11Texture2D* 
   vr::EVRCompositorError error_right = m_ivr_compositor->Submit(vr::Eye_Right, &right_eye_vr_texture);
   if (error_right != vr::VRCompositorError_None)
   {
-    ERROR_LOG_FMT(VR, "Failed to submit right eye texture: {}", m_ivr_compositor->GetCompositorErrorNameFromEnum(error_right));
+    ERROR_LOG_FMT(VR, "Failed to submit right eye texture: {}", "");//m_ivr_compositor->GetCompositorErrorNameFromEnum(error_right));
   }
 
   // Consider the call successful if both submits are okay.
@@ -211,7 +211,7 @@ bool VROpenVR::GetRecommendedRenderTargetSize(uint32_t* width, uint32_t* height)
 
   m_ivr_system->GetRecommendedRenderTargetSize(width, height);
   GENERIC_LOG_FMT(Common::Log::LogType::VR, Common::Log::LogLevel::LINFO,
-                   "Recommended render target size per eye: %u x %u", *width, *height);
+                   "Recommended render target size per eye: {} x {}", *width, *height);
   return true;
 }
 

@@ -323,7 +323,7 @@ void FifoManager::RunGpuLoop()
         // This needs to be done BEFORE OpcodeDecoder::RunFifo consumes the commands
         // for the current frame.
         if (g_video_backend && g_video_backend->GetVROpenVR() &&
-            g_video_backend->GetVROpenVR()->IsInitialized() && g_ActiveConfig.bEnableStereo) // g_ActiveConfig.bEnableStereo will be added later
+            g_video_backend->GetVROpenVR()->IsInitialized() && g_ActiveConfig.stereo_mode == StereoMode::OpenVR) // g_ActiveConfig.bEnableStereo will be added later
         {
           // GENERIC_LOG_FMT(Common::Log::LogType::VR, Common::Log::LogLevel::LDEBUG, "VR matrix override active.");
           VROpenVR* vr_system = g_video_backend->GetVROpenVR();
