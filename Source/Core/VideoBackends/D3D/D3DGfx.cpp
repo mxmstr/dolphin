@@ -223,6 +223,9 @@ void Gfx::PresentBackbuffer()
           D3D::context->CopySubresourceRegion(m_vr_eye_texture_left.Get(), 0, 0, 0, 0, d3d_main_texture, 0, &source_box_left);
           D3D::context->CopySubresourceRegion(m_vr_eye_texture_right.Get(), 0, 0, 0, 0, d3d_main_texture, 0, &source_box_right);
 
+          // Ensure the copy commands are submitted to the GPU before OpenVR tries to use the textures.
+          D3D::context->Flush();
+
           // Submit the distinct eye textures
           if (!vr_system->SubmitFrames(m_vr_eye_texture_left.Get(), m_vr_eye_texture_right.Get()))
           {

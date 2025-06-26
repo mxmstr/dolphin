@@ -180,7 +180,8 @@ bool VROpenVR::SubmitFrames(ID3D11Texture2D* left_eye_texture, ID3D11Texture2D* 
   vr::EVRCompositorError error_left = m_ivr_compositor->Submit(vr::Eye_Left, &left_eye_vr_texture);
   if (error_left != vr::VRCompositorError_None)
   {
-    ERROR_LOG_FMT(VR, "Failed to submit left eye texture: {}", "");//m_ivr_compositor->GetCompositorErrorNameFromEnum(error_left));
+    const char* error_string_left = m_ivr_compositor ? m_ivr_compositor->GetCompositorErrorNameFromEnum(error_left) : "Compositor not available";
+    ERROR_LOG_FMT(VR, "Failed to submit left eye texture: {}", error_string_left);
     // Continue to submit right eye even if left fails, for more complete debugging info.
   }
 
@@ -192,7 +193,8 @@ bool VROpenVR::SubmitFrames(ID3D11Texture2D* left_eye_texture, ID3D11Texture2D* 
   vr::EVRCompositorError error_right = m_ivr_compositor->Submit(vr::Eye_Right, &right_eye_vr_texture);
   if (error_right != vr::VRCompositorError_None)
   {
-    ERROR_LOG_FMT(VR, "Failed to submit right eye texture: {}", "");//m_ivr_compositor->GetCompositorErrorNameFromEnum(error_right));
+    const char* error_string_right = m_ivr_compositor ? m_ivr_compositor->GetCompositorErrorNameFromEnum(error_right) : "Compositor not available";
+    ERROR_LOG_FMT(VR, "Failed to submit right eye texture: {}", error_string_right);
   }
 
   // Consider the call successful if both submits are okay.
