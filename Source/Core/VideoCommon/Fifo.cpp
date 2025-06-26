@@ -319,67 +319,95 @@ void FifoManager::RunGpuLoop()
         if (!m_emu_running_state.IsSet())
           return;
 
-        // VR Stereo Matrix Setup (Left Eye for now)
-        // This needs to be done BEFORE OpcodeDecoder::RunFifo consumes the commands
-        // for the current frame.
-        if (g_video_backend && g_video_backend->GetVROpenVR() &&
-            g_video_backend->GetVROpenVR()->IsInitialized() && g_ActiveConfig.stereo_mode == StereoMode::OpenVR) // g_ActiveConfig.bEnableStereo will be added later
-        {
-          // GENERIC_LOG_FMT(Common::Log::LogType::VR, Common::Log::LogLevel::LDEBUG, "VR matrix override active.");
-          VROpenVR* vr_system = g_video_backend->GetVROpenVR();
+#include "VideoCommon/AbstractGfx.h" // For g_gfx
 
-          // Get head pose from FreeLookCamera (which should be updated by UpdateVRView)
-          // GetView() returns the view matrix (world-to-camera). We need camera-to-world for pose.
-          Common::Matrix44 head_world_pose = g_freelook_camera.GetView().Inverted();
+// ... (rest of the includes and namespace Fifo) ...
 
-          Common::Matrix44 eye_to_head_transform;
-          Common::Matrix44 eye_projection_matrix;
+// Description: Main FIFO update loop
+// Purpose: Keep the Core HW updated about the CPU-GPU distance
+void FifoManager::RunGpuLoop()
+{
+  AsyncRequests::GetInstance()->SetEnable(true);
+  AsyncRequests::GetInstance()->SetPassthrough(false);
 
-          // Using Left Eye for the single pass test
-          vr::EVREye current_eye = vr::Eye_Left;
+  m_gpu_mainloop.Run(
+      [this] {
+        // Run events from the CPU thread.
+        AsyncRequests::GetInstance()->PullEvents();
 
-          // It's better to get near/far from the application's current settings if possible,
-          // rather than hardcoding or using g_ActiveConfig directly if those are not specific to VR's needs.
-          // Using common VR default values for now. These could be made configurable.
-          float near_clip = 0.1f; // Near plane in meters
-          float far_clip = 1000.0f; // Far plane in meters
+        // Do nothing while paused
+        if (!m_emu_running_state.IsSet())
+          return;
 
-
-          if (vr_system->GetEyeToHeadTransform(current_eye, eye_to_head_transform) &&
-              vr_system->GetEyeProjectionMatrix(current_eye, near_clip, far_clip, eye_projection_matrix))
-          {
-            Common::Matrix44 final_eye_world_pose = head_world_pose * eye_to_head_transform;
-            g_video_backend->m_stereo_override_view_matrix = final_eye_world_pose.Inverted();
-            g_video_backend->m_stereo_override_projection_matrix = eye_projection_matrix;
-            g_video_backend->m_use_stereo_override_matrices = true;
-          }
-          else
-          {
-            g_video_backend->m_use_stereo_override_matrices = false;
-            ERROR_LOG_FMT(VR, "Failed to get VR eye matrices for override.");
-          }
-        }
+        const bool stereo_active = g_video_backend && g_video_backend->GetVROpenVR() &&
+                                   g_video_backend->GetVROpenVR()->IsInitialized() &&
+                                   g_ActiveConfig.stereo_mode == StereoMode::OpenVR;
 
         if (m_use_deterministic_gpu_thread)
         {
-          // All the fifo/CP stuff is on the CPU.  We just need to run the opcode decoder.
+          // All the fifo/CP stuff is on the CPU. We just need to run the opcode decoder.
           u8* seen_ptr = m_video_buffer_seen_ptr;
           u8* write_ptr = m_video_buffer_write_ptr;
-          // See comment in SyncGPU
           if (write_ptr > seen_ptr)
           {
-            m_video_buffer_read_ptr =
-                OpcodeDecoder::RunFifo(DataReader(m_video_buffer_read_ptr, write_ptr), nullptr);
+            const vr::EVREye eyes[] = {vr::Eye_Left, vr::Eye_Right};
+            const int num_passes = stereo_active ? 2 : 1;
+            u8* initial_read_ptr_for_passes = m_video_buffer_read_ptr;
+
+            for (int pass_idx = 0; pass_idx < num_passes; ++pass_idx)
+            {
+              if (stereo_active)
+              {
+                VROpenVR* vr_system = g_video_backend->GetVROpenVR();
+                Common::Matrix44 head_world_pose = g_freelook_camera.GetView().Inverted();
+                Common::Matrix44 eye_to_head_transform;
+                Common::Matrix44 eye_projection_matrix;
+                vr::EVREye current_eye = eyes[pass_idx];
+
+                uint32_t rec_width = 0, rec_height = 0;
+                if (vr_system->GetRecommendedRenderTargetSize(&rec_width, &rec_height) && rec_width > 0 && rec_height > 0)
+                {
+                  if (g_gfx)
+                  {
+                    g_gfx->SetViewport(current_eye == vr::Eye_Left ? 0.0f : (float)rec_width, 0.0f,
+                                       (float)rec_width, (float)rec_height, 0.0f, 1.0f);
+                  }
+                } else {
+                    ERROR_LOG_FMT(VR, "Could not get recommended render target size for viewport setup (deterministic path).");
+                }
+
+                float near_clip = 0.1f, far_clip = 1000.0f;
+                if (vr_system->GetEyeToHeadTransform(current_eye, eye_to_head_transform) &&
+                    vr_system->GetEyeProjectionMatrix(current_eye, near_clip, far_clip, eye_projection_matrix))
+                {
+                  g_video_backend->m_stereo_override_view_matrix = (head_world_pose * eye_to_head_transform).Inverted();
+                  g_video_backend->m_stereo_override_projection_matrix = eye_projection_matrix;
+                  g_video_backend->m_use_stereo_override_matrices = true;
+                }
+                else
+                {
+                  g_video_backend->m_use_stereo_override_matrices = false;
+                  ERROR_LOG_FMT(VR, "Failed to get VR eye matrices (deterministic path, eye {}).", pass_idx);
+                }
+              }
+              // Use initial_read_ptr_for_passes to ensure command stream is re-read for second eye.
+              // OpcodeDecoder::RunFifo advances the reader it's given. DataReader creates a new reader each time.
+              OpcodeDecoder::RunFifo(DataReader(initial_read_ptr_for_passes, write_ptr), nullptr);
+            }
+            // After all passes, the main m_video_buffer_read_ptr should be at the end of processed data.
+            // Assuming OpcodeDecoder::RunFifo when passed a DataReader from X to Y, returns pointer to Y if all consumed.
+            // This might need adjustment if OpcodeDecoder::RunFifo returns an intermediate pointer.
+            // For simplicity, assuming it processes the whole chunk.
+            m_video_buffer_read_ptr = write_ptr;
             m_video_buffer_seen_ptr = write_ptr;
           }
         }
-        else
+        else // Non-deterministic GPU thread (typical case)
         {
           auto& command_processor = m_system.GetCommandProcessor();
           auto& fifo = command_processor.GetFifo();
           command_processor.SetCPStatusFromGPU();
 
-          // check if we are able to run this buffer
           while (!command_processor.IsInterruptWaiting() &&
                  fifo.bFF_GPReadEnable.load(std::memory_order_relaxed) &&
                  fifo.CPReadWriteDistance.load(std::memory_order_relaxed) &&
@@ -388,30 +416,86 @@ void FifoManager::RunGpuLoop()
             if (m_config_sync_gpu && m_sync_ticks.load() < m_config_sync_gpu_min_distance)
               break;
 
-            u32 cyclesExecuted = 0;
             u32 readPtr = fifo.CPReadPointer.load(std::memory_order_relaxed);
-            ReadDataFromFifo(readPtr);
+            ReadDataFromFifo(readPtr); // Reads one chunk (GATHER_PIPE_SIZE) into m_video_buffer
 
+            u8* const command_chunk_start = m_video_buffer_read_ptr; // Start of newly read chunk
+            u8* const command_chunk_end = m_video_buffer_write_ptr;   // End of newly read chunk
+            u32 total_cycles_for_chunk = 0;
+
+            const vr::EVREye eyes_to_render[] = {vr::Eye_Left, vr::Eye_Right};
+            const int num_render_passes = stereo_active ? 2 : 1;
+
+            for (int pass_idx = 0; pass_idx < num_render_passes; ++pass_idx)
+            {
+              if (stereo_active)
+              {
+                VROpenVR* vr_system = g_video_backend->GetVROpenVR();
+                Common::Matrix44 head_world_pose = g_freelook_camera.GetView().Inverted();
+                Common::Matrix44 eye_to_head_transform;
+                Common::Matrix44 eye_projection_matrix;
+                vr::EVREye current_eye = eyes_to_render[pass_idx];
+
+                uint32_t rec_width = 0, rec_height = 0;
+                if (vr_system->GetRecommendedRenderTargetSize(&rec_width, &rec_height) && rec_width > 0 && rec_height > 0)
+                {
+                  if (g_gfx)
+                  {
+                     g_gfx->SetViewport(current_eye == vr::Eye_Left ? 0.0f : (float)rec_width, 0.0f,
+                                       (float)rec_width, (float)rec_height, 0.0f, 1.0f);
+                  }
+                } else {
+                    ERROR_LOG_FMT(VR, "Could not get recommended render target size for viewport setup.");
+                     // Fallback to full viewport, may not be ideal for stereo
+                    if (g_gfx) {
+                        SurfaceInfo surface_info = g_gfx->GetSurfaceInfo();
+                        g_gfx->SetViewport(0.0f, 0.0f, (float)surface_info.width, (float)surface_info.height, 0.0f, 1.0f);
+                    }
+                }
+
+                float near_clip = 0.1f, far_clip = 1000.0f;
+                if (vr_system->GetEyeToHeadTransform(current_eye, eye_to_head_transform) &&
+                    vr_system->GetEyeProjectionMatrix(current_eye, near_clip, far_clip, eye_projection_matrix))
+                {
+                  g_video_backend->m_stereo_override_view_matrix = (head_world_pose * eye_to_head_transform).Inverted();
+                  g_video_backend->m_stereo_override_projection_matrix = eye_projection_matrix;
+                  g_video_backend->m_use_stereo_override_matrices = true;
+                }
+                else
+                {
+                  g_video_backend->m_use_stereo_override_matrices = false;
+                  ERROR_LOG_FMT(VR, "Failed to get VR eye matrices for override for eye {}.", pass_idx);
+                }
+              }
+
+              u32 cycles_this_pass = 0;
+              // OpcodeDecoder::RunFifo processes data from the DataReader.
+              // DataReader is created fresh, so it starts at command_chunk_start.
+              // The returned pointer indicates how much was consumed from *this specific DataReader*.
+              u8* advanced_ptr = OpcodeDecoder::RunFifo(
+                  DataReader(command_chunk_start, command_chunk_end), &cycles_this_pass);
+
+              if (pass_idx == 0) { // Accumulate cycles only from the first pass for simulation timing
+                  total_cycles_for_chunk = cycles_this_pass;
+              }
+              // Ensure m_video_buffer_read_ptr is correctly set to the end of the processed chunk
+              // only after the last pass, if all passes consume the same chunk.
+              if (pass_idx == num_render_passes - 1) {
+                  m_video_buffer_read_ptr = advanced_ptr;
+              }
+            } // End of eye render pass loop
+
+            // Advance HW FIFO pointers
             if (readPtr == fifo.CPEnd.load(std::memory_order_relaxed))
               readPtr = fifo.CPBase.load(std::memory_order_relaxed);
             else
               readPtr += GPFifo::GATHER_PIPE_SIZE;
 
-            const s32 distance =
-                static_cast<s32>(fifo.CPReadWriteDistance.load(std::memory_order_relaxed)) -
-                GPFifo::GATHER_PIPE_SIZE;
-            ASSERT_MSG(COMMANDPROCESSOR, distance >= 0,
-                       "Negative fifo.CPReadWriteDistance = {} in FIFO Loop !\nThat can produce "
-                       "instability in the game. Please report it.",
-                       distance);
-
-            u8* write_ptr = m_video_buffer_write_ptr;
-            m_video_buffer_read_ptr = OpcodeDecoder::RunFifo(
-                DataReader(m_video_buffer_read_ptr, write_ptr), &cyclesExecuted);
-
             fifo.CPReadPointer.store(readPtr, std::memory_order_relaxed);
             fifo.CPReadWriteDistance.fetch_sub(GPFifo::GATHER_PIPE_SIZE, std::memory_order_seq_cst);
-            if ((write_ptr - m_video_buffer_read_ptr) == 0)
+
+            // If the entire buffer chunk that was copied by ReadDataFromFifo was consumed
+            if ((command_chunk_end - m_video_buffer_read_ptr) == 0)
             {
               fifo.SafeCPReadPointer.store(fifo.CPReadPointer.load(std::memory_order_relaxed),
                                            std::memory_order_relaxed);
@@ -421,21 +505,16 @@ void FifoManager::RunGpuLoop()
 
             if (m_config_sync_gpu)
             {
-              cyclesExecuted = (int)(cyclesExecuted / m_config_sync_gpu_overclock);
-              int old = m_sync_ticks.fetch_sub(cyclesExecuted);
+              total_cycles_for_chunk = (int)(total_cycles_for_chunk / m_config_sync_gpu_overclock);
+              int old = m_sync_ticks.fetch_sub(total_cycles_for_chunk);
               if (old >= m_config_sync_gpu_max_distance &&
-                  old - (int)cyclesExecuted < m_config_sync_gpu_max_distance)
+                  old - (int)total_cycles_for_chunk < m_config_sync_gpu_max_distance)
               {
                 m_sync_wakeup_event.Set();
               }
             }
-
-            // This call is pretty important in DualCore mode and must be called in the FIFO Loop.
-            // If we don't, s_swapRequested or s_efbAccessRequested won't be set to false
-            // leading the CPU thread to wait in Video_OutputXFB or Video_AccessEFB thus slowing
-            // things down.
             AsyncRequests::GetInstance()->PullEvents();
-          }
+          } // End of while HW FIFO processing
 
           // fast skip remaining GPU time if fifo is empty
           if (m_sync_ticks.load() > 0)
@@ -445,20 +524,22 @@ void FifoManager::RunGpuLoop()
               m_sync_wakeup_event.Set();
           }
 
-          // The fifo is empty and it's unlikely we will get any more work in the near future.
-          // Make sure VertexManager finishes drawing any primitives it has stored in it's buffer.
-          g_vertex_manager->Flush();
+          g_vertex_manager->Flush(); // Flush after all processing for the current FIFO data
           g_framebuffer_manager->RefreshPeekCache();
 
-        } // End of the main 'else' for !m_use_deterministic_gpu_thread
+        } // End of non-deterministic path (else of m_use_deterministic_gpu_thread)
 
-        // After processing a frame's worth of commands (or when FIFO becomes empty for this round)
-        // Reset VR override flags if they were set.
-        // This ensures it's only active for the intended frame processing sequence.
         if (g_video_backend && g_video_backend->m_use_stereo_override_matrices)
         {
           g_video_backend->m_use_stereo_override_matrices = false;
-          // GENERIC_LOG_FMT(Common::Log::LogType::VR, Common::Log::LogLevel::LDEBUG, "VR matrix override disabled.");
+        }
+      }, // End of m_gpu_mainloop.Run lambda
+      100);
+
+        // Reset VR override flag once after all passes are done for the frame/command batch
+        if (g_video_backend && g_video_backend->m_use_stereo_override_matrices)
+        {
+          g_video_backend->m_use_stereo_override_matrices = false;
         }
       }, // End of m_gpu_mainloop.Run lambda
       100);

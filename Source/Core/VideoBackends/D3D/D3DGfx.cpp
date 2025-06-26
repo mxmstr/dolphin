@@ -173,26 +173,127 @@ void Gfx::PresentBackbuffer()
       g_video_backend->GetVROpenVR()->IsInitialized() && g_ActiveConfig.stereo_mode == StereoMode::OpenVR)
   {
     VROpenVR* vr_system = g_video_backend->GetVROpenVR();
-    DXTexture* backbuffer_texture = m_swap_chain->GetTexture(); // D3D11::SwapChain specific
+    DXTexture* main_swapchain_dxtexture = m_swap_chain->GetTexture();
 
-    if (backbuffer_texture && backbuffer_texture->GetD3DTexture())
+    if (main_swapchain_dxtexture && main_swapchain_dxtexture->GetD3DTexture())
     {
-      // For single-eye test, submit the same texture to both eyes.
-      // This won't be stereo, but should display in HMD.
-      ID3D11Texture2D* d3d_texture = static_cast<ID3D11Texture2D*>(backbuffer_texture->GetD3DTexture());
-      if (!vr_system->SubmitFrames(d3d_texture, d3d_texture))
+      ID3D11Texture2D* d3d_main_texture = static_cast<ID3D11Texture2D*>(main_swapchain_dxtexture->GetD3DTexture());
+      D3D11_TEXTURE2D_DESC main_desc;
+      d3d_main_texture->GetDesc(&main_desc);
+
+      uint32_t rec_width = 0, rec_height = 0;
+      if (!vr_system->GetRecommendedRenderTargetSize(&rec_width, &rec_height) || rec_width == 0 || rec_height == 0)
       {
-        ERROR_LOG_FMT(VR, "Failed to submit frames to HMD.");
+        ERROR_LOG_FMT(VR, "Could not get recommended VR render target size for submission.");
+        // Attempt to submit the full texture as a fallback (will be wrong)
+        if (!vr_system->SubmitFrames(d3d_main_texture, d3d_main_texture))
+        {
+          ERROR_LOG_FMT(VR, "Fallback HMD frame submission failed.");
+        }
+      }
+      else
+      {
+        // Ensure our separate eye textures are ready and correctly sized
+        EnsureVREyeTextures(rec_width, rec_height);
+
+        if (!m_vr_eye_texture_left || !m_vr_eye_texture_right)
+        {
+          ERROR_LOG_FMT(VR, "VR eye textures are not created for submission.");
+        }
+        else
+        {
+          // Define source regions for copying from the double-wide backbuffer
+          D3D11_BOX source_box_left = {};
+          source_box_left.left = 0;
+          source_box_left.top = 0;
+          source_box_left.front = 0;
+          source_box_left.right = rec_width;
+          source_box_left.bottom = rec_height;
+          source_box_left.back = 1; // For Texture2D, depth is 1
+
+          D3D11_BOX source_box_right = {};
+          source_box_right.left = rec_width; // Offset for the right eye's region
+          source_box_right.top = 0;
+          source_box_right.front = 0;
+          source_box_right.right = rec_width * 2;
+          source_box_right.bottom = rec_height;
+          source_box_right.back = 1;
+
+          // Copy from main backbuffer to separate eye textures
+          D3D::context->CopySubresourceRegion(m_vr_eye_texture_left.Get(), 0, 0, 0, 0, d3d_main_texture, 0, &source_box_left);
+          D3D::context->CopySubresourceRegion(m_vr_eye_texture_right.Get(), 0, 0, 0, 0, d3d_main_texture, 0, &source_box_right);
+
+          // Submit the distinct eye textures
+          if (!vr_system->SubmitFrames(m_vr_eye_texture_left.Get(), m_vr_eye_texture_right.Get()))
+          {
+            ERROR_LOG_FMT(VR, "Failed to submit distinct eye frames to HMD.");
+          }
+        }
       }
     }
     else
     {
-      ERROR_LOG_FMT(VR, "Backbuffer texture is null for HMD submission.");
+      ERROR_LOG_FMT(VR, "Main backbuffer texture is null for HMD submission.");
     }
   }
 
   m_swap_chain->Present();
 }
+
+void Gfx::EnsureVREyeTextures(uint32_t width, uint32_t height)
+{
+  if (m_vr_eye_texture_left && m_vr_eye_texture_right &&
+      m_vr_eye_texture_width == width && m_vr_eye_texture_height == height)
+  {
+    return; // Textures are already valid and correctly sized
+  }
+
+  // Release old textures if they exist
+  m_vr_eye_texture_left.Reset();
+  m_vr_eye_texture_right.Reset();
+
+  DXTexture* main_swapchain_dxtexture = m_swap_chain->GetTexture();
+  if (!main_swapchain_dxtexture || !main_swapchain_dxtexture->GetD3DTexture()) {
+      ERROR_LOG_FMT(VR, "Cannot create VR eye textures: main swapchain texture is null.");
+      return;
+  }
+  ID3D11Texture2D* d3d_main_texture = static_cast<ID3D11Texture2D*>(main_swapchain_dxtexture->GetD3DTexture());
+  D3D11_TEXTURE2D_DESC main_desc;
+  d3d_main_texture->GetDesc(&main_desc);
+
+  D3D11_TEXTURE2D_DESC eye_desc = {};
+  eye_desc.Width = width;
+  eye_desc.Height = height;
+  eye_desc.MipLevels = 1;
+  eye_desc.ArraySize = 1;
+  eye_desc.Format = main_desc.Format; // Use the same format as the backbuffer
+  eye_desc.SampleDesc.Count = 1;
+  eye_desc.SampleDesc.Quality = 0;
+  eye_desc.Usage = D3D11_USAGE_DEFAULT;
+  // Bind flags: shader resource is useful for OpenVR, copy destination is implicit with USAGE_DEFAULT for CopySubresourceRegion
+  eye_desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+  eye_desc.CPUAccessFlags = 0;
+  eye_desc.MiscFlags = 0;
+
+  HRESULT hr_left = D3D::device->CreateTexture2D(&eye_desc, nullptr, &m_vr_eye_texture_left);
+  HRESULT hr_right = D3D::device->CreateTexture2D(&eye_desc, nullptr, &m_vr_eye_texture_right);
+
+  if (SUCCEEDED(hr_left) && SUCCEEDED(hr_right))
+  {
+    m_vr_eye_texture_width = width;
+    m_vr_eye_texture_height = height;
+    INFO_LOG_FMT(VR, "Successfully created VR eye textures ({}x{})", width, height);
+  }
+  else
+  {
+    m_vr_eye_texture_left.Reset();
+    m_vr_eye_texture_right.Reset();
+    m_vr_eye_texture_width = 0;
+    m_vr_eye_texture_height = 0;
+    ERROR_LOG_FMT(VR, "Failed to create VR eye textures. Left HR: {:#0x}, Right HR: {:#0x}", static_cast<u32>(hr_left), static_cast<u32>(hr_right));
+  }
+}
+
 
 void Gfx::OnConfigChanged(u32 bits)
 {

@@ -80,5 +80,13 @@ private:
 
   float m_backbuffer_scale;
   std::unique_ptr<SwapChain> m_swap_chain;
+
+  // For VR stereo submission
+  Microsoft::WRL::ComPtr<ID3D11Texture2D> m_vr_eye_texture_left;
+  Microsoft::WRL::ComPtr<ID3D11Texture2D> m_vr_eye_texture_right;
+  uint32_t m_vr_eye_texture_width = 0;
+  uint32_t m_vr_eye_texture_height = 0;
+
+  void EnsureVREyeTextures(uint32_t width, uint32_t height);
 };
 }  // namespace DX11
