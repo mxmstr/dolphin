@@ -2,7 +2,7 @@
 #include "Common/Logging/Log.h" // For logging
 #include <d3d11.h> // For ID3D11Texture2D, though already in .h, good for cpp too.
 
-VROpenVR::VROpenVR() : m_ivr_system(nullptr), m_ivr_compositor(nullptr), m_initialized(false)
+VROpenVR::VROpenVR() : m_ivr_system(nullptr), m_ivr_compositor(nullptr), m_initialized(false), m_has_compositor_focus(true) // Default to true for now
 {
 }
 
@@ -180,8 +180,8 @@ bool VROpenVR::SubmitFrames(ID3D11Texture2D* left_eye_texture, ID3D11Texture2D* 
   vr::EVRCompositorError error_left = m_ivr_compositor->Submit(vr::Eye_Left, &left_eye_vr_texture);
   if (error_left != vr::VRCompositorError_None)
   {
-    const char* error_string_left = m_ivr_compositor ? m_ivr_compositor->GetCompositorErrorNameFromEnum(error_left) : "Compositor not available";
-    ERROR_LOG_FMT(VR, "Failed to submit left eye texture: {}", error_string_left);
+    // Log the integer value of the error since GetCompositorErrorNameFromEnum was reported as not existing on the member.
+    ERROR_LOG_FMT(VR, "Failed to submit left eye texture. Error code: {}", static_cast<int>(error_left));
     // Continue to submit right eye even if left fails, for more complete debugging info.
   }
 
@@ -193,8 +193,8 @@ bool VROpenVR::SubmitFrames(ID3D11Texture2D* left_eye_texture, ID3D11Texture2D* 
   vr::EVRCompositorError error_right = m_ivr_compositor->Submit(vr::Eye_Right, &right_eye_vr_texture);
   if (error_right != vr::VRCompositorError_None)
   {
-    const char* error_string_right = m_ivr_compositor ? m_ivr_compositor->GetCompositorErrorNameFromEnum(error_right) : "Compositor not available";
-    ERROR_LOG_FMT(VR, "Failed to submit right eye texture: {}", error_string_right);
+    // Log the integer value of the error.
+    ERROR_LOG_FMT(VR, "Failed to submit right eye texture. Error code: {}", static_cast<int>(error_right));
   }
 
   // Consider the call successful if both submits are okay.
@@ -220,4 +220,21 @@ bool VROpenVR::GetRecommendedRenderTargetSize(uint32_t* width, uint32_t* height)
 bool VROpenVR::IsInitialized() const
 {
   return m_initialized;
+}
+
+void VROpenVR::SetHaveCompositorFocus(bool has_focus)
+{
+  // This should be called by the OpenVR event handling loop.
+  if (m_has_compositor_focus != has_focus)
+  {
+    INFO_LOG_FMT(VR, "Compositor focus changed to: {}", has_focus);
+    m_has_compositor_focus = has_focus;
+  }
+}
+
+bool VROpenVR::CanSubmitFrames() const
+{
+  // If not initialized, definitely cannot submit.
+  // Otherwise, depends on focus state.
+  return m_initialized && m_has_compositor_focus;
 }

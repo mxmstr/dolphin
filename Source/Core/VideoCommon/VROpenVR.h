@@ -58,10 +58,15 @@ public:
 
   bool IsInitialized() const;
 
+  // Control submission based on VR focus state (to be updated by event loop)
+  void SetHaveCompositorFocus(bool has_focus);
+  bool CanSubmitFrames() const;
+
 private:
   vr::IVRSystem* m_ivr_system;
   vr::IVRCompositor* m_ivr_compositor;
   bool m_initialized;
+  bool m_has_compositor_focus; // True if we believe we have compositor focus
 
   // TODO: Add any other necessary private members, e.g., for device indices.
 };

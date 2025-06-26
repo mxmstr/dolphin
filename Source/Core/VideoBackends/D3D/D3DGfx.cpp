@@ -226,10 +226,20 @@ void Gfx::PresentBackbuffer()
           // Ensure the copy commands are submitted to the GPU before OpenVR tries to use the textures.
           D3D::context->Flush();
 
-          // Submit the distinct eye textures
-          if (!vr_system->SubmitFrames(m_vr_eye_texture_left.Get(), m_vr_eye_texture_right.Get()))
+          // Submit the distinct eye textures only if VR system says we can (e.g. has focus)
+          if (vr_system->CanSubmitFrames())
           {
-            ERROR_LOG_FMT(VR, "Failed to submit distinct eye frames to HMD.");
+            if (!vr_system->SubmitFrames(m_vr_eye_texture_left.Get(), m_vr_eye_texture_right.Get()))
+            {
+              // Error already logged by VROpenVR::SubmitFrames with specific error code
+              // ERROR_LOG_FMT(VR, "Failed to submit distinct eye frames to HMD."); // Redundant
+            }
+          }
+          else
+          {
+            // Optionally, log that submission was skipped due to focus or other reasons.
+            // This might be too spammy for every frame, consider a one-time log or less frequent.
+            // DEBUG_LOG_FMT(VR, "Skipping VR frame submission, CanSubmitFrames() is false.");
           }
         }
       }
