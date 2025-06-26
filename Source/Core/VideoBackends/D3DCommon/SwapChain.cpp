@@ -64,11 +64,24 @@ u32 SwapChain::GetSwapChainFlags() const
 
 bool SwapChain::CreateSwapChain(bool stereo, bool hdr)
 {
-  RECT client_rc;
-  if (GetClientRect(static_cast<HWND>(m_wsi.render_surface), &client_rc))
+  // If m_width and m_height are already set (e.g., by a derived class for VR),
+  // don't overwrite them with the window's client rect.
+  if (m_width == 0 || m_height == 0)
   {
-    m_width = client_rc.right - client_rc.left;
-    m_height = client_rc.bottom - client_rc.top;
+    RECT client_rc;
+    if (GetClientRect(static_cast<HWND>(m_wsi.render_surface), &client_rc))
+    {
+      m_width = client_rc.right - client_rc.left;
+      m_height = client_rc.bottom - client_rc.top;
+    }
+    else
+    {
+      // Fallback if GetClientRect fails, though unlikely for a valid window handle.
+      // Consider if a PanicAlert is needed here or if using potentially zero dimensions
+      // which will fail later in CreateSwapChainForHwnd is acceptable.
+      // For now, let it proceed; D3D creation will fail clearly if dimensions are zero.
+      WARN_LOG_FMT(VIDEO, "GetClientRect failed in SwapChain::CreateSwapChain.");
+    }
   }
 
   m_stereo = false;
