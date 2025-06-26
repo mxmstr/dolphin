@@ -40,6 +40,34 @@ void VertexShaderManager::Init()
 
 Common::Matrix44 VertexShaderManager::LoadProjectionMatrix()
 {
+  // VR Stereo Override Path
+  if (g_video_backend && g_video_backend->m_use_stereo_override_matrices)
+  {
+    // When VR override is active, we use the projection and view matrices directly from VROpenVR/FreeLookCamera
+    // combined in Fifo.cpp and stored in g_video_backend.
+    // The m_stereo_override_projection_matrix should already be the final projection matrix for the eye.
+    // The m_stereo_override_view_matrix is the final view matrix for the eye.
+    // The shader expects Proj * View.
+    Common::Matrix44 final_vr_proj_view = g_video_backend->m_stereo_override_projection_matrix *
+                                        g_video_backend->m_stereo_override_view_matrix;
+
+    // The m_projection_matrix member is used by TransformToClipSpace.
+    // For VR, this direct CPU transform might not be accurate or needed if all rendering goes via shaders.
+    // However, to keep it somewhat consistent, we can store the OpenVR projection.
+    // Or, if TransformToClipSpace is not used in VR path, this could be skipped.
+    // For now, let's store the VR projection matrix here.
+    // Note: This might need further thought if TransformToClipSpace is used for anything critical in VR.
+    std::memcpy(m_projection_matrix.data(), g_video_backend->m_stereo_override_projection_matrix.data.data(), sizeof(m_projection_matrix));
+
+    // Ensure freelook camera dirty flag is cleared as its GetView() wasn't directly used here,
+    // but its underlying HMD pose was used to compute the override matrices.
+    if (g_freelook_camera.IsActive())
+        g_freelook_camera.GetController()->SetClean();
+
+    return final_vr_proj_view;
+  }
+
+  // Original Mono Rendering Path
   const auto& rawProjection = xfmem.projection.rawProjection;
 
   switch (xfmem.projection.type)
@@ -67,7 +95,7 @@ Common::Matrix44 VertexShaderManager::LoadProjectionMatrix()
     m_projection_matrix[12] = 0.0f;
     m_projection_matrix[13] = 0.0f;
 
-    m_projection_matrix[14] = -1.0f;
+    m_projection_matrix[14] = -1.0f; // This forms part of the W-divide and depth calculation
     m_projection_matrix[15] = 0.0f;
 
     g_stats.gproj = m_projection_matrix;
@@ -112,20 +140,31 @@ Common::Matrix44 VertexShaderManager::LoadProjectionMatrix()
   auto corrected_matrix = Common::Matrix44::FromArray(m_projection_matrix);
 
   if (g_freelook_camera.IsActive() && xfmem.projection.type == ProjectionType::Perspective)
+  {
+    // In mono rendering with freelook, the projection matrix is multiplied by the freelook view matrix.
+    // The result (Proj * View_head) is stored in constants.projection.
     corrected_matrix *= g_freelook_camera.GetView();
+  }
 
-  g_freelook_camera.GetController()->SetClean();
+
+  if (g_freelook_camera.IsActive())
+    g_freelook_camera.GetController()->SetClean();
 
   return corrected_matrix;
 }
 
 void VertexShaderManager::SetProjectionMatrix(XFStateManager& xf_state_manager)
 {
-  if (xf_state_manager.DidProjectionChange() || g_freelook_camera.GetController()->IsDirty())
+  // The g_video_backend->m_use_stereo_override_matrices flag acts as a direct trigger
+  // in addition to existing dirty flags if VR override is active for this frame.
+  bool vr_override_active = (g_video_backend && g_video_backend->m_use_stereo_override_matrices);
+
+  if (xf_state_manager.DidProjectionChange() || (g_freelook_camera.IsActive() && g_freelook_camera.GetController()->IsDirty()) || vr_override_active)
   {
-    xf_state_manager.ResetProjection();
-    auto corrected_matrix = LoadProjectionMatrix();
-    memcpy(constants.projection.data(), corrected_matrix.data.data(), 4 * sizeof(float4));
+    xf_state_manager.ResetProjection(); // Should be fine even if vr_override_active is the only reason.
+    auto final_proj_view_matrix = LoadProjectionMatrix(); // This will return the VR Proj*View if vr_override_active
+    memcpy(constants.projection.data(), final_proj_view_matrix.data.data(), 4 * sizeof(float4));
+    dirty = true; // Ensure constants are updated
   }
 }
 

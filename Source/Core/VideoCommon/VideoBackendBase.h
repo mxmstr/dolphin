@@ -88,6 +88,11 @@ protected:
 public:
   void UpdateVRView(FreeLookCamera& camera);
   VROpenVR* GetVROpenVR() const { return m_vr_openvr.get(); }
+
+  // For VR stereo override
+  bool m_use_stereo_override_matrices = false;
+  Common::Matrix44 m_stereo_override_view_matrix;
+  Common::Matrix44 m_stereo_override_projection_matrix;
 };
 
 extern VideoBackendBase* g_video_backend;

@@ -314,6 +314,7 @@ struct VideoConfig final
   bool bStereoSwapEyes = false;
   bool bStereoEFBMonoDepth = false;
   int iStereoDepthPercentage = 0;
+  bool bEnableStereo = false; // Added for new VR stereo rendering path
 
   // D3D only config, mostly to be merged into the above
   int iAdapter = 0;

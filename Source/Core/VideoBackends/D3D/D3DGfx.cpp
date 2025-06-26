@@ -166,6 +166,29 @@ bool Gfx::BindBackbuffer(const ClearColor& clear_color)
 
 void Gfx::PresentBackbuffer()
 {
+  // VR HMD Submission
+  if (g_video_backend && g_video_backend->GetVROpenVR() &&
+      g_video_backend->GetVROpenVR()->IsInitialized() && g_ActiveConfig.bEnableStereo)
+  {
+    VROpenVR* vr_system = g_video_backend->GetVROpenVR();
+    DXTexture* backbuffer_texture = m_swap_chain->GetTexture(); // D3D11::SwapChain specific
+
+    if (backbuffer_texture && backbuffer_texture->GetD3DTexture())
+    {
+      // For single-eye test, submit the same texture to both eyes.
+      // This won't be stereo, but should display in HMD.
+      ID3D11Texture2D* d3d_texture = static_cast<ID3D11Texture2D*>(backbuffer_texture->GetD3DTexture());
+      if (!vr_system->SubmitFrames(d3d_texture, d3d_texture))
+      {
+        ERROR_LOG_FMT(VR, "Failed to submit frames to HMD.");
+      }
+    }
+    else
+    {
+      ERROR_LOG_FMT(VR, "Backbuffer texture is null for HMD submission.");
+    }
+  }
+
   m_swap_chain->Present();
 }
 
