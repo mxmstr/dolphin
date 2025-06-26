@@ -1,5 +1,6 @@
 #include "VROpenVR.h"
 #include "Common/Logging/Log.h" // For logging
+#include <d3d11.h> // For ID3D11Texture2D, though already in .h, good for cpp too.
 
 VROpenVR::VROpenVR() : m_ivr_system(nullptr), m_ivr_compositor(nullptr), m_initialized(false)
 {
@@ -47,23 +48,6 @@ bool VROpenVR::Init()
   }
   m_ivr_compositor = vr::VRCompositor();
   GENERIC_LOG_FMT(Common::Log::LogType::VR, Common::Log::LogLevel::LINFO, "VRCompositor successful.");
-
-  //if (!m_ivr_system->IsHmdPresent())
-  //{
-  //  GENERIC_LOG_FMT(Common::Log::LogType::VR, Common::Log::LogLevel::LWARNING,
-  //                   "HMD not detected. VR features may be limited or unavailable.");
-  //  // Depending on desired behavior, we might still want to run without an HMD for testing.
-  //  // For now, we'll consider it a non-fatal issue but log a warning.
-  //}
-  //else
-  //{
-  //  GENERIC_LOG_FMT(Common::Log::LogType::VR, Common::Log::LogLevel::LINFO, "HMD detected.");
-  //}
-
-  // TODO: Get recommended render target size here if needed immediately.
-  // uint32_t render_width, render_height;
-  // m_ivr_system->GetRecommendedRenderTargetSize(&render_width, &render_height);
-  // LOG_INFO(DS_VR, "Recommended render target size: %u x %u", render_width, render_height);
 
   m_initialized = true;
   GENERIC_LOG_FMT(Common::Log::LogType::VR, Common::Log::LogLevel::LINFO,
@@ -157,6 +141,77 @@ bool VROpenVR::GetEyeProjectionMatrix(vr::EVREye eye, float near_clip, float far
 
   vr::HmdMatrix44_t mat = m_ivr_system->GetProjectionMatrix(eye, near_clip, far_clip);
   out_projection = ConvertHmdMatrix44ToMatrix44(mat);
+  return true;
+}
+
+bool VROpenVR::GetEyeToHeadTransform(vr::EVREye eye, Common::Matrix44& out_matrix)
+{
+  if (!m_initialized || !m_ivr_system)
+  {
+    ERROR_LOG_FMT(VR, "VROpenVR not initialized or IVRSystem not available for GetEyeToHeadTransform.");
+    out_matrix = Common::Matrix44::Identity();
+    return false;
+  }
+
+  vr::HmdMatrix34_t mat = m_ivr_system->GetEyeToHeadTransform(eye);
+  out_matrix = ConvertHmdMatrix34ToMatrix44(mat);
+  return true;
+}
+
+bool VROpenVR::SubmitFrames(ID3D11Texture2D* left_eye_texture, ID3D11Texture2D* right_eye_texture)
+{
+  if (!m_initialized || !m_ivr_compositor)
+  {
+    ERROR_LOG_FMT(VR, "VROpenVR not initialized or IVRCompositor not available for SubmitFrames.");
+    return false;
+  }
+
+  if (!left_eye_texture || !right_eye_texture)
+  {
+    ERROR_LOG_FMT(VR, "Null texture provided to SubmitFrames.");
+    return false;
+  }
+
+  vr::Texture_t left_eye_vr_texture;
+  left_eye_vr_texture.handle = (void*)left_eye_texture;
+  left_eye_vr_texture.eType = vr::TextureType_DirectX; // For D3D11
+  left_eye_vr_texture.eColorSpace = vr::ColorSpace_Auto; // Or ColorSpace_Gamma
+
+  vr::EVRCompositorError error_left = m_ivr_compositor->Submit(vr::Eye_Left, &left_eye_vr_texture);
+  if (error_left != vr::VRCompositorError_None)
+  {
+    ERROR_LOG_FMT(VR, "Failed to submit left eye texture: {}", "");//m_ivr_compositor->GetCompositorErrorNameFromEnum(error_left));
+    // Continue to submit right eye even if left fails, for more complete debugging info.
+  }
+
+  vr::Texture_t right_eye_vr_texture;
+  right_eye_vr_texture.handle = (void*)right_eye_texture;
+  right_eye_vr_texture.eType = vr::TextureType_DirectX; // For D3D11
+  right_eye_vr_texture.eColorSpace = vr::ColorSpace_Auto; // Or ColorSpace_Gamma
+
+  vr::EVRCompositorError error_right = m_ivr_compositor->Submit(vr::Eye_Right, &right_eye_vr_texture);
+  if (error_right != vr::VRCompositorError_None)
+  {
+    ERROR_LOG_FMT(VR, "Failed to submit right eye texture: {}", "");//m_ivr_compositor->GetCompositorErrorNameFromEnum(error_right));
+  }
+
+  // Consider the call successful if both submits are okay.
+  return error_left == vr::VRCompositorError_None && error_right == vr::VRCompositorError_None;
+}
+
+bool VROpenVR::GetRecommendedRenderTargetSize(uint32_t* width, uint32_t* height)
+{
+  if (!m_initialized || !m_ivr_system)
+  {
+    ERROR_LOG_FMT(VR, "VROpenVR not initialized or IVRSystem not available for GetRecommendedRenderTargetSize.");
+    if (width) *width = 0;
+    if (height) *height = 0;
+    return false;
+  }
+
+  m_ivr_system->GetRecommendedRenderTargetSize(width, height);
+  GENERIC_LOG_FMT(Common::Log::LogType::VR, Common::Log::LogLevel::LINFO,
+                   "Recommended render target size per eye: {} x {}", *width, *height);
   return true;
 }
 

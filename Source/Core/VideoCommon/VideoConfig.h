@@ -37,7 +37,8 @@ enum class StereoMode : int
   TAB,
   Anaglyph,
   QuadBuffer,
-  Passive
+  Passive,
+  OpenVR
 };
 
 enum class ShaderCompilationMode : int
@@ -391,7 +392,7 @@ struct VideoConfig final
   u32 GetShaderCompilerThreads() const;
   u32 GetShaderPrecompilerThreads() const;
 
-  float GetCustomAspectRatio() const { return (float)custom_aspect_width / custom_aspect_height; }
+  float GetCustomAspectRatio() const { return (float)custom_aspect_width / custom_aspect_height; };
 };
 
 extern VideoConfig g_Config;

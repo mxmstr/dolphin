@@ -3,6 +3,7 @@
 #include <memory>
 #include "Common/Matrix.h" // For Common::Matrix44
 #include <openvr.h>
+#include <d3d11.h> // For ID3D11Texture2D
 
 // Forward declare OpenVR types to avoid including openvr.h in this header if possible,
 // though for IVRSystem and IVRCompositor we might need the full definition.
@@ -37,8 +38,23 @@ public:
   // Returns true if the matrix was successfully retrieved.
   bool GetEyeProjectionMatrix(vr::EVREye eye, float near_clip, float far_clip, Common::Matrix44& out_projection);
 
-  // TODO: Add methods for submitting frames to the compositor later.
-  // TODO: Add methods for getting recommended render target size later.
+  // Gets the transformation from eye space to head space for a given eye.
+  // This matrix is typically a translation based on IPD.
+  // out_matrix: The Common::Matrix44 to store the eye-to-head transform.
+  // Returns true if the matrix was successfully retrieved.
+  bool GetEyeToHeadTransform(vr::EVREye eye, Common::Matrix44& out_matrix);
+
+  // Submits the rendered frames for both eyes to the HMD.
+  // left_eye_texture: Pointer to the D3D11 texture resource for the left eye.
+  // right_eye_texture: Pointer to the D3D11 texture resource for the right eye.
+  // Returns true if submission was successful for both eyes.
+  bool SubmitFrames(ID3D11Texture2D* left_eye_texture, ID3D11Texture2D* right_eye_texture);
+
+  // Gets the recommended render target size for each eye from the VR system.
+  // width: Pointer to store the recommended width.
+  // height: Pointer to store the recommended height.
+  // Returns true if the size was successfully retrieved.
+  bool GetRecommendedRenderTargetSize(uint32_t* width, uint32_t* height);
 
   bool IsInitialized() const;
 

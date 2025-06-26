@@ -11,10 +11,30 @@
 #include "Common/ChunkFile.h"
 #include "Common/Event.h"
 #include "Common/FPURoundMode.h"
+#include "Common/Logging/Log.h" // Added for VR logging
 #include "Common/MemoryUtil.h"
 #include "Common/MsgHandler.h"
 
 #include "Core/Config/MainSettings.h"
+#include "Core/ConfigManager.h"         // Added for g_ActiveConfig
+#include "Core/CoreTiming.h"
+#include "Core/HW/GPFifo.h"
+#include "Core/HW/Memmap.h"
+#include "Core/Host.h"
+#include "Core/System.h"
+
+#include "VideoCommon/AsyncRequests.h"
+#include "VideoCommon/CPMemory.h"
+#include "VideoCommon/CommandProcessor.h"
+#include "VideoCommon/DataReader.h"
+#include "VideoCommon/FramebufferManager.h"
+#include "VideoCommon/FreeLookCamera.h" // Added for VR (g_freelook_camera)
+#include "VideoCommon/OpcodeDecoding.h"
+#include "VideoCommon/VertexLoaderManager.h"
+#include "VideoCommon/VertexManagerBase.h"
+#include "VideoCommon/VROpenVR.h"       // Added for VR
+#include "VideoCommon/VideoBackendBase.h" // Added for g_video_backend
+#include "VideoCommon/VideoConfig.h"    // Added for VR (g_ActiveConfig)
 #include "Core/ConfigManager.h"
 #include "Core/CoreTiming.h"
 #include "Core/HW/GPFifo.h"
@@ -299,6 +319,47 @@ void FifoManager::RunGpuLoop()
         if (!m_emu_running_state.IsSet())
           return;
 
+        // VR Stereo Matrix Setup (Left Eye for now)
+        // This needs to be done BEFORE OpcodeDecoder::RunFifo consumes the commands
+        // for the current frame.
+        if (g_video_backend && g_video_backend->GetVROpenVR() &&
+            g_video_backend->GetVROpenVR()->IsInitialized() && g_ActiveConfig.stereo_mode == StereoMode::OpenVR) // g_ActiveConfig.bEnableStereo will be added later
+        {
+          // GENERIC_LOG_FMT(Common::Log::LogType::VR, Common::Log::LogLevel::LDEBUG, "VR matrix override active.");
+          VROpenVR* vr_system = g_video_backend->GetVROpenVR();
+
+          // Get head pose from FreeLookCamera (which should be updated by UpdateVRView)
+          // GetView() returns the view matrix (world-to-camera). We need camera-to-world for pose.
+          Common::Matrix44 head_world_pose = g_freelook_camera.GetView().Inverted();
+
+          Common::Matrix44 eye_to_head_transform;
+          Common::Matrix44 eye_projection_matrix;
+
+          // Using Left Eye for the single pass test
+          vr::EVREye current_eye = vr::Eye_Left;
+
+          // It's better to get near/far from the application's current settings if possible,
+          // rather than hardcoding or using g_ActiveConfig directly if those are not specific to VR's needs.
+          // Using common VR default values for now. These could be made configurable.
+          float near_clip = 0.1f; // Near plane in meters
+          float far_clip = 1000.0f; // Far plane in meters
+
+
+          if (vr_system->GetEyeToHeadTransform(current_eye, eye_to_head_transform) &&
+              vr_system->GetEyeProjectionMatrix(current_eye, near_clip, far_clip, eye_projection_matrix))
+          {
+            Common::Matrix44 final_eye_world_pose = head_world_pose * eye_to_head_transform;
+            g_video_backend->m_stereo_override_view_matrix = final_eye_world_pose.Inverted();
+            g_video_backend->m_stereo_override_projection_matrix = eye_projection_matrix;
+            g_video_backend->m_use_stereo_override_matrices = true;
+          }
+          else
+          {
+            g_video_backend->m_use_stereo_override_matrices = false;
+            ERROR_LOG_FMT(VR, "Failed to get VR eye matrices for override.");
+          }
+        }
+
         if (m_use_deterministic_gpu_thread)
         {
           // All the fifo/CP stuff is on the CPU.  We just need to run the opcode decoder.
@@ -388,8 +449,18 @@ void FifoManager::RunGpuLoop()
           // Make sure VertexManager finishes drawing any primitives it has stored in it's buffer.
           g_vertex_manager->Flush();
           g_framebuffer_manager->RefreshPeekCache();
+
+        } // End of the main 'else' for !m_use_deterministic_gpu_thread
+
+        // After processing a frame's worth of commands (or when FIFO becomes empty for this round)
+        // Reset VR override flags if they were set.
+        // This ensures it's only active for the intended frame processing sequence.
+        if (g_video_backend && g_video_backend->m_use_stereo_override_matrices)
+        {
+          g_video_backend->m_use_stereo_override_matrices = false;
+          // GENERIC_LOG_FMT(Common::Log::LogType::VR, Common::Log::LogLevel::LDEBUG, "VR matrix override disabled.");
         }
-      },
+      }, // End of m_gpu_mainloop.Run lambda
       100);
 
   AsyncRequests::GetInstance()->SetEnable(false);
