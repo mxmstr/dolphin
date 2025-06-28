@@ -79,7 +79,12 @@ public:
   void SetFullscreen(bool enable_fullscreen) override;
   bool IsFullscreen() const override;
 
-  virtual SurfaceInfo GetSurfaceInfo() const override;
+  SurfaceInfo GetSurfaceInfo() const override;
+
+  // VR Specific methods (stubs for Vulkan)
+  bool IsVRMode() const override { return false; }
+  bool SetLeftEyeRenderTarget(const ClearColor& clear_color) override { return false; }
+  bool SetRightEyeRenderTarget(const ClearColor& clear_color) override { return false; }
 
   // Completes the current render pass, executes the command buffer, and restores state ready for
   // next render. Use when you want to kick the current buffer to make room for new data.

@@ -209,20 +209,20 @@ ShaderCode GenerateGeometryShaderCode(APIType api_type, const ShaderHostConfig& 
     // This will be set by the backend.
     // I_STEREOPARAMS.w is expected to be 0.0f if OpenVR is active (no GS h-offset needed),
     // and 1.0f for other stereo modes where the GS needs to apply the h-offset.
-    out.Write("\tfloat hoffset = 0.0f;\n");
-    out.Write("\tif (" I_STEREOPARAMS ".w == 1.0f) { // Apply h-offset only if not OpenVR mode (OpenVR handles it in projection)\n");
-    out.Write("\t\thoffset = (eye == 0) ? " I_STEREOPARAMS ".x : " I_STEREOPARAMS ".y;\n");
-    out.Write("\t}\n");
+    out.Write(FMT_STRING("\tfloat hoffset = 0.0f;\n"));
+    out.Write(FMT_STRING("\tif (" I_STEREOPARAMS ".w == 1.0f) {{ // Apply h-offset only if not OpenVR mode (OpenVR handles it in projection)\n"));
+    out.Write(FMT_STRING("\t\thoffset = (eye == 0) ? " I_STEREOPARAMS ".x : " I_STEREOPARAMS ".y;\n"));
+    out.Write(FMT_STRING("\t}}\n")); // Note: corrected to "}}" from "}" for proper fmt string if it was a mistake before
   }
 
   if (wireframe)
-    out.Write("\tVS_OUTPUT first;\n");
+    out.Write(FMT_STRING("\tVS_OUTPUT first;\n"));
 
   // Avoid D3D warning about forced unrolling of single-iteration loop
   if (vertex_in > 1)
-    out.Write("\tfor (int i = 0; i < {}; ++i) {{\n", vertex_in);
+    out.Write(FMT_STRING("\tfor (int i = 0; i < {}; ++i) {{\n"), vertex_in);
   else
-    out.Write("\tint i = 0;\n");
+    out.Write(FMT_STRING("\tint i = 0;\n"));
 
   if (api_type == APIType::OpenGL || api_type == APIType::Vulkan)
   {

@@ -81,9 +81,9 @@ public:
   SurfaceInfo GetSurfaceInfo() const override;
 
   // VR Specific methods
-  bool SetLeftEyeRenderTarget(const ClearColor& clear_color);
-  bool SetRightEyeRenderTarget(const ClearColor& clear_color);
-  bool IsVRMode() const { return m_vrd3d != nullptr; }
+  bool IsVRMode() const override;
+  bool SetLeftEyeRenderTarget(const ClearColor& clear_color) override;
+  bool SetRightEyeRenderTarget(const ClearColor& clear_color) override;
 
 
 private:

@@ -443,4 +443,25 @@ Matrix44 Matrix44::Inverted() const
   return result;
 }
 
+Matrix44 Matrix44::FromArrayRows(const float* row0, const float* row1, const float* row2, const float* row3)
+{
+  Matrix44 mtx;
+  memcpy(&mtx.data[0], row0, 4 * sizeof(float));
+  memcpy(&mtx.data[4], row1, 4 * sizeof(float));
+  memcpy(&mtx.data[8], row2, 4 * sizeof(float));
+  memcpy(&mtx.data[12], row3, 4 * sizeof(float));
+  return mtx;
+}
+
+Vec4 Matrix44::GetRow(int rowIndex) const
+{
+  if (rowIndex < 0 || rowIndex > 3)
+  {
+    // Should not happen, but return zero vector as fallback
+    return Vec4(0.0f, 0.0f, 0.0f, 0.0f);
+  }
+  const float* rowPtr = &data[rowIndex * 4];
+  return Vec4(rowPtr[0], rowPtr[1], rowPtr[2], rowPtr[3]);
+}
+
 }  // namespace Common

@@ -72,6 +72,11 @@ public:
 
   SurfaceInfo GetSurfaceInfo() const override;
 
+  // VR Specific methods (stubs for Metal)
+  bool IsVRMode() const override { return false; }
+  bool SetLeftEyeRenderTarget(const ClearColor& clear_color) override { return false; }
+  bool SetRightEyeRenderTarget(const ClearColor& clear_color) override { return false; }
+
 private:
   MRCOwned<CAMetalLayer*> m_layer;
   MRCOwned<id<CAMetalDrawable>> m_drawable;

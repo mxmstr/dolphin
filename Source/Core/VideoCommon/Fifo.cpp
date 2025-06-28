@@ -23,6 +23,7 @@
 #include "Core/System.h"
 
 #include "VideoCommon/AsyncRequests.h"
+#include "VideoCommon/VertexShaderManager.h" // Added for GetVertexShaderManager
 #include "VideoCommon/CPMemory.h"
 #include "VideoCommon/CommandProcessor.h"
 #include "VideoCommon/DataReader.h"
