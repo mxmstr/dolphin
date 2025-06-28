@@ -290,13 +290,17 @@ void VertexShaderManager::SetConstants(const std::vector<std::string>& textures,
     for (int i = start_matrix_idx; i < end_matrix_idx; ++i)
     {
       // Construct Matrix44 from the 4 float4s that represent the matrix in xfmem
-      // xfmem.posMatrices[i*4 + 0] is row 0
-      // xfmem.posMatrices[i*4 + 1] is row 1, etc.
+      // xfmem.posMatrices is a float[256] array. Each 4x4 matrix takes 16 floats.
+      // Matrix 'i' starts at index i * 16.
+      // Row 0 of matrix 'i' starts at &xfmem.posMatrices[i * 16 + 0]
+      // Row 1 of matrix 'i' starts at &xfmem.posMatrices[i * 16 + 4]
+      // Row 2 of matrix 'i' starts at &xfmem.posMatrices[i * 16 + 8]
+      // Row 3 of matrix 'i' starts at &xfmem.posMatrices[i * 16 + 12]
       Common::Matrix44 game_model_view_matrix = Common::Matrix44::FromArrayRows(
-        xfmem.posMatrices[i * 4 + 0].data(),
-        xfmem.posMatrices[i * 4 + 1].data(),
-        xfmem.posMatrices[i * 4 + 2].data(),
-        xfmem.posMatrices[i * 4 + 3].data()
+        &xfmem.posMatrices[i * 16 + 0],
+        &xfmem.posMatrices[i * 16 + 4],
+        &xfmem.posMatrices[i * 16 + 8],
+        &xfmem.posMatrices[i * 16 + 12]
       );
 
       Common::Matrix44 final_model_view_matrix = game_model_view_matrix;
@@ -311,7 +315,10 @@ void VertexShaderManager::SetConstants(const std::vector<std::string>& textures,
       // Copy the final matrix (row by row) into constants.transformmatrices
       for (int row = 0; row < 4; ++row)
       {
-        constants.transformmatrices[i][row] = final_model_view_matrix.GetRow(row);
+        // constants.transformmatrices[i][row] is std::array<float, 4>
+        // final_model_view_matrix.GetRow(row) returns Common::Vec4
+        // Common::Vec4 has .data which is std::array<float, 4>
+        constants.transformmatrices[i][row] = final_model_view_matrix.GetRow(row).data;
       }
     }
     dirty = true;
