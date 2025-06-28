@@ -36,6 +36,11 @@ public:
                                                    const void* cache_data = nullptr,
                                                    size_t cache_data_length = 0) override;
   SurfaceInfo GetSurfaceInfo() const override { return {}; }
+
+  // VR Specific methods (stubs for Null)
+  bool IsVRMode() const override { return false; }
+  bool SetLeftEyeRenderTarget(const ClearColor& clear_color) override { return false; }
+  bool SetRightEyeRenderTarget(const ClearColor& clear_color) override { return false; }
 };
 
 class NullEFBInterface final : public EFBInterfaceBase

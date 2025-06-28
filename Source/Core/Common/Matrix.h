@@ -444,6 +444,9 @@ public:
 
   // Note: Row-major storage order.
   std::array<float, 16> data;
+
+  static Matrix44 FromArrayRows(const float* row0, const float* row1, const float* row2, const float* row3);
+  Vec4 GetRow(int rowIndex) const;
 };
 
 inline Matrix44 operator*(Matrix44 lhs, const Matrix44& rhs)

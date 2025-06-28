@@ -53,6 +53,11 @@ public:
 
   SurfaceInfo GetSurfaceInfo() const override;
 
+  // VR Specific methods (stubs for Software Renderer)
+  bool IsVRMode() const override { return false; }
+  bool SetLeftEyeRenderTarget(const ClearColor& clear_color) override { return false; }
+  bool SetRightEyeRenderTarget(const ClearColor& clear_color) override { return false; }
+
 private:
   std::unique_ptr<SWOGLWindow> m_window;
 };

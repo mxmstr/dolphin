@@ -266,7 +266,7 @@ void VertexShaderManager::SetConstants(const std::vector<std::string>& textures,
       {
         Common::Matrix44 eye_to_head_transform = vr->GetRawEyeToHeadTransform(m_current_eye);
         // final_modelview = Inv(EyeToHead) * Inv(WorldToHead) * GameModelView
-        hmd_world_to_eye_transform = eye_to_head_transform.Inverse() * hmd_pose_world_to_head.Inverse();
+        hmd_world_to_eye_transform = eye_to_head_transform.Inverted() * hmd_pose_world_to_head.Inverted();
         apply_hmd_transform = true;
       }
     }

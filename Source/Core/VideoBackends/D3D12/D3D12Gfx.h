@@ -95,6 +95,11 @@ public:
   // Binds all dirty state
   bool ApplyState();
 
+  // VR Specific methods (stubs for D3D12)
+  bool IsVRMode() const override { return false; }
+  bool SetLeftEyeRenderTarget(const ClearColor& clear_color) override { return false; }
+  bool SetRightEyeRenderTarget(const ClearColor& clear_color) override { return false; }
+
 protected:
   void OnConfigChanged(u32 bits) override;
 
