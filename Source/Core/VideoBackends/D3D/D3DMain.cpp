@@ -159,7 +159,7 @@ bool VideoBackend::Initialize(const WindowSystemInfo& wsi)
     {
       if (!m_vr_openvr->Init())
       {
-        ERROR_LOG_FMT(VR, "Failed to initialize OpenVR for adapter selection. Using default adapter %u.", adapter_to_use);
+        ERROR_LOG_FMT(VR, "Failed to initialize OpenVR for adapter selection. Using default adapter {}.", adapter_to_use);
         m_vr_openvr.reset(); // Clear if initialization failed
       }
     }
@@ -177,7 +177,7 @@ bool VideoBackend::Initialize(const WindowSystemInfo& wsi)
           LUID openvr_luid_struct;
           openvr_luid_struct.LowPart = static_cast<DWORD>(openvr_luid_ll);
           openvr_luid_struct.HighPart = static_cast<LONG>(openvr_luid_ll >> 32);
-          INFO_LOG_FMT(VIDEO, "OpenVR recommended LUID: Low=%lu, High=%ld. Searching DXGI adapters.",
+          INFO_LOG_FMT(VIDEO, "OpenVR recommended LUID: Low={}, High={}. Searching DXGI adapters.",
                        openvr_luid_struct.LowPart, openvr_luid_struct.HighPart);
 
           UINT i = 0;
@@ -188,11 +188,13 @@ bool VideoBackend::Initialize(const WindowSystemInfo& wsi)
             DXGI_ADAPTER_DESC1 adapter_desc;
             if (SUCCEEDED(current_adapter->GetDesc1(&adapter_desc)))
             {
-              INFO_LOG_FMT(VIDEO, "Adapter %u: %S, LUID: Low=%lu, High=%ld", i, adapter_desc.Description, adapter_desc.AdapterLuid.LowPart, adapter_desc.AdapterLuid.HighPart);
+                const wchar_t* adapter_name1 = std::wstring(adapter_desc.Description).c_str();
+              INFO_LOG_FMT(VIDEO, "Adapter {}: {}, LUID: Low={}, High={}", i, (void*)adapter_name1, adapter_desc.AdapterLuid.LowPart, adapter_desc.AdapterLuid.HighPart);
               if (adapter_desc.AdapterLuid.LowPart == openvr_luid_struct.LowPart &&
                   adapter_desc.AdapterLuid.HighPart == openvr_luid_struct.HighPart)
               {
-                INFO_LOG_FMT(VIDEO, "Found matching OpenVR adapter at index %u: %S", i, adapter_desc.Description);
+                const wchar_t* adapter_name2 = std::wstring(adapter_desc.Description).c_str();
+                INFO_LOG_FMT(VIDEO, "Found matching OpenVR adapter at index {}: {}", i, (void*)adapter_name2);
                 adapter_to_use = i;
                 found_match = true;
                 break;
@@ -203,18 +205,18 @@ bool VideoBackend::Initialize(const WindowSystemInfo& wsi)
 
           if (!found_match)
           {
-            WARN_LOG_FMT(VIDEO, "OpenVR LUID (Low: %lu, High: %ld) not found among DXGI adapters. Using default adapter %u.",
+            WARN_LOG_FMT(VIDEO, "OpenVR LUID (Low: {}, High: {}) not found among DXGI adapters. Using default adapter {}.",
                          openvr_luid_struct.LowPart, openvr_luid_struct.HighPart, g_Config.iAdapter);
           }
         }
         else
         {
-          WARN_LOG_FMT(VIDEO, "Failed to create/query DXGIFactory1 for OpenVR adapter lookup. Using default adapter %u.", g_Config.iAdapter);
+          WARN_LOG_FMT(VIDEO, "Failed to create/query DXGIFactory1 for OpenVR adapter lookup. Using default adapter {}.", g_Config.iAdapter);
         }
       }
       else
       {
-        WARN_LOG_FMT(VIDEO, "OpenVR did not provide a valid LUID. Using default adapter %u.", g_Config.iAdapter);
+        WARN_LOG_FMT(VIDEO, "OpenVR did not provide a valid LUID. Using default adapter {}.", g_Config.iAdapter);
       }
     }
     // m_vr_openvr instance might be initialized here.

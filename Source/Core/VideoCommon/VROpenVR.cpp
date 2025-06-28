@@ -204,7 +204,7 @@ long long VROpenVR::GetAdapterLUID()
   }
   else
   {
-    GENERIC_LOG_FMT(Common::Log::LogType::VR, Common::Log::LogLevel::LINFO, "OpenVR recommended adapter LUID: %lld", adapter_luid);
+    GENERIC_LOG_FMT(Common::Log::LogType::VR, Common::Log::LogLevel::LINFO, "OpenVR recommended adapter LUID: {}", adapter_luid);
   }
   return adapter_luid;
 }

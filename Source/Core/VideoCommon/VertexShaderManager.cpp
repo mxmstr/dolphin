@@ -116,7 +116,7 @@ Common::Matrix44 VertexShaderManager::LoadProjectionMatrix()
   if (g_ActiveConfig.stereo_mode == StereoMode::OpenVR && Core::g_vr_openvr_instance && Core::g_vr_openvr_instance->IsInitialized())
   {
     VROpenVR* vr = Core::g_vr_openvr_instance.get();
-    Common::Matrix44 hmd_pose_matrix;
+    //Common::Matrix44 hmd_pose_matrix;
     Common::Matrix44 eye_projection_matrix;
 
     // Get HMD pose (this is World-to-HMDHead space)
@@ -330,34 +330,45 @@ void VertexShaderManager::SetConstants(const std::vector<std::string>& textures,
 
   const auto per_vertex_normal_matrices_changed =
       xf_state_manager.GetPerVertexNormalMatrixChanges();
+  //if (per_vertex_normal_matrices_changed[0] >= 0)
+  //{
+  //  // per_vertex_normal_matrices_changed contains [min_changed_matrix_idx, max_changed_matrix_idx]
+  //  int start_matrix_idx = per_vertex_normal_matrices_changed[0];
+  //  int end_matrix_idx = per_vertex_normal_matrices_changed[1]; // This is inclusive
+
+  //  for (int i = start_matrix_idx; i <= end_matrix_idx; ++i) // Iterate through each changed normal matrix
+  //  {
+  //    // Normal matrices are 3x3 in xfmem (9 floats)
+  //    // They are stored as 3 float4s in shader constants (12 floats, with padding)
+  //    const float* src_mat_ptr = &xfmem.normalMatrices[i * 9]; // Start of 3x3 matrix i in xfmem
+
+  //    // Destination is 3 consecutive float4s in constants.normalmatrices
+  //    // Row 0
+  //    constants.normalmatrices[i * 3 + 0][0] = src_mat_ptr[0]; // N[0][0]
+  //    constants.normalmatrices[i * 3 + 0][1] = src_mat_ptr[1]; // N[0][1]
+  //    constants.normalmatrices[i * 3 + 0][2] = src_mat_ptr[2]; // N[0][2]
+  //    constants.normalmatrices[i * 3 + 0][3] = 0.0f;           // W = 0
+  //    // Row 1
+  //    constants.normalmatrices[i * 3 + 1][0] = src_mat_ptr[3]; // N[1][0]
+  //    constants.normalmatrices[i * 3 + 1][1] = src_mat_ptr[4]; // N[1][1]
+  //    constants.normalmatrices[i * 3 + 1][2] = src_mat_ptr[5]; // N[1][2]
+  //    constants.normalmatrices[i * 3 + 1][3] = 0.0f;           // W = 0
+  //    // Row 2
+  //    constants.normalmatrices[i * 3 + 2][0] = src_mat_ptr[6]; // N[2][0]
+  //    constants.normalmatrices[i * 3 + 2][1] = src_mat_ptr[7]; // N[2][1]
+  //    constants.normalmatrices[i * 3 + 2][2] = src_mat_ptr[8]; // N[2][2]
+  //    constants.normalmatrices[i * 3 + 2][3] = 0.0f;           // W = 0
+  //  }
+  //  dirty = true;
+  //  xf_state_manager.ResetPerVertexNormalMatrixChanges();
+  //}
   if (per_vertex_normal_matrices_changed[0] >= 0)
   {
-    // per_vertex_normal_matrices_changed contains [min_changed_matrix_idx, max_changed_matrix_idx]
-    int start_matrix_idx = per_vertex_normal_matrices_changed[0];
-    int end_matrix_idx = per_vertex_normal_matrices_changed[1]; // This is inclusive
-
-    for (int i = start_matrix_idx; i <= end_matrix_idx; ++i) // Iterate through each changed normal matrix
+    int startn = per_vertex_normal_matrices_changed[0] / 3;
+    int endn = (per_vertex_normal_matrices_changed[1] + 2) / 3;
+    for (int i = startn; i < endn; i++)
     {
-      // Normal matrices are 3x3 in xfmem (9 floats)
-      // They are stored as 3 float4s in shader constants (12 floats, with padding)
-      const float* src_mat_ptr = &xfmem.normalMatrices[i * 9]; // Start of 3x3 matrix i in xfmem
-
-      // Destination is 3 consecutive float4s in constants.normalmatrices
-      // Row 0
-      constants.normalmatrices[i * 3 + 0][0] = src_mat_ptr[0]; // N[0][0]
-      constants.normalmatrices[i * 3 + 0][1] = src_mat_ptr[1]; // N[0][1]
-      constants.normalmatrices[i * 3 + 0][2] = src_mat_ptr[2]; // N[0][2]
-      constants.normalmatrices[i * 3 + 0][3] = 0.0f;           // W = 0
-      // Row 1
-      constants.normalmatrices[i * 3 + 1][0] = src_mat_ptr[3]; // N[1][0]
-      constants.normalmatrices[i * 3 + 1][1] = src_mat_ptr[4]; // N[1][1]
-      constants.normalmatrices[i * 3 + 1][2] = src_mat_ptr[5]; // N[1][2]
-      constants.normalmatrices[i * 3 + 1][3] = 0.0f;           // W = 0
-      // Row 2
-      constants.normalmatrices[i * 3 + 2][0] = src_mat_ptr[6]; // N[2][0]
-      constants.normalmatrices[i * 3 + 2][1] = src_mat_ptr[7]; // N[2][1]
-      constants.normalmatrices[i * 3 + 2][2] = src_mat_ptr[8]; // N[2][2]
-      constants.normalmatrices[i * 3 + 2][3] = 0.0f;           // W = 0
+      memcpy(constants.normalmatrices[i].data(), &xfmem.normalMatrices[3 * i], 12);
     }
     dirty = true;
     xf_state_manager.ResetPerVertexNormalMatrixChanges();

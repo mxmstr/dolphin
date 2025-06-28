@@ -80,12 +80,6 @@
   <ItemGroup>
     <Text Include="$(BuildInfoTemplate)" />
   </ItemGroup>
-  <ItemGroup>
-    <ClInclude Include="VideoCommon\VROpenVR.h" />
-  </ItemGroup>
-  <ItemGroup>
-    <ClCompile Include="VideoCommon\VROpenVR.cpp" />
-  </ItemGroup>
   <UsingTask TaskName="GetProductVersion" TaskFactory="CodeTaskFactory" AssemblyFile="$(MSBuildToolsPath)\Microsoft.Build.Tasks.Core.dll">
     <ParameterGroup>
       <Path ParameterType="System.String" Required="true" />
