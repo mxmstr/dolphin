@@ -191,7 +191,7 @@ long long VROpenVR::GetAdapterLUID()
     return 0; // Return 0 to indicate failure or default
   }
 
-  long long adapter_luid = 0;
+  uint64_t adapter_luid = 0;
   // The third parameter pInstance for GetOutputDevice is for Vulkan. For DX, it should be nullptr.
   // If using DX11, texture type is TextureType_DirectX.
   // If using DX12, texture type is TextureType_DirectX12.

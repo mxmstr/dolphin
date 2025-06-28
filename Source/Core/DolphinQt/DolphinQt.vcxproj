@@ -48,6 +48,12 @@
     <Link>
       <AdditionalDependencies Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">openvr_api.lib;Qt6Core$(QtLibSuffix).lib;Qt6Gui$(QtLibSuffix).lib;Qt6Widgets$(QtLibSuffix).lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
+    <Link>
+      <AdditionalLibraryDirectories Condition="'$(Configuration)|$(Platform)'=='Release|x64'">$(ExternalsDir)OpenVR\lib\win64;$(QtLibDir);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+    </Link>
+    <Link>
+      <AdditionalDependencies Condition="'$(Configuration)|$(Platform)'=='Release|x64'">openvr_api.lib;Qt6Core$(QtLibSuffix).lib;Qt6Gui$(QtLibSuffix).lib;Qt6Widgets$(QtLibSuffix).lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="AboutDialog.cpp" />

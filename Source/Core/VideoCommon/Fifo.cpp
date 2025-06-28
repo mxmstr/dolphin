@@ -31,6 +31,7 @@
 #include "VideoCommon/VertexLoaderManager.h"
 #include "VideoCommon/VertexManagerBase.h"
 #include "VideoCommon/VideoBackendBase.h"
+#include "VideoCommon/AbstractGfx.h"
 
 namespace Fifo
 {

@@ -72,6 +72,11 @@
       <AdditionalIncludeDirectories>$(ExternalsDir)OpenVR\headers;$(ExternalsDir)zstd\zstd\lib;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
   </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <ClCompile>
+      <AdditionalIncludeDirectories>$(ExternalsDir)OpenVR\headers;$(ExternalsDir)zstd\zstd\lib;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ClCompile>
+  </ItemDefinitionGroup>
   <ItemGroup>
     <Text Include="$(BuildInfoTemplate)" />
   </ItemGroup>

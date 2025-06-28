@@ -45,14 +45,14 @@ Gfx::Gfx(std::unique_ptr<SwapChain> swap_chain, float backbuffer_scale)
     m_vrd3d = std::make_unique<VRD3D>(Core::g_vr_openvr_instance.get(), D3D::device.Get());
     if (!m_vrd3d->Init())
     {
-      ERROR_LOG_FMT(D3D, "Failed to initialize VRD3D. Disabling VR rendering path.");
+      ERROR_LOG_FMT(VIDEO, "Failed to initialize VRD3D. Disabling VR rendering path.");
       m_vrd3d.reset();
       // NOTE: Ideally, inform the user or fallback g_ActiveConfig.stereo_mode here,
       // but that's complex from this low level.
     }
     else
     {
-      INFO_LOG_FMT(D3D, "VRD3D initialized within D3DGfx.");
+      INFO_LOG_FMT(VIDEO, "VRD3D initialized within D3DGfx.");
     }
   }
 }
@@ -206,7 +206,7 @@ void Gfx::PresentBackbuffer()
     // Submit frames to HMD
     if (!m_vrd3d->SubmitFrames())
     {
-      ERROR_LOG_FMT(D3D, "Failed to submit frames to OpenVR.");
+      ERROR_LOG_FMT(VIDEO, "Failed to submit frames to OpenVR.");
       // Potentially handle this error, e.g., by stopping VR mode.
     }
 
@@ -233,11 +233,11 @@ void Gfx::OnConfigChanged(u32 bits)
     {
       if (!m_vrd3d) // If not already initialized, or was previously disabled
       {
-        INFO_LOG_FMT(D3D, "StereoMode changed to OpenVR. Initializing VRD3D in D3DGfx.");
+        INFO_LOG_FMT(VIDEO, "StereoMode changed to OpenVR. Initializing VRD3D in D3DGfx.");
         m_vrd3d = std::make_unique<VRD3D>(Core::g_vr_openvr_instance.get(), D3D::device.Get());
         if (!m_vrd3d->Init())
         {
-          ERROR_LOG_FMT(D3D, "Failed to initialize VRD3D on config change. Disabling VR rendering path.");
+          ERROR_LOG_FMT(VIDEO, "Failed to initialize VRD3D on config change. Disabling VR rendering path.");
           m_vrd3d.reset();
         }
       }
@@ -246,7 +246,7 @@ void Gfx::OnConfigChanged(u32 bits)
     {
       if (m_vrd3d) // If VR was active but now is not (or VROpenVR failed)
       {
-        INFO_LOG_FMT(D3D, "StereoMode changed from OpenVR or OpenVR not available. Shutting down VRD3D in D3DGfx.");
+        INFO_LOG_FMT(VIDEO, "StereoMode changed from OpenVR or OpenVR not available. Shutting down VRD3D in D3DGfx.");
         m_vrd3d.reset(); // This will call VRD3D destructor
       }
     }
@@ -284,14 +284,14 @@ bool Gfx::SetLeftEyeRenderTarget(const ClearColor& clear_color)
 {
   if (!m_vrd3d)
   {
-    ERROR_LOG_FMT(D3D, "SetLeftEyeRenderTarget called but VRD3D is not initialized.");
+    ERROR_LOG_FMT(VIDEO, "SetLeftEyeRenderTarget called but VRD3D is not initialized.");
     return false;
   }
 
   DX11::DXTexture* left_eye_texture = m_vrd3d->GetLeftEyeTexture();
   if (!left_eye_texture)
   {
-    ERROR_LOG_FMT(D3D, "Failed to get left eye texture from VRD3D.");
+    ERROR_LOG_FMT(VIDEO, "Failed to get left eye texture from VRD3D.");
     return false;
   }
 
@@ -309,7 +309,7 @@ bool Gfx::SetLeftEyeRenderTarget(const ClearColor& clear_color)
   DX11::DXFramebuffer* left_fb = m_vrd3d->GetLeftEyeFramebuffer();
   if (!left_fb)
   {
-    ERROR_LOG_FMT(D3D, "Failed to get left eye framebuffer from VRD3D.");
+    ERROR_LOG_FMT(VIDEO, "Failed to get left eye framebuffer from VRD3D.");
     return false;
   }
   SetAndClearFramebuffer(left_fb, clear_color);
@@ -320,14 +320,14 @@ bool Gfx::SetRightEyeRenderTarget(const ClearColor& clear_color)
 {
   if (!m_vrd3d)
   {
-    ERROR_LOG_FMT(D3D, "SetRightEyeRenderTarget called but VRD3D is not initialized.");
+    ERROR_LOG_FMT(VIDEO, "SetRightEyeRenderTarget called but VRD3D is not initialized.");
     return false;
   }
 
   DX11::DXFramebuffer* right_fb = m_vrd3d->GetRightEyeFramebuffer();
   if (!right_fb)
   {
-    ERROR_LOG_FMT(D3D, "Failed to get right eye framebuffer from VRD3D.");
+    ERROR_LOG_FMT(VIDEO, "Failed to get right eye framebuffer from VRD3D.");
     return false;
   }
   SetAndClearFramebuffer(right_fb, clear_color);
