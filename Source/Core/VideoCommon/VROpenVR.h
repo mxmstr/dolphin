@@ -43,7 +43,7 @@ public:
   vr::IVRCompositor* GetCompositor() { return m_ivr_compositor; }
   void GetHMDRecommendedRenderTargetSize(uint32_t* width, uint32_t* height);
   Common::Matrix44 GetRawEyeToHeadTransform(vr::EVREye eye);
-  int GetAdapterIndex(); // Added for D3D adapter selection
+  long long GetAdapterLUID(); // Returns LUID of the adapter OpenVR is using, or 0 if none/error.
 
 private:
   vr::IVRSystem* m_ivr_system;

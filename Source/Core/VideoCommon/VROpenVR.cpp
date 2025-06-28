@@ -182,3 +182,29 @@ Common::Matrix44 VROpenVR::GetRawEyeToHeadTransform(vr::EVREye eye)
   vr::HmdMatrix34_t mat34 = m_ivr_system->GetEyeToHeadTransform(eye);
   return ConvertHmdMatrix34ToMatrix44(mat34);
 }
+
+long long VROpenVR::GetAdapterLUID()
+{
+  if (!m_initialized || !m_ivr_system)
+  {
+    ERROR_LOG_FMT(VR, "VROpenVR not initialized or IVRSystem not available for GetAdapterLUID.");
+    return 0; // Return 0 to indicate failure or default
+  }
+
+  long long adapter_luid = 0;
+  // The third parameter pInstance for GetOutputDevice is for Vulkan. For DX, it should be nullptr.
+  // If using DX11, texture type is TextureType_DirectX.
+  // If using DX12, texture type is TextureType_DirectX12.
+  // We are in D3DBase (DX11 context for now), so TextureType_DirectX.
+  m_ivr_system->GetOutputDevice(&adapter_luid, vr::TextureType_DirectX, nullptr);
+
+  if (adapter_luid == 0)
+  {
+    WARN_LOG_FMT(VR, "OpenVR did not provide a valid adapter LUID for DirectX.");
+  }
+  else
+  {
+    GENERIC_LOG_FMT(Common::Log::LogType::VR, Common::Log::LogLevel::LINFO, "OpenVR recommended adapter LUID: %lld", adapter_luid);
+  }
+  return adapter_luid;
+}

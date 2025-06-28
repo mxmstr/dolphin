@@ -207,8 +207,10 @@ ShaderCode GenerateGeometryShaderCode(APIType api_type, const ShaderHostConfig& 
     // or a new uniform in GSBlock indicates OpenVR mode.
     // Let's add a uniform to GSBlock: uint is_openvr_mode;
     // This will be set by the backend.
+    // I_STEREOPARAMS.w is expected to be 0.0f if OpenVR is active (no GS h-offset needed),
+    // and 1.0f for other stereo modes where the GS needs to apply the h-offset.
     out.Write("\tfloat hoffset = 0.0f;\n");
-    out.Write("\tif (" I_STEREOPARAMS ".w == 0.0f) { // Assuming .w can indicate OpenVR mode (0 for OpenVR, 1 for other stereo)\n");
+    out.Write("\tif (" I_STEREOPARAMS ".w == 1.0f) { // Apply h-offset only if not OpenVR mode (OpenVR handles it in projection)\n");
     out.Write("\t\thoffset = (eye == 0) ? " I_STEREOPARAMS ".x : " I_STEREOPARAMS ".y;\n");
     out.Write("\t}\n");
   }
