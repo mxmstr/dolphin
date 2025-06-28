@@ -313,12 +313,15 @@ void VertexShaderManager::SetConstants(const std::vector<std::string>& textures,
       }
 
       // Copy the final matrix (row by row) into constants.transformmatrices
+      // constants.transformmatrices is std::array<float4, 64>, effectively holding 16 4x4 matrices.
+      // Matrix 'i' starts at index 'i*4' in this flat array of float4s.
+      // Each float4 corresponds to a row of the matrix.
       for (int row = 0; row < 4; ++row)
       {
-        // constants.transformmatrices[i][row] is std::array<float, 4>
+        // constants.transformmatrices[i * 4 + row] is a float4 (std::array<float, 4>)
         // final_model_view_matrix.GetRow(row) returns Common::Vec4
         // Common::Vec4 has .data which is std::array<float, 4>
-        constants.transformmatrices[i][row] = final_model_view_matrix.GetRow(row).data;
+        constants.transformmatrices[i * 4 + row] = final_model_view_matrix.GetRow(row).data;
       }
     }
     dirty = true;
