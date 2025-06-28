@@ -12,6 +12,7 @@
 #include "Common/Matrix.h"
 #include "VideoCommon/ConstantManager.h"
 #include "VideoCommon/NativeVertexFormat.h"
+#include <openvr.h> // For vr::EVREye
 
 class PointerWrap;
 struct PortableVertexDeclaration;
@@ -38,6 +39,9 @@ public:
 
   VertexShaderConstants constants{};
   bool dirty = false;
+  vr::EVREye m_current_eye = vr::Eye_Left; // Default to left eye
+
+  void SetCurrentEye(vr::EVREye eye) { m_current_eye = eye; } // Added to set current eye for rendering
 
   static DOLPHIN_FORCE_INLINE void UpdateValue(bool* dirty, u32* old_value, u32 new_value)
   {

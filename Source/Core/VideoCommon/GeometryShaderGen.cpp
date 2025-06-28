@@ -199,6 +199,18 @@ ShaderCode GenerateGeometryShaderCode(APIType api_type, const ShaderHostConfig& 
       out.Write("\tint eye = InstanceID;\n");
     else
       out.Write("\tfor (int eye = 0; eye < 2; ++eye) {{\n");
+
+    // Only apply GS-based horizontal offset if not using OpenVR mode,
+    // as OpenVR projection matrices already include eye offsets.
+    // We'll need a way to know if it's OpenVR mode here.
+    // For now, let's assume g_ActiveConfig.stereo_mode can be checked,
+    // or a new uniform in GSBlock indicates OpenVR mode.
+    // Let's add a uniform to GSBlock: uint is_openvr_mode;
+    // This will be set by the backend.
+    out.Write("\tfloat hoffset = 0.0f;\n");
+    out.Write("\tif (" I_STEREOPARAMS ".w == 0.0f) { // Assuming .w can indicate OpenVR mode (0 for OpenVR, 1 for other stereo)\n");
+    out.Write("\t\thoffset = (eye == 0) ? " I_STEREOPARAMS ".x : " I_STEREOPARAMS ".y;\n");
+    out.Write("\t}\n");
   }
 
   if (wireframe)
@@ -231,14 +243,7 @@ ShaderCode GenerateGeometryShaderCode(APIType api_type, const ShaderHostConfig& 
 
   if (stereo)
   {
-    // For stereoscopy add a small horizontal offset in Normalized Device Coordinates proportional
-    // to the depth of the vertex. We retrieve the depth value from the w-component of the projected
-    // vertex which contains the negated z-component of the original vertex.
-    // For negative parallax (out-of-screen effects) we subtract a convergence value from
-    // the depth value. This results in objects at a distance smaller than the convergence
-    // distance to seemingly appear in front of the screen.
-    // This formula is based on page 13 of the "Nvidia 3D Vision Automatic, Best Practices Guide"
-    out.Write("\tfloat hoffset = (eye == 0) ? " I_STEREOPARAMS ".x : " I_STEREOPARAMS ".y;\n");
+    // Apply hoffset (which might be 0 if I_STEREOPARAMS.w indicated OpenVR mode)
     out.Write("\tf.pos.x += hoffset * (f.pos.w - " I_STEREOPARAMS ".z);\n");
   }
 

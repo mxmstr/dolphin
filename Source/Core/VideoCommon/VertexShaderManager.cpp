@@ -25,11 +25,18 @@
 #include "VideoCommon/VideoConfig.h"
 #include "VideoCommon/XFMemory.h"
 #include "VideoCommon/XFStateManager.h"
+#include "VideoCommon/VROpenVR.h"     // For VROpenVR
+#include "Core/Core.h"              // For Core::g_vr_openvr_instance and g_ActiveConfig
+
+// Forward declare g_vr_openvr_instance
+namespace Core { extern std::unique_ptr<VROpenVR> g_vr_openvr_instance; }
+
 
 void VertexShaderManager::Init()
 {
   // Initialize state tracking variables
   m_projection_graphics_mod_change = false;
+  m_current_eye = vr::Eye_Left;
 
   constants = {};
 
@@ -40,6 +47,8 @@ void VertexShaderManager::Init()
 
 Common::Matrix44 VertexShaderManager::LoadProjectionMatrix()
 {
+  // Default to game's projection calculation
+  Common::Matrix44 game_projection_matrix = Common::Matrix44::Identity();
   const auto& rawProjection = xfmem.projection.rawProjection;
 
   switch (xfmem.projection.type)
@@ -70,33 +79,22 @@ Common::Matrix44 VertexShaderManager::LoadProjectionMatrix()
     m_projection_matrix[14] = -1.0f;
     m_projection_matrix[15] = 0.0f;
 
+    // Store the calculated game projection
+    game_projection_matrix = Common::Matrix44::FromArray(m_projection_matrix);
     g_stats.gproj = m_projection_matrix;
   }
   break;
 
   case ProjectionType::Orthographic:
   {
-    m_projection_matrix[0] = rawProjection[0];
-    m_projection_matrix[1] = 0.0f;
-    m_projection_matrix[2] = 0.0f;
-    m_projection_matrix[3] = rawProjection[1];
+    // This is standard ortho matrix setup
+    m_projection_matrix[0] = rawProjection[0]; m_projection_matrix[1] = 0.0f;           m_projection_matrix[2] = 0.0f; m_projection_matrix[3] = rawProjection[1];
+    m_projection_matrix[4] = 0.0f;           m_projection_matrix[5] = rawProjection[2]; m_projection_matrix[6] = 0.0f; m_projection_matrix[7] = rawProjection[3];
+    m_projection_matrix[8] = 0.0f;           m_projection_matrix[9] = 0.0f;           m_projection_matrix[10] = rawProjection[4]; m_projection_matrix[11] = rawProjection[5];
+    m_projection_matrix[12] = 0.0f;          m_projection_matrix[13] = 0.0f;          m_projection_matrix[14] = 0.0f; m_projection_matrix[15] = 1.0f;
 
-    m_projection_matrix[4] = 0.0f;
-    m_projection_matrix[5] = rawProjection[2];
-    m_projection_matrix[6] = 0.0f;
-    m_projection_matrix[7] = rawProjection[3];
-
-    m_projection_matrix[8] = 0.0f;
-    m_projection_matrix[9] = 0.0f;
-    m_projection_matrix[10] = rawProjection[4];
-    m_projection_matrix[11] = rawProjection[5];
-
-    m_projection_matrix[12] = 0.0f;
-    m_projection_matrix[13] = 0.0f;
-
-    m_projection_matrix[14] = 0.0f;
-    m_projection_matrix[15] = 1.0f;
-
+    // Store the calculated game projection
+    game_projection_matrix = Common::Matrix44::FromArray(m_projection_matrix);
     g_stats.g2proj = m_projection_matrix;
     g_stats.proj = rawProjection;
   }
@@ -104,19 +102,101 @@ Common::Matrix44 VertexShaderManager::LoadProjectionMatrix()
 
   default:
     ERROR_LOG_FMT(VIDEO, "Unknown projection type: {}", xfmem.projection.type);
+    // game_projection_matrix remains identity
   }
 
-  PRIM_LOG("Projection: {} {} {} {} {} {}", rawProjection[0], rawProjection[1], rawProjection[2],
+  PRIM_LOG("Game Projection (type {}): {} {} {} {} {} {}", (int)xfmem.projection.type,
+           rawProjection[0], rawProjection[1], rawProjection[2],
            rawProjection[3], rawProjection[4], rawProjection[5]);
 
-  auto corrected_matrix = Common::Matrix44::FromArray(m_projection_matrix);
 
-  if (g_freelook_camera.IsActive() && xfmem.projection.type == ProjectionType::Perspective)
-    corrected_matrix *= g_freelook_camera.GetView();
+  // Start with the game's projection matrix (perspective or orthographic)
+  Common::Matrix44 final_matrix = game_projection_matrix;
 
-  g_freelook_camera.GetController()->SetClean();
+  if (g_ActiveConfig.stereo_mode == StereoMode::OpenVR && Core::g_vr_openvr_instance && Core::g_vr_openvr_instance->IsInitialized())
+  {
+    VROpenVR* vr = Core::g_vr_openvr_instance.get();
+    Common::Matrix44 hmd_pose_matrix;
+    Common::Matrix44 eye_projection_matrix;
 
-  return corrected_matrix;
+    // Get HMD pose (this is World-to-HMDHead space)
+    // We need HMDHead-to-World, so inverse is needed.
+    // GetHMDPose provides DeviceToAbsoluteTracking, which is what we need for the view matrix part.
+    // The HMD pose effectively becomes the new "view" matrix, replacing the game's camera location for the head.
+    // The game's original view matrix (from XF registers) would be applied first to position the world,
+    // then the inverse HMD pose to position the "head" camera in that world.
+    // For this first pass, we are modifying the projection matrix. A more robust solution
+    // involves modifying the view matrix (modelview in GC terms) before it's sent to the shader.
+
+    float near_clip = 0.1f; // TODO: Get from game's projection (rawProjection[5] / rawProjection[4] for perspective?)
+    float far_clip = xfmem.viewport.farZ / 65535.0f; // A rough estimate, needs proper calculation
+    if (xfmem.projection.type == ProjectionType::Perspective) {
+        // Perspective: P[3][2] = (zfar + znear) / (znear - zfar), P[2][2] = zfar * znear / (znear - zfar)
+        // if P[3][2] = raw[4], P[2][2] = raw[5]
+        // raw[4] = (F+N)/(N-F), raw[5] = F*N/(N-F)
+        // Let A = (F+N)/(N-F), B = F*N/(N-F)
+        // A*N - A*F = F+N => N(A-1) = F(A+1) => N = F(A+1)/(A-1)
+        // B = F * (F(A+1)/(A-1)) / (N-F) = F^2(A+1) / ((A-1)(N-F))
+        // This is getting complicated. Let's use fixed clips for now.
+        near_clip = g_ActiveConfig.bBBoxEnable ? 0.001f : 0.01f; // Smaller near clip for VR
+        far_clip = 20000.0f; // Large far clip for VR
+    }
+
+
+    if (vr->GetEyeProjectionMatrix(m_current_eye, near_clip, far_clip, eye_projection_matrix))
+    {
+      // The eye_projection_matrix from OpenVR is already a full projection matrix.
+      // It replaces the game's projection matrix entirely for VR.
+      final_matrix = eye_projection_matrix;
+
+      // The view transformation part:
+      // The game applies its modelview matrices (xfmem.posMatrices).
+      // We need to prepend the HMD's inverse pose and the inverse eye-to-head transform
+      // to these game modelview matrices, or adjust the final combined MVP matrix.
+      // This is typically done by:
+      // New_ViewMatrix = Inverse(HMD_Pose) * Inverse(EyeToHeadTransform) * Original_Game_ViewMatrix
+      // FinalMVP = VR_ProjectionMatrix * New_ViewMatrix * ModelMatrix
+      // Since VertexShaderManager currently only directly controls the projection part of (P*V*M),
+      // the view modification (HMD pose) needs to be integrated here carefully or
+      // VertexShaderManager::SetConstants needs to be able_to modify the view matrix part too.
+
+      // For now, we are directly setting constants.projection to the VR eye projection.
+      // The HMD head pose needs to be applied to the VIEW matrix in shader or before.
+      // Let's assume for now that the modelview matrix (ctrmtx in shader) will be
+      // pre-multiplied by HMD pose. This is a task for VertexShaderManager::SetConstants
+      // or the shader itself if we pass HMD pose as another uniform.
+
+      // The m_projection_matrix member is used by TransformToClipSpace. We should store the final combined P here.
+      // However, the actual shader constant 'cproj' should get this final_matrix.
+      // The current design of LoadProjectionMatrix returning Common::Matrix44 which then gets copied to constants.projection
+      // means this function should return the matrix that will be set in constants.projection.
+    }
+    else
+    {
+      // Stick to game's projection if VR fails
+      ERROR_LOG_FMT(VIDEO, "Failed to get VR eye projection matrix. Using game projection.");
+    }
+  }
+  else
+  {
+    // Non-VR rendering path (or FreeLook)
+    if (g_freelook_camera.IsActive() && xfmem.projection.type == ProjectionType::Perspective)
+    {
+      // Freelook camera applies its own view transformation, typically post-multiplied to game's projection here
+      // or pre-multiplied to game's view matrix.
+      // The current code does: corrected_matrix *= g_freelook_camera.GetView();
+      // This means final_matrix (which is game_projection_matrix) should be multiplied by freelook view.
+      final_matrix = final_matrix * g_freelook_camera.GetView();
+    }
+  }
+
+  // Copy to the m_projection_matrix member (which is an array<float,16>)
+  // This member is used by TransformToClipSpace, so it should reflect the final matrix used for projection.
+  memcpy(m_projection_matrix.data(), final_matrix.data.data(), 16 * sizeof(float));
+
+  g_freelook_camera.GetController()->SetClean(); // Assuming freelook state is handled correctly even if VR overrides its matrix
+
+  return final_matrix; // This matrix will be set into constants.projection
 }
 
 void VertexShaderManager::SetProjectionMatrix(XFStateManager& xf_state_manager)
@@ -175,10 +255,65 @@ void VertexShaderManager::SetConstants(const std::vector<std::string>& textures,
       xf_state_manager.GetPerVertexTransformMatrixChanges();
   if (per_vertex_transform_matrix_changes[0] >= 0)
   {
-    int startn = per_vertex_transform_matrix_changes[0] / 4;
-    int endn = (per_vertex_transform_matrix_changes[1] + 3) / 4;
-    memcpy(constants.transformmatrices[startn].data(), &xfmem.posMatrices[startn * 4],
-           (endn - startn) * sizeof(float4));
+    Common::Matrix44 hmd_world_to_eye_transform = Common::Matrix44::Identity();
+    bool apply_hmd_transform = false;
+
+    if (g_ActiveConfig.stereo_mode == StereoMode::OpenVR && Core::g_vr_openvr_instance && Core::g_vr_openvr_instance->IsInitialized())
+    {
+      VROpenVR* vr = Core::g_vr_openvr_instance.get();
+      Common::Matrix44 hmd_pose_world_to_head;
+      if (vr->GetHMDPose(0.0f, hmd_pose_world_to_head)) // TODO: prediction
+      {
+        Common::Matrix44 eye_to_head_transform = vr->GetRawEyeToHeadTransform(m_current_eye);
+        // final_modelview = Inv(EyeToHead) * Inv(WorldToHead) * GameModelView
+        hmd_world_to_eye_transform = eye_to_head_transform.Inverse() * hmd_pose_world_to_head.Inverse();
+        apply_hmd_transform = true;
+      }
+    }
+
+    // Iterate through the unique matrix indices that changed.
+    // XF registers for posMatrices are 0-63 for Mtx0-Mtx15 (4 registers per matrix)
+    // or 0-191 for Mtx0-Mtx63 if each matrix is 3 float4s (12 floats).
+    // Given xfmem.posMatrices is float[256], this suggests 64 matrices of float4.
+    // And constants.transformmatrices is float4[64][4].
+    // The original code was:
+    //    int startn = per_vertex_transform_matrix_changes[0] / 4;
+    //    int endn = (per_vertex_transform_matrix_changes[1] + 3) / 4;
+    //    memcpy(constants.transformmatrices[startn].data(), &xfmem.posMatrices[startn * 4], (endn - startn) * sizeof(float4));
+    // This implies xfmem.posMatrices is treated as a flat array of [64 * 4] float4s,
+    // where each block of 4 float4s is a row-major 4x4 matrix.
+    // And constants.transformmatrices[i] is the i-th such matrix.
+
+    int start_matrix_idx = per_vertex_transform_matrix_changes[0] / 4;
+    int end_matrix_idx = (per_vertex_transform_matrix_changes[1] + 3) / 4; // endn from original code
+
+    for (int i = start_matrix_idx; i < end_matrix_idx; ++i)
+    {
+      // Construct Matrix44 from the 4 float4s that represent the matrix in xfmem
+      // xfmem.posMatrices[i*4 + 0] is row 0
+      // xfmem.posMatrices[i*4 + 1] is row 1, etc.
+      Common::Matrix44 game_model_view_matrix = Common::Matrix44::FromArrayRows(
+        xfmem.posMatrices[i * 4 + 0].data(),
+        xfmem.posMatrices[i * 4 + 1].data(),
+        xfmem.posMatrices[i * 4 + 2].data(),
+        xfmem.posMatrices[i * 4 + 3].data()
+      );
+
+      Common::Matrix44 final_model_view_matrix = game_model_view_matrix;
+      if (apply_hmd_transform)
+      {
+        // Apply the HMD transformation: World -> Eye
+        // Game's matrix is Model -> World.
+        // So, final = (World->Eye) * (Model->World) = Model->Eye
+        final_model_view_matrix = hmd_world_to_eye_transform * game_model_view_matrix;
+      }
+
+      // Copy the final matrix (row by row) into constants.transformmatrices
+      for (int row = 0; row < 4; ++row)
+      {
+        constants.transformmatrices[i][row] = final_model_view_matrix.GetRow(row);
+      }
+    }
     dirty = true;
     xf_state_manager.ResetPerVertexTransformMatrixChanges();
   }

@@ -8,14 +8,21 @@
 
 #include "VideoBackends/D3D/D3DState.h"
 #include "VideoCommon/AbstractGfx.h"
+#include "VideoCommon/VROpenVR.h" // For VROpenVR global instance access
+#include "VideoBackends/D3D/VRD3D.h"   // For VRD3D class
 
 class BoundingBox;
+
+// Forward declare g_vr_openvr_instance
+namespace Core { extern std::unique_ptr<VROpenVR> g_vr_openvr_instance; }
+
 
 namespace DX11
 {
 class SwapChain;
 class DXTexture;
 class DXFramebuffer;
+// class VRD3D; // Already included above
 
 class Gfx final : public ::AbstractGfx
 {
@@ -73,6 +80,12 @@ public:
 
   SurfaceInfo GetSurfaceInfo() const override;
 
+  // VR Specific methods
+  bool SetLeftEyeRenderTarget(const ClearColor& clear_color);
+  bool SetRightEyeRenderTarget(const ClearColor& clear_color);
+  bool IsVRMode() const { return m_vrd3d != nullptr; }
+
+
 private:
   void CheckForSwapChainChanges();
 
@@ -80,5 +93,6 @@ private:
 
   float m_backbuffer_scale;
   std::unique_ptr<SwapChain> m_swap_chain;
+  std::unique_ptr<VRD3D> m_vrd3d; // VR D3D specific operations
 };
 }  // namespace DX11

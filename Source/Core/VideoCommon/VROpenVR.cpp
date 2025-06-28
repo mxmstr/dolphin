@@ -159,3 +159,26 @@ bool VROpenVR::GetEyeProjectionMatrix(vr::EVREye eye, float near_clip, float far
   out_projection = ConvertHmdMatrix44ToMatrix44(mat);
   return true;
 }
+
+void VROpenVR::GetHMDRecommendedRenderTargetSize(uint32_t* width, uint32_t* height)
+{
+  if (!m_initialized || !m_ivr_system)
+  {
+    ERROR_LOG_FMT(VR, "VROpenVR not initialized or IVRSystem not available for GetHMDRecommendedRenderTargetSize.");
+    *width = 0;
+    *height = 0;
+    return;
+  }
+  m_ivr_system->GetRecommendedRenderTargetSize(width, height);
+}
+
+Common::Matrix44 VROpenVR::GetRawEyeToHeadTransform(vr::EVREye eye)
+{
+  if (!m_initialized || !m_ivr_system)
+  {
+    ERROR_LOG_FMT(VR, "VROpenVR not initialized or IVRSystem not available for GetRawEyeToHeadTransform.");
+    return Common::Matrix44::Identity();
+  }
+  vr::HmdMatrix34_t mat34 = m_ivr_system->GetEyeToHeadTransform(eye);
+  return ConvertHmdMatrix34ToMatrix44(mat34);
+}
