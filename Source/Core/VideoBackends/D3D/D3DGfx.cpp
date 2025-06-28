@@ -415,4 +415,9 @@ SurfaceInfo Gfx::GetSurfaceInfo() const
           m_swap_chain ? m_swap_chain->GetFormat() : AbstractTextureFormat::Undefined};
 }
 
+bool Gfx::IsVRMode() const
+{
+  return m_vrd3d != nullptr;
+}
+
 }  // namespace DX11

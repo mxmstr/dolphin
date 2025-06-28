@@ -95,7 +95,10 @@
 
 namespace Core
 {
-static std::unique_ptr<VROpenVR> g_vr_openvr_instance; // Added VROpenVR instance
+// Definition of the global VROpenVR instance.
+// Declared as extern in D3DGfx.h (and potentially other places that need it).
+// Initialization happens in EmuThread.
+std::unique_ptr<VROpenVR> g_vr_openvr_instance;
 static bool s_wants_determinism;
 
 // Declarations and definitions
