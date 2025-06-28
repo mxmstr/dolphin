@@ -181,6 +181,12 @@ DX11::DXFramebuffer* VRD3D::GetLeftEyeFramebuffer()
   return m_initialized ? m_left_eye_framebuffer.get() : nullptr;
 }
 
+DX11::DXTexture* VRD3D::GetRightEyeTexture()
+{
+  // This texture is the one used for rendering, which is then submitted.
+  return m_initialized ? m_right_eye_render_texture.get() : nullptr;
+}
+
 DX11::DXFramebuffer* VRD3D::GetRightEyeFramebuffer()
 {
   return m_initialized ? m_right_eye_framebuffer.get() : nullptr;

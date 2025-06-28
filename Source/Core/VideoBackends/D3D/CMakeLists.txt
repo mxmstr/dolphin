@@ -20,6 +20,8 @@ add_library(videod3d
   DXShader.h
   DXTexture.cpp
   DXTexture.h
+  VRD3D.cpp
+  VRD3D.h
   VideoBackend.h
 )
 
