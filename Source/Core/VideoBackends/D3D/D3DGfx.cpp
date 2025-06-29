@@ -40,9 +40,7 @@ namespace DX11
 Gfx::Gfx(std::unique_ptr<SwapChain> swap_chain, float backbuffer_scale)
     : m_backbuffer_scale(backbuffer_scale), m_swap_chain(std::move(swap_chain))
 {
-  // m_vrd3d will be initialized in OnConfigChanged when stereo mode is set.
-  // Logging for VRD3D status (null or initialized) will happen there.
-  INFO_LOG_FMT(VIDEO, "D3DGfx::Gfx constructor completed. m_vrd3d is initially null.");
+
 }
 
 Gfx::~Gfx()
