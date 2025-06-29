@@ -7,6 +7,7 @@
 #include "VideoBackends/D3D/D3DSwapChain.h" // For DXFramebuffer
 #include "VideoCommon/VROpenVR.h"
 #include "Common/Logging/Log.h"
+#include <Common/Assert.h>
 
 VRD3D::VRD3D(VROpenVR* vr_system, ID3D11Device* d3d_device)
     : m_vr_system(vr_system),
@@ -32,52 +33,52 @@ bool VRD3D::Init()
 
   if (!m_vr_system || !m_vr_system->IsInitialized())
   {
-    ERROR_LOG_FMT(D3D, "VRD3D::Init - VROpenVR system not initialized.");
+    ERROR_LOG_FMT(VR, "VRD3D::Init - VROpenVR system not initialized.");
     return false;
   }
 
   m_vr_system->GetHMDRecommendedRenderTargetSize(&m_render_target_width, &m_render_target_height);
   if (m_render_target_width == 0 || m_render_target_height == 0)
   {
-    ERROR_LOG_FMT(D3D, "VRD3D::Init - Invalid recommended render target size from OpenVR: %u x %u",
+    ERROR_LOG_FMT(VR, "VRD3D::Init - Invalid recommended render target size from OpenVR: {} x {}",
                   m_render_target_width, m_render_target_height);
     return false;
   }
 
-  INFO_LOG_FMT(D3D, "VRD3D: Creating eye resources with size: %u x %u", m_render_target_width,
+  INFO_LOG_FMT(VR, "VRD3D: Creating eye resources with size: {} x {}", m_render_target_width,
                m_render_target_height);
 
   // Create Color Textures for rendering
-  TextureConfig color_tex_config(m_render_target_width, m_render_target_height, 1, 1,
-                                 AbstractTextureFormat::RGBA8, true /* rendertarget */,
-                                 false /* msaa */, 1 /* layers */);
+  TextureConfig color_tex_config(m_render_target_width, m_render_target_height, 1 /*levels*/, 1 /*layers*/,
+                                 1 /*samples*/, AbstractTextureFormat::RGBA8,
+                                 AbstractTextureFlag_RenderTarget, AbstractTextureType::Texture_2D);
   m_left_eye_render_texture = DX11::DXTexture::Create(color_tex_config, "VRLeftEyeRT");
   m_right_eye_render_texture = DX11::DXTexture::Create(color_tex_config, "VRRightEyeRT");
 
   if (!m_left_eye_render_texture || !m_right_eye_render_texture)
   {
-    ERROR_LOG_FMT(D3D, "VRD3D::Init - Failed to create eye render textures.");
+    ERROR_LOG_FMT(VR, "VRD3D::Init - Failed to create eye render textures.");
     return false;
   }
 
   // Create Depth Texture (shared for now)
-  TextureConfig depth_tex_config(m_render_target_width, m_render_target_height, 1, 1,
-                                 AbstractTextureFormat::D24_S8, true /* depthbuffer */,
-                                 false /* msaa */, 1 /* layers */);
+  TextureConfig depth_tex_config(m_render_target_width, m_render_target_height, 1 /*levels*/, 1 /*layers*/,
+                                 1 /*samples*/, AbstractTextureFormat::D24_S8,
+                                 AbstractTextureFlag_RenderTarget, AbstractTextureType::Texture_2D);
   m_depth_buffer_texture = DX11::DXTexture::Create(depth_tex_config, "VRDepthBuffer");
   if (!m_depth_buffer_texture)
   {
-    ERROR_LOG_FMT(D3D, "VRD3D::Init - Failed to create VR depth buffer texture.");
+    ERROR_LOG_FMT(VR, "VRD3D::Init - Failed to create VR depth buffer texture.");
     return false;
   }
 
   // Create Framebuffers
-  m_left_eye_framebuffer = DX11::DXFramebuffer::Create(m_left_eye_render_texture.get(), m_depth_buffer_texture.get());
-  m_right_eye_framebuffer = DX11::DXFramebuffer::Create(m_right_eye_render_texture.get(), m_depth_buffer_texture.get());
+  m_left_eye_framebuffer =  DX11::DXFramebuffer::Create(m_left_eye_render_texture.get(), m_depth_buffer_texture.get(), {});
+  m_right_eye_framebuffer = DX11::DXFramebuffer::Create(m_right_eye_render_texture.get(), m_depth_buffer_texture.get(), {});
 
   if (!m_left_eye_framebuffer || !m_right_eye_framebuffer)
   {
-    ERROR_LOG_FMT(D3D, "VRD3D::Init - Failed to create eye framebuffers.");
+    ERROR_LOG_FMT(VR, "VRD3D::Init - Failed to create eye framebuffers.");
     return false;
   }
 
@@ -88,7 +89,7 @@ bool VRD3D::Init()
 
   if (!left_res || !right_res)
   {
-    ERROR_LOG_FMT(D3D, "VRD3D::Init - Failed to get D3DResource from eye render textures.");
+    ERROR_LOG_FMT(VR, "VRD3D::Init - Failed to get D3DResource from eye render textures.");
     return false;
   }
 
@@ -97,14 +98,14 @@ bool VRD3D::Init()
 
   if (FAILED(hr_left) || FAILED(hr_right))
   {
-    ERROR_LOG_FMT(D3D, "VRD3D::Init - Failed to QueryInterface ID3D11Texture2D from eye render textures.");
+    ERROR_LOG_FMT(VR, "VRD3D::Init - Failed to QueryInterface ID3D11Texture2D from eye render textures.");
     m_left_eye_d3d_texture_for_submit.Reset();
     m_right_eye_d3d_texture_for_submit.Reset();
     return false;
   }
 
   m_initialized = true;
-  INFO_LOG_FMT(D3D, "VRD3D initialized successfully with eye framebuffers and textures.");
+  INFO_LOG_FMT(VR, "VRD3D initialized successfully with eye framebuffers and textures.");
   return true;
 }
 
@@ -122,13 +123,13 @@ bool VRD3D::SubmitFrames()
 {
   if (!m_initialized || !m_vr_system || !m_vr_system->GetCompositor())
   {
-    ERROR_LOG_FMT(D3D, "VRD3D::SubmitFrames - Not initialized or VR compositor not available.");
+    ERROR_LOG_FMT(VR, "VRD3D::SubmitFrames - Not initialized or VR compositor not available.");
     return false;
   }
 
   if (!m_left_eye_d3d_texture_for_submit || !m_right_eye_d3d_texture_for_submit)
   {
-    ERROR_LOG_FMT(D3D, "VRD3D::SubmitFrames - D3D Eye textures for submission are not valid.");
+    ERROR_LOG_FMT(VR, "VRD3D::SubmitFrames - D3D Eye textures for submission are not valid.");
     return false;
   }
 
@@ -145,14 +146,14 @@ bool VRD3D::SubmitFrames()
   vr::EVRCompositorError error_left = m_vr_system->GetCompositor()->Submit(vr::Eye_Left, &left_eye_texture, &texture_bounds);
   if (error_left != vr::VRCompositorError_None)
   {
-    ERROR_LOG_FMT(D3D, "VRD3D::SubmitFrames - Failed to submit left eye: %s", vr::VRCompositor()->GetCompositorErrorNameFromEnum(error_left));
+    ERROR_LOG_FMT(VR, "VRD3D::SubmitFrames - Failed to submit left eye: {}", static_cast<int>(error_left));
     // Continue to attempt right eye submission.
   }
 
   vr::EVRCompositorError error_right = m_vr_system->GetCompositor()->Submit(vr::Eye_Right, &right_eye_texture, &texture_bounds);
   if (error_right != vr::VRCompositorError_None)
   {
-    ERROR_LOG_FMT(D3D, "VRD3D::SubmitFrames - Failed to submit right eye: %s", vr::VRCompositor()->GetCompositorErrorNameFromEnum(error_right));
+    ERROR_LOG_FMT(VR, "VRD3D::SubmitFrames - Failed to submit right eye: {}", static_cast<int>(error_right));
     return false; // If right eye fails, consider the whole submission a failure for now.
   }
 
@@ -179,12 +180,6 @@ DX11::DXTexture* VRD3D::GetRightEyeTexture()
 DX11::DXFramebuffer* VRD3D::GetLeftEyeFramebuffer()
 {
   return m_initialized ? m_left_eye_framebuffer.get() : nullptr;
-}
-
-DX11::DXTexture* VRD3D::GetRightEyeTexture()
-{
-  // This texture is the one used for rendering, which is then submitted.
-  return m_initialized ? m_right_eye_render_texture.get() : nullptr;
 }
 
 DX11::DXFramebuffer* VRD3D::GetRightEyeFramebuffer()

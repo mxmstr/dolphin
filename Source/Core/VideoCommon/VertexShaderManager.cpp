@@ -285,9 +285,37 @@ void VertexShaderManager::SetConstants(const std::vector<std::string>& textures,
     // And constants.transformmatrices[i] is the i-th such matrix.
 
     int start_matrix_idx = per_vertex_transform_matrix_changes[0] / 4;
-    int end_matrix_idx = (per_vertex_transform_matrix_changes[1] + 3) / 4; // endn from original code
+    int end_matrix_idx = (per_vertex_transform_matrix_changes[1] + 3) / 4;
 
-    for (int i = start_matrix_idx; i < end_matrix_idx; ++i)
+    // There are 16 position matrices in XF memory, indexed 0-15.
+    // Each matrix uses 4 float4 registers. Total 64 float4 registers (0-63).
+    // constants.transformmatrices is std::array<float4, 64>, to hold these 16 matrices (16*4=64).
+    // The loop for matrix index 'i' should go from 0 to 15.
+    // So, end_matrix_idx (exclusive) should not exceed 16.
+    const int MAX_POS_MATRIX_INDEX_EXCLUSIVE = 16;
+    if (end_matrix_idx > MAX_POS_MATRIX_INDEX_EXCLUSIVE)
+    {
+      /*WARN_LOG_FMT(VIDEO,
+                   "VertexShaderManager: end_matrix_idx for transform matrices ({}) is out of bounds (max {}). Clamping. Max changed XF register was: {}.",
+                   end_matrix_idx, MAX_POS_MATRIX_INDEX_EXCLUSIVE, per_vertex_transform_matrix_changes[1]);*/
+      end_matrix_idx = MAX_POS_MATRIX_INDEX_EXCLUSIVE;
+    }
+    if (start_matrix_idx < 0)
+    {
+      /*WARN_LOG_FMT(VIDEO,
+                   "VertexShaderManager: start_matrix_idx for transform matrices ({}) is negative. Clamping to 0. Min changed XF register was: {}.",
+                   start_matrix_idx, per_vertex_transform_matrix_changes[0]);*/
+      start_matrix_idx = 0;
+    }
+    // Ensure start_matrix_idx does not exceed the valid range, preventing issues if XFStateManager reports garbage
+    if (start_matrix_idx >= MAX_POS_MATRIX_INDEX_EXCLUSIVE)
+    {
+        start_matrix_idx = MAX_POS_MATRIX_INDEX_EXCLUSIVE; 
+    }
+    // Ensure end_matrix_idx is not less than start_matrix_idx after clamping, to prevent empty or negative loops.
+    end_matrix_idx = std::max(start_matrix_idx, end_matrix_idx);
+
+    for (int i = start_matrix_idx; i < end_matrix_idx; i++)
     {
       // Construct Matrix44 from the 4 float4s that represent the matrix in xfmem
       // xfmem.posMatrices is a float[256] array. Each 4x4 matrix takes 16 floats.

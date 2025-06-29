@@ -10,13 +10,8 @@
 
 #include "Common/Matrix.h"
 #include "VideoCommon/AbstractTexture.h"
-
-// Forward declarations
-namespace DX11
-{
-class DXTexture;
-}
-class VROpenVR; // Assuming we'll pass this or get access to it
+#include "VideoBackends/D3D/DXTexture.h"
+#include "VideoCommon/VROpenVR.h"
 
 class VRD3D
 {
