@@ -14,18 +14,24 @@ VROpenVR::~VROpenVR()
   }
 }
 
-bool VROpenVR::Init()
+bool VROpenVR::Init(vr::EVRApplicationType app_type)
 {
   if (m_initialized)
   {
-    GENERIC_LOG_FMT(Common::Log::LogType::VR, Common::Log::LogLevel::LINFO, "VROpenVR already initialized, skipping re-initialization.");
+    // It might be an issue if Init is called again with a different app_type.
+    // For now, assume if it's initialized, it's with the correct type needed previously.
+    // Or, we could check if the existing m_ivr_system was inited with the same app_type,
+    // but VR_Init doesn't really allow querying the current application type easily.
+    // Safest might be to Shutdown and re-Init if app_type is different, but that's complex.
+    // Given current usage (temp utility init, then main scene init), this simple check is okay.
+    GENERIC_LOG_FMT(Common::Log::LogType::VR, Common::Log::LogLevel::LINFO, "VROpenVR already initialized, skipping re-initialization with new app_type %d.", static_cast<int>(app_type));
     return true;
   }
 
-  GENERIC_LOG_FMT(Common::Log::LogType::VR, Common::Log::LogLevel::LINFO, "VROpenVR initialization started.");
+  GENERIC_LOG_FMT(Common::Log::LogType::VR, Common::Log::LogLevel::LINFO, "VROpenVR initialization started with app_type: %d.", static_cast<int>(app_type));
 
   vr::EVRInitError eError = vr::VRInitError_None;
-  m_ivr_system = vr::VR_Init(&eError, vr::VRApplication_Scene); // Using VRApplication_Scene for now
+  m_ivr_system = vr::VR_Init(&eError, app_type);
 
   if (eError != vr::VRInitError_None)
   {

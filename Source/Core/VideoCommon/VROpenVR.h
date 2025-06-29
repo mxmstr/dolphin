@@ -20,7 +20,7 @@ public:
   VROpenVR();
   ~VROpenVR();
 
-  bool Init();
+  bool Init(vr::EVRApplicationType app_type = vr::VRApplication_Scene);
   void Shutdown();
 
   // Gets the HMD pose in tracking space.
