@@ -130,6 +130,25 @@ bool VRD3D::SubmitFrames()
     return false;
   }
 
+  // Call WaitGetPoses before submitting frames.
+  // This is crucial for synchronization and for the compositor to be ready.
+  vr::EVRCompositorError wait_error = m_vr_system->GetCompositor()->WaitGetPoses(m_tracked_device_pose, vr::k_unMaxTrackedDeviceCount, nullptr, 0);
+  if (wait_error != vr::VRCompositorError_None)
+  {
+    ERROR_LOG_FMT(VR, "VRD3D::SubmitFrames - WaitGetPoses failed with error: {}", static_cast<int>(wait_error));
+    // Depending on the error, we might still try to submit, or return false.
+    // For now, let's try to submit anyway, but log the error.
+    // If it's VRCompositorError_RequestFailed, submit will likely also fail.
+  }
+  else
+  {
+    INFO_LOG_FMT(VR, "VRD3D::SubmitFrames - WaitGetPoses successful.");
+  }
+  // TODO: The poses in m_tracked_device_pose should ideally be used for rendering the frame.
+  // Currently, VROpenVR::GetHMDPose uses GetDeviceToAbsoluteTrackingPose.
+  // For now, we're just ensuring WaitGetPoses is called.
+
+
   ID3D11Texture2D* left_tex_ptr = m_left_eye_d3d_texture_for_submit.Get();
   ID3D11Texture2D* right_tex_ptr = m_right_eye_d3d_texture_for_submit.Get();
 

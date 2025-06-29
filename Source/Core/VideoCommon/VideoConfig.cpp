@@ -308,9 +308,20 @@ void CheckForConfigChanges()
   // AbstractGfx::OnConfigChanged (and subsequently Dx11::Gfx::OnConfigChanged) is called.
   if (previous_stereo_mode != g_ActiveConfig.stereo_mode)
   {
-    if (g_ActiveConfig.stereo_mode == StereoMode::OpenVR)
+    // If stereo mode is changing to OpenVR, or was OpenVR and is changing away
+    if (g_ActiveConfig.stereo_mode == StereoMode::OpenVR || previous_stereo_mode == StereoMode::OpenVR)
     {
-      if (!Core::g_vr_openvr_instance || !Core::g_vr_openvr_instance->IsInitialized())
+      // Always shut down and reset any existing instance first to ensure a clean state
+      if (Core::g_vr_openvr_instance)
+      {
+        INFO_LOG_FMT(VR, "Shutting down existing Core::g_vr_openvr_instance before mode change.");
+        Core::g_vr_openvr_instance->Shutdown();
+        Core::g_vr_openvr_instance.reset();
+        INFO_LOG_FMT(VR, "Existing Core::g_vr_openvr_instance shut down and reset.");
+      }
+
+      // If the new mode is OpenVR, initialize it
+      if (g_ActiveConfig.stereo_mode == StereoMode::OpenVR)
       {
         INFO_LOG_FMT(VR, "StereoMode changed to OpenVR. Initializing Core::g_vr_openvr_instance.");
         Core::g_vr_openvr_instance = std::make_unique<VROpenVR>();
@@ -322,25 +333,10 @@ void CheckForConfigChanges()
         {
           ERROR_LOG_FMT(VR, "Failed to initialize Core::g_vr_openvr_instance. VR will not be available.");
           Core::g_vr_openvr_instance.reset();
-          // Optionally, force stereo_mode back to Off if VR init fails critically
-          // g_Config.stereo_mode = StereoMode::Off; // This would require g_Config to be updated
-          // UpdateActiveConfig(); // And then g_ActiveConfig refreshed
-          // For now, just log and let dependent systems handle the null g_vr_openvr_instance
+          // Optionally, could try to revert g_ActiveConfig.stereo_mode here if init fails,
+          // though that might have its own complexities. For now, allow it to proceed
+          // and dependent systems (like D3DGfx) will see g_vr_openvr_instance as null.
         }
-      }
-      else
-      {
-        INFO_LOG_FMT(VR, "StereoMode is OpenVR, and Core::g_vr_openvr_instance is already initialized.");
-      }
-    }
-    else // StereoMode is not OpenVR (or changed away from it)
-    {
-      if (Core::g_vr_openvr_instance)
-      {
-        INFO_LOG_FMT(VR, "StereoMode changed away from OpenVR. Shutting down Core::g_vr_openvr_instance.");
-        Core::g_vr_openvr_instance->Shutdown();
-        Core::g_vr_openvr_instance.reset();
-        INFO_LOG_FMT(VR, "Core::g_vr_openvr_instance shut down and reset.");
       }
     }
   }

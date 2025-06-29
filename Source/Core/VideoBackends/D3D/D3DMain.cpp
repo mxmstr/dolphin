@@ -25,6 +25,12 @@
 #include "VideoCommon/TextureCacheBase.h"
 #include "VideoCommon/VideoCommon.h"
 #include "VideoCommon/VideoConfig.h"
+#include "VideoCommon/VROpenVR.h"             // For VROpenVR
+#include "VideoCommon/VideoConfig.h"          // For g_ActiveConfig and StereoMode
+#include "VideoBackends/D3DCommon/D3DCommon.h"  // For D3DCommon::CreateDXGIFactory
+#include <dxgi.h>                             // For DXGI_ADAPTER_DESC1, LUID
+#include <wrl/client.h>                       // For ComPtr
+
 
 namespace DX11
 {
@@ -139,12 +145,6 @@ void VideoBackend::FillBackendInfo()
   }
 }
 
-#include "VideoCommon/VROpenVR.h"             // For VROpenVR
-#include "VideoCommon/VideoConfig.h"          // For g_ActiveConfig and StereoMode
-#include "VideoBackends/D3DCommon/D3DCommon.h"  // For D3DCommon::CreateDXGIFactory
-#include <dxgi.h>                             // For DXGI_ADAPTER_DESC1, LUID
-#include <wrl/client.h>                       // For ComPtr
-
 bool VideoBackend::Initialize(const WindowSystemInfo& wsi)
 {
   u32 adapter_to_use = g_Config.iAdapter;
@@ -152,21 +152,21 @@ bool VideoBackend::Initialize(const WindowSystemInfo& wsi)
   if (g_ActiveConfig.stereo_mode == StereoMode::OpenVR)
   {
     // Initialize VROpenVR if not already done, to get the adapter LUID
-    if (!m_vr_openvr)
-      m_vr_openvr = std::make_unique<VROpenVR>();
+    if (!Core::g_vr_openvr_instance)
+      Core::g_vr_openvr_instance = std::make_unique<VROpenVR>();
 
-    if (m_vr_openvr && !m_vr_openvr->IsInitialized())
+    if (Core::g_vr_openvr_instance && !Core::g_vr_openvr_instance->IsInitialized())
     {
-      if (!m_vr_openvr->Init())
+      if (!Core::g_vr_openvr_instance->Init())
       {
         ERROR_LOG_FMT(VR, "Failed to initialize OpenVR for adapter selection. Using default adapter {}.", adapter_to_use);
-        m_vr_openvr.reset(); // Clear if initialization failed
+        Core::g_vr_openvr_instance.reset(); // Clear if initialization failed
       }
     }
 
-    if (m_vr_openvr && m_vr_openvr->IsInitialized())
+    if (Core::g_vr_openvr_instance && Core::g_vr_openvr_instance->IsInitialized())
     {
-      long long openvr_luid_ll = m_vr_openvr->GetAdapterLUID();
+      long long openvr_luid_ll = Core::g_vr_openvr_instance->GetAdapterLUID();
       if (openvr_luid_ll != 0)
       {
         ComPtr<IDXGIFactory> temp_dxgi_factory_base = D3DCommon::CreateDXGIFactory(false);
