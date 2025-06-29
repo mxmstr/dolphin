@@ -51,7 +51,8 @@ bool VRD3D::Init()
   // Create Color Textures for rendering
   TextureConfig color_tex_config(m_render_target_width, m_render_target_height, 1 /*levels*/, 1 /*layers*/,
                                  1 /*samples*/, AbstractTextureFormat::RGBA8,
-                                 AbstractTextureFlag_RenderTarget, AbstractTextureType::Texture_2D);
+                                 AbstractTextureFlag_RenderTarget | AbstractTextureFlag_Shared,
+                                 AbstractTextureType::Texture_2D);
   m_left_eye_render_texture = DX11::DXTexture::Create(color_tex_config, "VRLeftEyeRT");
   m_right_eye_render_texture = DX11::DXTexture::Create(color_tex_config, "VRRightEyeRT");
 
@@ -98,7 +99,8 @@ bool VRD3D::Init()
 
   if (FAILED(hr_left) || FAILED(hr_right))
   {
-    ERROR_LOG_FMT(VR, "VRD3D::Init - Failed to QueryInterface ID3D11Texture2D from eye render textures.");
+    // Log the HRESULTs for more detailed error information
+    ERROR_LOG_FMT(VR, "VRD3D::Init - Failed to QueryInterface ID3D11Texture2D from eye render textures. HR_Left: {}, HR_Right: {}", hr_left, hr_right);
     m_left_eye_d3d_texture_for_submit.Reset();
     m_right_eye_d3d_texture_for_submit.Reset();
     return false;
@@ -121,20 +123,28 @@ bool VRD3D::BeginFrame()
 
 bool VRD3D::SubmitFrames()
 {
+  INFO_LOG_FMT(VR, "VRD3D::SubmitFrames called.");
   if (!m_initialized || !m_vr_system || !m_vr_system->GetCompositor())
   {
     ERROR_LOG_FMT(VR, "VRD3D::SubmitFrames - Not initialized or VR compositor not available.");
     return false;
   }
 
-  if (!m_left_eye_d3d_texture_for_submit || !m_right_eye_d3d_texture_for_submit)
+  ID3D11Texture2D* left_tex_ptr = m_left_eye_d3d_texture_for_submit.Get();
+  ID3D11Texture2D* right_tex_ptr = m_right_eye_d3d_texture_for_submit.Get();
+
+  if (!left_tex_ptr || !right_tex_ptr)
   {
-    ERROR_LOG_FMT(VR, "VRD3D::SubmitFrames - D3D Eye textures for submission are not valid.");
+    ERROR_LOG_FMT(VR, "VRD3D::SubmitFrames - D3D Eye textures for submission are not valid. Left: {}, Right: {}",
+                  (void*)left_tex_ptr, (void*)right_tex_ptr);
     return false;
   }
+  
+  INFO_LOG_FMT(VR, "VRD3D::SubmitFrames - Submitting textures. Left: {}, Right: {}",
+               (void*)left_tex_ptr, (void*)right_tex_ptr);
 
-  vr::Texture_t left_eye_texture = {m_left_eye_d3d_texture_for_submit.Get(), vr::TextureType_DirectX, vr::ColorSpace_Auto};
-  vr::Texture_t right_eye_texture = {m_right_eye_d3d_texture_for_submit.Get(), vr::TextureType_DirectX, vr::ColorSpace_Auto};
+  vr::Texture_t left_eye_texture = {left_tex_ptr, vr::TextureType_DirectX, vr::ColorSpace_Auto};
+  vr::Texture_t right_eye_texture = {right_tex_ptr, vr::TextureType_DirectX, vr::ColorSpace_Auto};
 
   // Default bounds: Whole texture.
   vr::VRTextureBounds_t texture_bounds;
@@ -146,6 +156,7 @@ bool VRD3D::SubmitFrames()
   vr::EVRCompositorError error_left = m_vr_system->GetCompositor()->Submit(vr::Eye_Left, &left_eye_texture, &texture_bounds);
   if (error_left != vr::VRCompositorError_None)
   {
+    // It would be ideal to have a helper in VROpenVR to get error string from m_vr_system->GetEnglishStringForErrorCode(error) or similar
     ERROR_LOG_FMT(VR, "VRD3D::SubmitFrames - Failed to submit left eye: {}", static_cast<int>(error_left));
     // Continue to attempt right eye submission.
   }
@@ -155,6 +166,11 @@ bool VRD3D::SubmitFrames()
   {
     ERROR_LOG_FMT(VR, "VRD3D::SubmitFrames - Failed to submit right eye: {}", static_cast<int>(error_right));
     return false; // If right eye fails, consider the whole submission a failure for now.
+  }
+  
+  if (error_left == vr::VRCompositorError_None && error_right == vr::VRCompositorError_None)
+  {
+    INFO_LOG_FMT(VR, "VRD3D::SubmitFrames - Both eyes submitted successfully to OpenVR compositor.");
   }
 
   // vr::VRCompositor()->PostPresentHandoff(); // Deprecated in newer OpenVR SDKs.

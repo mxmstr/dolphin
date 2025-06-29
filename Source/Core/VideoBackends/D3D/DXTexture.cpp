@@ -48,7 +48,9 @@ std::unique_ptr<DXTexture> DXTexture::Create(const TextureConfig& config, std::s
   CD3D11_TEXTURE2D_DESC desc(
       tex_format, config.width, config.height, config.layers, config.levels, bindflags,
       D3D11_USAGE_DEFAULT, 0, config.samples, 0,
-      config.type == AbstractTextureType::Texture_CubeMap ? D3D11_RESOURCE_MISC_TEXTURECUBE : 0);
+      (config.type == AbstractTextureType::Texture_CubeMap ? D3D11_RESOURCE_MISC_TEXTURECUBE : 0) &
+      (config.flags & AbstractTextureFlag_Shared ? D3D11_RESOURCE_MISC_SHARED : 0)
+  );
   ComPtr<ID3D11Texture2D> d3d_texture;
   HRESULT hr = D3D::device->CreateTexture2D(&desc, nullptr, d3d_texture.GetAddressOf());
   if (FAILED(hr))

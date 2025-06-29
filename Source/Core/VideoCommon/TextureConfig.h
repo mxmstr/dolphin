@@ -40,6 +40,7 @@ enum AbstractTextureFlag : u32
 {
   AbstractTextureFlag_RenderTarget = (1 << 0),  // Texture is used as a framebuffer.
   AbstractTextureFlag_ComputeImage = (1 << 1),  // Texture is used as a compute image.
+  AbstractTextureFlag_Shared = (1 << 2),        // Texture can be shared with other backends.
 };
 
 enum class AbstractTextureType : u8

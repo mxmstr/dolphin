@@ -40,20 +40,29 @@ namespace DX11
 Gfx::Gfx(std::unique_ptr<SwapChain> swap_chain, float backbuffer_scale)
     : m_backbuffer_scale(backbuffer_scale), m_swap_chain(std::move(swap_chain))
 {
+  INFO_LOG_FMT(VIDEO, "D3DGfx::Gfx constructor - Initializing VRD3D if conditions met.");
+  bool vr_instance_exists = Core::g_vr_openvr_instance != nullptr;
+  bool vr_instance_initialized = vr_instance_exists && Core::g_vr_openvr_instance->IsInitialized();
+  INFO_LOG_FMT(VIDEO, "D3DGfx::Gfx - StereoMode: {}, VRInstanceExists: {}, VRInstanceInitialized: {}", 
+               (int)g_ActiveConfig.stereo_mode, vr_instance_exists, vr_instance_initialized);
+
   if (g_ActiveConfig.stereo_mode == StereoMode::OpenVR && Core::g_vr_openvr_instance && Core::g_vr_openvr_instance->IsInitialized())
   {
+    INFO_LOG_FMT(VIDEO, "D3DGfx::Gfx - Conditions met, creating VRD3D.");
     m_vrd3d = std::make_unique<VRD3D>(Core::g_vr_openvr_instance.get(), D3D::device.Get());
-    if (!m_vrd3d->Init())
+    if (m_vrd3d && m_vrd3d->Init())
     {
-      ERROR_LOG_FMT(VIDEO, "Failed to initialize VRD3D. Disabling VR rendering path.");
-      m_vrd3d.reset();
-      // NOTE: Ideally, inform the user or fallback g_ActiveConfig.stereo_mode here,
-      // but that's complex from this low level.
+      INFO_LOG_FMT(VIDEO, "D3DGfx::Gfx - VRD3D initialized successfully.");
     }
     else
     {
-      INFO_LOG_FMT(VIDEO, "VRD3D initialized within D3DGfx.");
+      ERROR_LOG_FMT(VIDEO, "D3DGfx::Gfx - Failed to initialize VRD3D. Disabling VR rendering path.");
+      m_vrd3d.reset();
     }
+  }
+  else
+  {
+    INFO_LOG_FMT(VIDEO, "D3DGfx::Gfx - Conditions NOT met for VRD3D creation. m_vrd3d will be null.");
   }
 }
 
@@ -203,6 +212,8 @@ void Gfx::PresentBackbuffer()
 {
   if (m_vrd3d)
   {
+    INFO_LOG_FMT(VIDEO, "Gfx::PresentBackbuffer");
+
     // Submit frames to HMD
     if (!m_vrd3d->SubmitFrames())
     {
@@ -227,37 +238,64 @@ void Gfx::OnConfigChanged(u32 bits)
 {
   AbstractGfx::OnConfigChanged(bits);
 
+  INFO_LOG_FMT(VIDEO, "D3DGfx::OnConfigChanged called. Bits: {}", bits);
   if (bits & CONFIG_CHANGE_BIT_STEREO_MODE)
   {
+    INFO_LOG_FMT(VIDEO, "D3DGfx::OnConfigChanged - StereoMode changed.");
+    bool vr_instance_exists = Core::g_vr_openvr_instance != nullptr;
+    bool vr_instance_initialized = vr_instance_exists && Core::g_vr_openvr_instance->IsInitialized();
+    INFO_LOG_FMT(VIDEO, "D3DGfx::OnConfigChanged - Current StereoMode: {}, VRInstanceExists: {}, VRInstanceInitialized: {}", 
+                 (int)g_ActiveConfig.stereo_mode, vr_instance_exists, vr_instance_initialized);
+
     if (g_ActiveConfig.stereo_mode == StereoMode::OpenVR && Core::g_vr_openvr_instance && Core::g_vr_openvr_instance->IsInitialized())
     {
       if (!m_vrd3d) // If not already initialized, or was previously disabled
       {
-        INFO_LOG_FMT(VIDEO, "StereoMode changed to OpenVR. Initializing VRD3D in D3DGfx.");
+        INFO_LOG_FMT(VIDEO, "D3DGfx::OnConfigChanged - Conditions met, creating VRD3D.");
         m_vrd3d = std::make_unique<VRD3D>(Core::g_vr_openvr_instance.get(), D3D::device.Get());
-        if (!m_vrd3d->Init())
+        if (m_vrd3d && m_vrd3d->Init())
         {
-          ERROR_LOG_FMT(VIDEO, "Failed to initialize VRD3D on config change. Disabling VR rendering path.");
+          INFO_LOG_FMT(VIDEO, "D3DGfx::OnConfigChanged - VRD3D initialized successfully.");
+        }
+        else
+        {
+          ERROR_LOG_FMT(VIDEO, "D3DGfx::OnConfigChanged - Failed to initialize VRD3D. Disabling VR rendering path.");
           m_vrd3d.reset();
         }
+      }
+      else
+      {
+         INFO_LOG_FMT(VIDEO, "D3DGfx::OnConfigChanged - VRD3D already exists.");
       }
     }
     else
     {
       if (m_vrd3d) // If VR was active but now is not (or VROpenVR failed)
       {
-        INFO_LOG_FMT(VIDEO, "StereoMode changed from OpenVR or OpenVR not available. Shutting down VRD3D in D3DGfx.");
+        INFO_LOG_FMT(VIDEO, "D3DGfx::OnConfigChanged - Conditions NOT met for VRD3D, or stereo mode changed away from OpenVR. Resetting m_vrd3d.");
         m_vrd3d.reset(); // This will call VRD3D destructor
+      }
+      else
+      {
+        INFO_LOG_FMT(VIDEO, "D3DGfx::OnConfigChanged - Conditions NOT met for VRD3D, and m_vrd3d was already null.");
       }
     }
 
     // Quad-buffer changes require swap chain recreation.
     if (m_swap_chain)
-        m_swap_chain->SetStereo(SwapChain::WantsStereo());
+      m_swap_chain->SetStereo(SwapChain::WantsStereo());
   }
 
   if (bits & CONFIG_CHANGE_BIT_HDR && m_swap_chain)
     m_swap_chain->SetHDR(SwapChain::WantsHDR());
+
+  /*if (bits & CONFIG_CHANGE_BIT_TARGET_SIZE && m_swap_chain)
+    m_swap_chain->SetBackbufferScale(TargetSizeUtil::GetBackbufferScale(GetTargetWidth(), GetTargetHeight()));
+
+  if (bits & CONFIG_CHANGE_BIT_VSYNC && m_swap_chain)
+    m_swap_chain->SetVSync(g_ActiveConfig.bVSyncActive);
+
+  D3D::stateman->InvalidateConstants();*/
 }
 
 void Gfx::CheckForSwapChainChanges()
