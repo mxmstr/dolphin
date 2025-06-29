@@ -584,6 +584,7 @@
     <ClInclude Include="VideoBackends\D3D\DXShader.h" />
     <ClInclude Include="VideoBackends\D3D\DXTexture.h" />
     <ClInclude Include="VideoBackends\D3D\VideoBackend.h" />
+		<ClCompile Include="VideoBackends\D3D\VRD3D.h" />
     <ClInclude Include="VideoBackends\D3D12\Common.h" />
     <ClInclude Include="VideoBackends\D3D12\D3D12BoundingBox.h" />
     <ClInclude Include="VideoBackends\D3D12\D3D12PerfQuery.h" />
@@ -772,6 +773,7 @@
     <ClInclude Include="VideoCommon\VideoConfig.h" />
     <ClInclude Include="VideoCommon\VideoEvents.h" />
     <ClInclude Include="VideoCommon\VideoState.h" />
+		<ClInclude Include="VideoCommon\VROpenVR.h" />
     <ClInclude Include="VideoCommon\Widescreen.h" />
     <ClInclude Include="VideoCommon\XFMemory.h" />
     <ClInclude Include="VideoCommon\XFStateManager.h" />
@@ -1248,6 +1250,7 @@
     <ClCompile Include="VideoBackends\D3D\DXPipeline.cpp" />
     <ClCompile Include="VideoBackends\D3D\DXShader.cpp" />
     <ClCompile Include="VideoBackends\D3D\DXTexture.cpp" />
+		<ClCompile Include="VideoBackends\D3D\VRD3D.cpp" />
     <ClCompile Include="VideoBackends\D3D12\D3D12BoundingBox.cpp" />
     <ClCompile Include="VideoBackends\D3D12\D3D12PerfQuery.cpp" />
     <ClCompile Include="VideoBackends\D3D12\D3D12Gfx.cpp" />
@@ -1408,6 +1411,7 @@
     <ClCompile Include="VideoCommon\VideoBackendBase.cpp" />
     <ClCompile Include="VideoCommon\VideoConfig.cpp" />
     <ClCompile Include="VideoCommon\VideoState.cpp" />
+		<ClCompile Include="VideoCommon\VROpenVR.cpp" />
     <ClCompile Include="VideoCommon\Widescreen.cpp" />
     <ClCompile Include="VideoCommon\XFMemory.cpp" />
     <ClCompile Include="VideoCommon\XFStateManager.cpp" />

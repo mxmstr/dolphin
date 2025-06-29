@@ -23,6 +23,7 @@
 #include "Core/System.h"
 
 #include "VideoCommon/AsyncRequests.h"
+#include "VideoCommon/VertexShaderManager.h" // Added for GetVertexShaderManager
 #include "VideoCommon/CPMemory.h"
 #include "VideoCommon/CommandProcessor.h"
 #include "VideoCommon/DataReader.h"
@@ -31,6 +32,7 @@
 #include "VideoCommon/VertexLoaderManager.h"
 #include "VideoCommon/VertexManagerBase.h"
 #include "VideoCommon/VideoBackendBase.h"
+#include "VideoCommon/AbstractGfx.h"
 
 namespace Fifo
 {
@@ -344,13 +346,51 @@ void FifoManager::RunGpuLoop()
                        "instability in the game. Please report it.",
                        distance);
 
-            u8* write_ptr = m_video_buffer_write_ptr;
-            m_video_buffer_read_ptr = OpcodeDecoder::RunFifo(
-                DataReader(m_video_buffer_read_ptr, write_ptr), &cyclesExecuted);
+            u8* current_batch_start_ptr = m_video_buffer_read_ptr;
+            u8* current_batch_end_ptr = m_video_buffer_write_ptr;
+            size_t current_batch_size = current_batch_end_ptr - current_batch_start_ptr;
+            u32 total_cycles_for_batch = 0;
+
+            if (g_gfx->IsVRMode() && current_batch_size > 0)
+            {
+              // VR Mode: Render batch for each eye
+              for (int eye_idx = 0; eye_idx < 2; ++eye_idx)
+              {
+                vr::EVREye current_vr_eye = (eye_idx == 0) ? vr::Eye_Left : vr::Eye_Right;
+                auto& vsm = m_system.GetVertexShaderManager();
+                vsm.SetCurrentEye(current_vr_eye);
+
+                // TODO: Determine appropriate clear color for VR eye targets
+                ClearColor vr_clear_color = {{0.0f, 0.0f, 0.0f, 1.0f}};
+                if (eye_idx == 0)
+                  g_gfx->SetLeftEyeRenderTarget(vr_clear_color);
+                else
+                  g_gfx->SetRightEyeRenderTarget(vr_clear_color);
+
+                u32 cycles_this_eye = 0;
+                // Create a new DataReader for each eye pass over the same batch data
+                OpcodeDecoder::RunFifo<false>(DataReader(current_batch_start_ptr, current_batch_end_ptr), &cycles_this_eye);
+                // Note: RunFifo's return (the new read_ptr) is ignored here as we manually advance after both eyes.
+                total_cycles_for_batch += cycles_this_eye;
+              }
+              // Advance the main read pointer past the processed batch
+              m_video_buffer_read_ptr = current_batch_start_ptr + current_batch_size;
+              cyclesExecuted = total_cycles_for_batch; // Report total cycles for the batch
+            }
+            else
+            {
+              // Non-VR Mode or empty batch: Process once
+              m_video_buffer_read_ptr = OpcodeDecoder::RunFifo<false>(
+                  DataReader(current_batch_start_ptr, current_batch_end_ptr), &cyclesExecuted);
+            }
 
             fifo.CPReadPointer.store(readPtr, std::memory_order_relaxed);
             fifo.CPReadWriteDistance.fetch_sub(GPFifo::GATHER_PIPE_SIZE, std::memory_order_seq_cst);
-            if ((write_ptr - m_video_buffer_read_ptr) == 0)
+            // The condition for setting SafeCPReadPointer might need adjustment
+            // if m_video_buffer_read_ptr is advanced differently in VR.
+            // Original: if ((current_batch_end_ptr - m_video_buffer_read_ptr) == 0)
+            // This should still be fine as m_video_buffer_read_ptr is set to batch_end after VR.
+            if ((current_batch_end_ptr - m_video_buffer_read_ptr) == 0)
             {
               fifo.SafeCPReadPointer.store(fifo.CPReadPointer.load(std::memory_order_relaxed),
                                            std::memory_order_relaxed);

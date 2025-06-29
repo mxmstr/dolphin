@@ -40,9 +40,28 @@ namespace DX11
 Gfx::Gfx(std::unique_ptr<SwapChain> swap_chain, float backbuffer_scale)
     : m_backbuffer_scale(backbuffer_scale), m_swap_chain(std::move(swap_chain))
 {
+  if (g_ActiveConfig.stereo_mode == StereoMode::OpenVR && Core::g_vr_openvr_instance && Core::g_vr_openvr_instance->IsInitialized())
+  {
+    m_vrd3d = std::make_unique<VRD3D>(Core::g_vr_openvr_instance.get(), D3D::device.Get());
+    if (!m_vrd3d->Init())
+    {
+      ERROR_LOG_FMT(VIDEO, "Failed to initialize VRD3D. Disabling VR rendering path.");
+      m_vrd3d.reset();
+      // NOTE: Ideally, inform the user or fallback g_ActiveConfig.stereo_mode here,
+      // but that's complex from this low level.
+    }
+    else
+    {
+      INFO_LOG_FMT(VIDEO, "VRD3D initialized within D3DGfx.");
+    }
+  }
 }
 
-Gfx::~Gfx() = default;
+Gfx::~Gfx()
+{
+  // m_vrd3d will be automatically destroyed by unique_ptr.
+  // VRD3D's destructor should handle releasing its own resources.
+}
 
 bool Gfx::IsHeadless() const
 {
@@ -160,22 +179,82 @@ void Gfx::DispatchComputeShader(const AbstractShader* shader, u32 groupsize_x, u
 bool Gfx::BindBackbuffer(const ClearColor& clear_color)
 {
   CheckForSwapChainChanges();
+
+  if (m_vrd3d)
+  {
+    // In VR mode, the main swap chain's framebuffer is not the primary render target initially.
+    // Eye-specific render targets will be bound before each eye's render pass.
+    // We might still want to clear the swap chain for a companion window.
+    if (m_swap_chain)
+    {
+      // For now, let's clear it. This could be optimized later or used for a companion view.
+      SetAndClearFramebuffer(m_swap_chain->GetFramebuffer(), clear_color);
+    }
+    // Indicate success, but the main "backbuffer" for the game is one of the eye textures.
+    return true;
+  }
+
+  // Non-VR mode: proceed as usual.
   SetAndClearFramebuffer(m_swap_chain->GetFramebuffer(), clear_color);
   return true;
 }
 
 void Gfx::PresentBackbuffer()
 {
-  m_swap_chain->Present();
+  if (m_vrd3d)
+  {
+    // Submit frames to HMD
+    if (!m_vrd3d->SubmitFrames())
+    {
+      ERROR_LOG_FMT(VIDEO, "Failed to submit frames to OpenVR.");
+      // Potentially handle this error, e.g., by stopping VR mode.
+    }
+
+    // TODO: Optionally render a companion view to the main swap chain.
+    // For now, just present whatever is on the swap chain (likely nothing or a cleared screen).
+    // Or, copy one of the eye views to the swap chain.
+    // For this initial step, we'll just present.
+    if (m_swap_chain)
+      m_swap_chain->Present();
+  }
+  else if (m_swap_chain)
+  {
+    m_swap_chain->Present();
+  }
 }
 
 void Gfx::OnConfigChanged(u32 bits)
 {
   AbstractGfx::OnConfigChanged(bits);
 
-  // Quad-buffer changes require swap chain recreation.
-  if (bits & CONFIG_CHANGE_BIT_STEREO_MODE && m_swap_chain)
-    m_swap_chain->SetStereo(SwapChain::WantsStereo());
+  if (bits & CONFIG_CHANGE_BIT_STEREO_MODE)
+  {
+    if (g_ActiveConfig.stereo_mode == StereoMode::OpenVR && Core::g_vr_openvr_instance && Core::g_vr_openvr_instance->IsInitialized())
+    {
+      if (!m_vrd3d) // If not already initialized, or was previously disabled
+      {
+        INFO_LOG_FMT(VIDEO, "StereoMode changed to OpenVR. Initializing VRD3D in D3DGfx.");
+        m_vrd3d = std::make_unique<VRD3D>(Core::g_vr_openvr_instance.get(), D3D::device.Get());
+        if (!m_vrd3d->Init())
+        {
+          ERROR_LOG_FMT(VIDEO, "Failed to initialize VRD3D on config change. Disabling VR rendering path.");
+          m_vrd3d.reset();
+        }
+      }
+    }
+    else
+    {
+      if (m_vrd3d) // If VR was active but now is not (or VROpenVR failed)
+      {
+        INFO_LOG_FMT(VIDEO, "StereoMode changed from OpenVR or OpenVR not available. Shutting down VRD3D in D3DGfx.");
+        m_vrd3d.reset(); // This will call VRD3D destructor
+      }
+    }
+
+    // Quad-buffer changes require swap chain recreation.
+    if (m_swap_chain)
+        m_swap_chain->SetStereo(SwapChain::WantsStereo());
+  }
 
   if (bits & CONFIG_CHANGE_BIT_HDR && m_swap_chain)
     m_swap_chain->SetHDR(SwapChain::WantsHDR());
@@ -200,6 +279,61 @@ void Gfx::CheckForSwapChainChanges()
 
   g_presenter->SetBackbuffer(m_swap_chain->GetWidth(), m_swap_chain->GetHeight());
 }
+
+bool Gfx::SetLeftEyeRenderTarget(const ClearColor& clear_color)
+{
+  if (!m_vrd3d)
+  {
+    ERROR_LOG_FMT(VIDEO, "SetLeftEyeRenderTarget called but VRD3D is not initialized.");
+    return false;
+  }
+
+  DX11::DXTexture* left_eye_texture = m_vrd3d->GetLeftEyeTexture();
+  if (!left_eye_texture)
+  {
+    ERROR_LOG_FMT(VIDEO, "Failed to get left eye texture from VRD3D.");
+    return false;
+  }
+
+  // Assuming DXTexture can be wrapped in a DXFramebuffer or used directly as one.
+  // For simplicity, let's assume DXTexture itself can be a render target.
+  // We need a DXFramebuffer object to use SetAndClearFramebuffer.
+  // This implies VRD3D::GetLeftEyeTexture() should return a DXFramebuffer
+  // or we need to create one here. Let's adjust VRD3D to return DXFramebuffer later if needed.
+  // For now, we assume GetLeftEyeTexture returns something that can be cast or used.
+  // This part needs careful review of how DXFramebuffer is created/used.
+  // A DXTexture is not directly an AbstractFramebuffer.
+  // We need to get/create a framebuffer that USES this texture.
+  // For now, let's assume a direct way to set it, this will need fixing.
+
+  DX11::DXFramebuffer* left_fb = m_vrd3d->GetLeftEyeFramebuffer();
+  if (!left_fb)
+  {
+    ERROR_LOG_FMT(VIDEO, "Failed to get left eye framebuffer from VRD3D.");
+    return false;
+  }
+  SetAndClearFramebuffer(left_fb, clear_color);
+  return true;
+}
+
+bool Gfx::SetRightEyeRenderTarget(const ClearColor& clear_color)
+{
+  if (!m_vrd3d)
+  {
+    ERROR_LOG_FMT(VIDEO, "SetRightEyeRenderTarget called but VRD3D is not initialized.");
+    return false;
+  }
+
+  DX11::DXFramebuffer* right_fb = m_vrd3d->GetRightEyeFramebuffer();
+  if (!right_fb)
+  {
+    ERROR_LOG_FMT(VIDEO, "Failed to get right eye framebuffer from VRD3D.");
+    return false;
+  }
+  SetAndClearFramebuffer(right_fb, clear_color);
+  return true;
+}
+
 
 void Gfx::SetFramebuffer(AbstractFramebuffer* framebuffer)
 {
@@ -279,6 +413,11 @@ SurfaceInfo Gfx::GetSurfaceInfo() const
   return {m_swap_chain ? static_cast<u32>(m_swap_chain->GetWidth()) : 0,
           m_swap_chain ? static_cast<u32>(m_swap_chain->GetHeight()) : 0, m_backbuffer_scale,
           m_swap_chain ? m_swap_chain->GetFormat() : AbstractTextureFormat::Undefined};
+}
+
+bool Gfx::IsVRMode() const
+{
+  return m_vrd3d != nullptr;
 }
 
 }  // namespace DX11

@@ -139,9 +139,92 @@ void VideoBackend::FillBackendInfo()
   }
 }
 
+#include "VideoCommon/VROpenVR.h"             // For VROpenVR
+#include "VideoCommon/VideoConfig.h"          // For g_ActiveConfig and StereoMode
+#include "VideoBackends/D3DCommon/D3DCommon.h"  // For D3DCommon::CreateDXGIFactory
+#include <dxgi.h>                             // For DXGI_ADAPTER_DESC1, LUID
+#include <wrl/client.h>                       // For ComPtr
+
 bool VideoBackend::Initialize(const WindowSystemInfo& wsi)
 {
-  if (!D3D::Create(g_Config.iAdapter, g_Config.bEnableValidationLayer))
+  u32 adapter_to_use = g_Config.iAdapter;
+
+  if (g_ActiveConfig.stereo_mode == StereoMode::OpenVR)
+  {
+    // Initialize VROpenVR if not already done, to get the adapter LUID
+    if (!m_vr_openvr)
+      m_vr_openvr = std::make_unique<VROpenVR>();
+
+    if (m_vr_openvr && !m_vr_openvr->IsInitialized())
+    {
+      if (!m_vr_openvr->Init())
+      {
+        ERROR_LOG_FMT(VR, "Failed to initialize OpenVR for adapter selection. Using default adapter {}.", adapter_to_use);
+        m_vr_openvr.reset(); // Clear if initialization failed
+      }
+    }
+
+    if (m_vr_openvr && m_vr_openvr->IsInitialized())
+    {
+      long long openvr_luid_ll = m_vr_openvr->GetAdapterLUID();
+      if (openvr_luid_ll != 0)
+      {
+        ComPtr<IDXGIFactory> temp_dxgi_factory_base = D3DCommon::CreateDXGIFactory(false);
+        ComPtr<IDXGIFactory1> temp_dxgi_factory1;
+
+        if (temp_dxgi_factory_base && SUCCEEDED(temp_dxgi_factory_base.As(&temp_dxgi_factory1)))
+        {
+          LUID openvr_luid_struct;
+          openvr_luid_struct.LowPart = static_cast<DWORD>(openvr_luid_ll);
+          openvr_luid_struct.HighPart = static_cast<LONG>(openvr_luid_ll >> 32);
+          INFO_LOG_FMT(VIDEO, "OpenVR recommended LUID: Low={}, High={}. Searching DXGI adapters.",
+                       openvr_luid_struct.LowPart, openvr_luid_struct.HighPart);
+
+          UINT i = 0;
+          ComPtr<IDXGIAdapter1> current_adapter;
+          bool found_match = false;
+          while (temp_dxgi_factory1->EnumAdapters1(i, current_adapter.ReleaseAndGetAddressOf()) != DXGI_ERROR_NOT_FOUND)
+          {
+            DXGI_ADAPTER_DESC1 adapter_desc;
+            if (SUCCEEDED(current_adapter->GetDesc1(&adapter_desc)))
+            {
+                const wchar_t* adapter_name1 = std::wstring(adapter_desc.Description).c_str();
+              INFO_LOG_FMT(VIDEO, "Adapter {}: {}, LUID: Low={}, High={}", i, (void*)adapter_name1, adapter_desc.AdapterLuid.LowPart, adapter_desc.AdapterLuid.HighPart);
+              if (adapter_desc.AdapterLuid.LowPart == openvr_luid_struct.LowPart &&
+                  adapter_desc.AdapterLuid.HighPart == openvr_luid_struct.HighPart)
+              {
+                const wchar_t* adapter_name2 = std::wstring(adapter_desc.Description).c_str();
+                INFO_LOG_FMT(VIDEO, "Found matching OpenVR adapter at index {}: {}", i, (void*)adapter_name2);
+                adapter_to_use = i;
+                found_match = true;
+                break;
+              }
+            }
+            i++;
+          }
+
+          if (!found_match)
+          {
+            WARN_LOG_FMT(VIDEO, "OpenVR LUID (Low: {}, High: {}) not found among DXGI adapters. Using default adapter {}.",
+                         openvr_luid_struct.LowPart, openvr_luid_struct.HighPart, g_Config.iAdapter);
+          }
+        }
+        else
+        {
+          WARN_LOG_FMT(VIDEO, "Failed to create/query DXGIFactory1 for OpenVR adapter lookup. Using default adapter {}.", g_Config.iAdapter);
+        }
+      }
+      else
+      {
+        WARN_LOG_FMT(VIDEO, "OpenVR did not provide a valid LUID. Using default adapter {}.", g_Config.iAdapter);
+      }
+    }
+    // m_vr_openvr instance might be initialized here.
+    // VideoBackendBase::InitializeShared will also attempt to initialize it,
+    // but VROpenVR::Init() is idempotent.
+  }
+
+  if (!D3D::Create(adapter_to_use, g_Config.bEnableValidationLayer))
     return false;
 
   FillBackendInfo();

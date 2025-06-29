@@ -199,16 +199,30 @@ ShaderCode GenerateGeometryShaderCode(APIType api_type, const ShaderHostConfig& 
       out.Write("\tint eye = InstanceID;\n");
     else
       out.Write("\tfor (int eye = 0; eye < 2; ++eye) {{\n");
+
+    // Only apply GS-based horizontal offset if not using OpenVR mode,
+    // as OpenVR projection matrices already include eye offsets.
+    // We'll need a way to know if it's OpenVR mode here.
+    // For now, let's assume g_ActiveConfig.stereo_mode can be checked,
+    // or a new uniform in GSBlock indicates OpenVR mode.
+    // Let's add a uniform to GSBlock: uint is_openvr_mode;
+    // This will be set by the backend.
+    // I_STEREOPARAMS.w is expected to be 0.0f if OpenVR is active (no GS h-offset needed),
+    // and 1.0f for other stereo modes where the GS needs to apply the h-offset.
+    out.Write(FMT_STRING("\tfloat hoffset = 0.0f;\n"));
+    out.Write(FMT_STRING("\tif (" I_STEREOPARAMS ".w == 1.0f) {{ // Apply h-offset only if not OpenVR mode (OpenVR handles it in projection)\n"));
+    out.Write(FMT_STRING("\t\thoffset = (eye == 0) ? " I_STEREOPARAMS ".x : " I_STEREOPARAMS ".y;\n"));
+    out.Write(FMT_STRING("\t}}\n")); // Note: corrected to "}}" from "}" for proper fmt string if it was a mistake before
   }
 
   if (wireframe)
-    out.Write("\tVS_OUTPUT first;\n");
+    out.Write(FMT_STRING("\tVS_OUTPUT first;\n"));
 
   // Avoid D3D warning about forced unrolling of single-iteration loop
   if (vertex_in > 1)
-    out.Write("\tfor (int i = 0; i < {}; ++i) {{\n", vertex_in);
+    out.Write(FMT_STRING("\tfor (int i = 0; i < {}; ++i) {{\n"), vertex_in);
   else
-    out.Write("\tint i = 0;\n");
+    out.Write(FMT_STRING("\tint i = 0;\n"));
 
   if (api_type == APIType::OpenGL || api_type == APIType::Vulkan)
   {
@@ -231,14 +245,7 @@ ShaderCode GenerateGeometryShaderCode(APIType api_type, const ShaderHostConfig& 
 
   if (stereo)
   {
-    // For stereoscopy add a small horizontal offset in Normalized Device Coordinates proportional
-    // to the depth of the vertex. We retrieve the depth value from the w-component of the projected
-    // vertex which contains the negated z-component of the original vertex.
-    // For negative parallax (out-of-screen effects) we subtract a convergence value from
-    // the depth value. This results in objects at a distance smaller than the convergence
-    // distance to seemingly appear in front of the screen.
-    // This formula is based on page 13 of the "Nvidia 3D Vision Automatic, Best Practices Guide"
-    out.Write("\tfloat hoffset = (eye == 0) ? " I_STEREOPARAMS ".x : " I_STEREOPARAMS ".y;\n");
+    // Apply hoffset (which might be 0 if I_STEREOPARAMS.w indicated OpenVR mode)
     out.Write("\tf.pos.x += hoffset * (f.pos.w - " I_STEREOPARAMS ".z);\n");
   }
 

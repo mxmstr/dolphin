@@ -92,6 +92,11 @@ public:
 
   SurfaceInfo GetSurfaceInfo() const override;
 
+  // VR Specific methods (stubs for OGL)
+  bool IsVRMode() const override { return false; }
+  bool SetLeftEyeRenderTarget(const ClearColor& clear_color) override { return false; }
+  bool SetRightEyeRenderTarget(const ClearColor& clear_color) override { return false; }
+
 private:
   void CheckForSurfaceChange();
   void CheckForSurfaceResize();

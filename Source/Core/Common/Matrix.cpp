@@ -378,4 +378,90 @@ float Matrix44::Determinant() const
          m[0] * m[9] * m[6] * m[15] - m[4] * m[1] * m[10] * m[15] + m[0] * m[5] * m[10] * m[15];
 }
 
+Matrix44 Matrix44::Inverted() const
+{
+  Matrix44 result;
+  const auto& m = data;
+  const float det = Determinant();
+
+  // TODO: Consider adding an epsilon check for det being close to zero.
+  // For now, direct division, assuming det is not zero.
+  const float inv_det = 1.0f / det;
+
+  result.data[0] = (m[5] * m[10] * m[15] - m[5] * m[11] * m[14] - m[9] * m[6] * m[15] +
+                    m[9] * m[7] * m[14] + m[13] * m[6] * m[11] - m[13] * m[7] * m[10]) *
+                   inv_det;
+  result.data[1] = (-m[1] * m[10] * m[15] + m[1] * m[11] * m[14] + m[9] * m[2] * m[15] -
+                    m[9] * m[3] * m[14] - m[13] * m[2] * m[11] + m[13] * m[3] * m[10]) *
+                   inv_det;
+  result.data[2] = (m[1] * m[6] * m[15] - m[1] * m[7] * m[14] - m[5] * m[2] * m[15] +
+                    m[5] * m[3] * m[14] + m[13] * m[2] * m[7] - m[13] * m[3] * m[6]) *
+                   inv_det;
+  result.data[3] = (-m[1] * m[6] * m[11] + m[1] * m[7] * m[10] + m[5] * m[2] * m[11] -
+                    m[5] * m[3] * m[10] - m[9] * m[2] * m[7] + m[9] * m[3] * m[6]) *
+                   inv_det;
+
+  result.data[4] = (-m[4] * m[10] * m[15] + m[4] * m[11] * m[14] + m[8] * m[6] * m[15] -
+                    m[8] * m[7] * m[14] - m[12] * m[6] * m[11] + m[12] * m[7] * m[10]) *
+                   inv_det;
+  result.data[5] = (m[0] * m[10] * m[15] - m[0] * m[11] * m[14] - m[8] * m[2] * m[15] +
+                    m[8] * m[3] * m[14] + m[12] * m[2] * m[11] - m[12] * m[3] * m[10]) *
+                   inv_det;
+  result.data[6] = (-m[0] * m[6] * m[15] + m[0] * m[7] * m[14] + m[4] * m[2] * m[15] -
+                    m[4] * m[3] * m[14] - m[12] * m[2] * m[7] + m[12] * m[3] * m[6]) *
+                   inv_det;
+  result.data[7] = (m[0] * m[6] * m[11] - m[0] * m[7] * m[10] - m[4] * m[2] * m[11] +
+                    m[4] * m[3] * m[10] + m[8] * m[2] * m[7] - m[8] * m[3] * m[6]) *
+                   inv_det;
+
+  result.data[8] = (m[4] * m[9] * m[15] - m[4] * m[11] * m[13] - m[8] * m[5] * m[15] +
+                    m[8] * m[7] * m[13] + m[12] * m[5] * m[11] - m[12] * m[7] * m[9]) *
+                   inv_det;
+  result.data[9] = (-m[0] * m[9] * m[15] + m[0] * m[11] * m[13] + m[8] * m[1] * m[15] -
+                    m[8] * m[3] * m[13] - m[12] * m[1] * m[11] + m[12] * m[3] * m[9]) *
+                   inv_det;
+  result.data[10] = (m[0] * m[5] * m[15] - m[0] * m[7] * m[13] - m[4] * m[1] * m[15] +
+                     m[4] * m[3] * m[13] + m[12] * m[1] * m[7] - m[12] * m[3] * m[5]) *
+                    inv_det;
+  result.data[11] = (-m[0] * m[5] * m[11] + m[0] * m[7] * m[9] + m[4] * m[1] * m[11] -
+                     m[4] * m[3] * m[9] - m[8] * m[1] * m[7] + m[8] * m[3] * m[5]) *
+                    inv_det;
+
+  result.data[12] = (-m[4] * m[9] * m[14] + m[4] * m[10] * m[13] + m[8] * m[5] * m[14] -
+                     m[8] * m[6] * m[13] - m[12] * m[5] * m[10] + m[12] * m[6] * m[9]) *
+                    inv_det;
+  result.data[13] = (m[0] * m[9] * m[14] - m[0] * m[10] * m[13] - m[8] * m[1] * m[14] +
+                     m[8] * m[2] * m[13] + m[12] * m[1] * m[10] - m[12] * m[2] * m[9]) *
+                    inv_det;
+  result.data[14] = (-m[0] * m[5] * m[14] + m[0] * m[6] * m[13] + m[4] * m[1] * m[14] -
+                     m[4] * m[2] * m[13] - m[12] * m[1] * m[6] + m[12] * m[2] * m[5]) *
+                    inv_det;
+  result.data[15] = (m[0] * m[5] * m[10] - m[0] * m[6] * m[9] - m[4] * m[1] * m[10] +
+                     m[4] * m[2] * m[9] + m[8] * m[1] * m[6] - m[8] * m[2] * m[5]) *
+                    inv_det;
+
+  return result;
+}
+
+Matrix44 Matrix44::FromArrayRows(const float* row0, const float* row1, const float* row2, const float* row3)
+{
+  Matrix44 mtx;
+  memcpy(&mtx.data[0], row0, 4 * sizeof(float));
+  memcpy(&mtx.data[4], row1, 4 * sizeof(float));
+  memcpy(&mtx.data[8], row2, 4 * sizeof(float));
+  memcpy(&mtx.data[12], row3, 4 * sizeof(float));
+  return mtx;
+}
+
+Vec4 Matrix44::GetRow(int rowIndex) const
+{
+  if (rowIndex < 0 || rowIndex > 3)
+  {
+    // Should not happen, but return zero vector as fallback
+    return Vec4(0.0f, 0.0f, 0.0f, 0.0f);
+  }
+  const float* rowPtr = &data[rowIndex * 4];
+  return Vec4(rowPtr[0], rowPtr[1], rowPtr[2], rowPtr[3]);
+}
+
 }  // namespace Common

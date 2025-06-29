@@ -37,7 +37,8 @@ enum class StereoMode : int
   TAB,
   Anaglyph,
   QuadBuffer,
-  Passive
+  Passive,
+  OpenVR // Added for OpenVR support
 };
 
 enum class ShaderCompilationMode : int

@@ -90,9 +90,15 @@
 #include "VideoCommon/PerformanceMetrics.h"
 #include "VideoCommon/VideoBackendBase.h"
 #include "VideoCommon/VideoEvents.h"
+#include "VideoCommon/VROpenVR.h" // Added for VROpenVR
+#include "VideoCommon/VideoConfig.h" // Added for g_ActiveConfig
 
 namespace Core
 {
+// Definition of the global VROpenVR instance.
+// Declared as extern in D3DGfx.h (and potentially other places that need it).
+// Initialization happens in EmuThread.
+std::unique_ptr<VROpenVR> g_vr_openvr_instance;
 static bool s_wants_determinism;
 
 // Declarations and definitions
@@ -565,8 +571,39 @@ static void EmuThread(Core::System& system, std::unique_ptr<BootParameters> boot
     // Clear on screen messages that haven't expired
     OSD::ClearMessages();
 
+    // Shutdown VR before video backend
+    if (g_vr_openvr_instance)
+    {
+      INFO_LOG_FMT(CONSOLE, "{}", StopMessage(false, "Shutting down OpenVR"));
+      g_vr_openvr_instance->Shutdown();
+      g_vr_openvr_instance.reset();
+      INFO_LOG_FMT(CONSOLE, "{}", StopMessage(false, "OpenVR shutdown"));
+    }
+
     g_video_backend->Shutdown();
   }};
+
+  // Initialize VROpenVR if selected
+  if (g_ActiveConfig.stereo_mode == StereoMode::OpenVR)
+  {
+    INFO_LOG_FMT(CONSOLE, "OpenVR stereo mode selected. Initializing VROpenVR...");
+    g_vr_openvr_instance = std::make_unique<VROpenVR>();
+    if (g_vr_openvr_instance->Init())
+    {
+      INFO_LOG_FMT(CONSOLE, "VROpenVR initialized successfully.");
+    }
+    else
+    {
+      ERROR_LOG_FMT(CONSOLE, "Failed to initialize VROpenVR. Disabling VR mode.");
+      g_vr_openvr_instance.reset();
+      // TODO: This modification of g_ActiveConfig is not ideal from here.
+      // It might be better to handle this fallback in VideoConfig::Refresh or similar.
+      // For now, this ensures VR doesn't stay partially active.
+      // Consider how to properly signal this failure to the config system or user.
+      // g_ActiveConfig.stereo_mode = StereoMode::Off; // This might be problematic
+      // A safer approach for now is to let rendering paths check g_vr_openvr_instance.
+    }
+  }
 
   if (cpu_info.HTT)
     Config::SetBaseOrCurrent(Config::MAIN_DSP_THREAD, cpu_info.num_cores > 4);

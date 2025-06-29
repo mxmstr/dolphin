@@ -223,7 +223,7 @@ void EnhancementsWidget::CreateWidgets()
   stereoscopy_box->setLayout(stereoscopy_layout);
 
   m_3d_mode = new ConfigChoice({tr("Off"), tr("Side-by-Side"), tr("Top-and-Bottom"), tr("Anaglyph"),
-                                tr("HDMI 3D"), tr("Passive")},
+                                tr("HDMI 3D"), tr("Passive"), tr("OpenVR")},
                                Config::GFX_STEREO_MODE, m_game_layer);
   m_3d_depth =
       new ConfigSlider(0, Config::GFX_STEREO_DEPTH_MAXIMUM, Config::GFX_STEREO_DEPTH, m_game_layer);

@@ -133,3 +133,6 @@ inline u32 CompressZ16(u32 z24depth, DepthFormat format)
 
   return exponent | mantissa;
 }
+
+class VROpenVR; // Forward declaration
+VROpenVR* GetVROpenVR(); // Accessor for the global OpenVR system instance
