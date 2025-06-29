@@ -11,7 +11,7 @@
 #include "Common/CommonTypes.h"
 #include "Common/WindowSystemInfo.h"
 #include "VideoCommon/PerfQueryBase.h"
-#include "VideoCommon/VROpenVR.h" // Added for VR support
+// #include "VideoCommon/VROpenVR.h" // Removed: VR is handled by Core::g_vr_openvr_instance
 
 namespace MMIO
 {
@@ -82,7 +82,7 @@ protected:
   void ShutdownShared();
 
   bool m_initialized = false;
-  std::unique_ptr<VROpenVR> m_vr_openvr; // Added for VR support
+  // std::unique_ptr<VROpenVR> m_vr_openvr; // Removed: VR is handled by Core::g_vr_openvr_instance
 };
 
 extern VideoBackendBase* g_video_backend;
