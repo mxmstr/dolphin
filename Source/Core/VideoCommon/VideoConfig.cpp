@@ -30,6 +30,9 @@
 #include "VideoCommon/ShaderGenCommon.h"
 #include "VideoCommon/TextureCacheBase.h"
 #include "VideoCommon/VertexManagerBase.h"
+#include "VideoCommon/VROpenVR.h"
+
+namespace Core { extern std::unique_ptr<VROpenVR> g_vr_openvr_instance; }
 
 VideoConfig g_Config;
 VideoConfig g_ActiveConfig;
@@ -309,15 +312,15 @@ void CheckForConfigChanges()
     {
       if (!Core::g_vr_openvr_instance || !Core::g_vr_openvr_instance->IsInitialized())
       {
-        INFO_LOG_FMT(VR_CORE, "StereoMode changed to OpenVR. Initializing Core::g_vr_openvr_instance.");
+        INFO_LOG_FMT(VR, "StereoMode changed to OpenVR. Initializing Core::g_vr_openvr_instance.");
         Core::g_vr_openvr_instance = std::make_unique<VROpenVR>();
         if (Core::g_vr_openvr_instance->Init())
         {
-          INFO_LOG_FMT(VR_CORE, "Core::g_vr_openvr_instance initialized successfully.");
+          INFO_LOG_FMT(VR, "Core::g_vr_openvr_instance initialized successfully.");
         }
         else
         {
-          ERROR_LOG_FMT(VR_CORE, "Failed to initialize Core::g_vr_openvr_instance. VR will not be available.");
+          ERROR_LOG_FMT(VR, "Failed to initialize Core::g_vr_openvr_instance. VR will not be available.");
           Core::g_vr_openvr_instance.reset();
           // Optionally, force stereo_mode back to Off if VR init fails critically
           // g_Config.stereo_mode = StereoMode::Off; // This would require g_Config to be updated
@@ -327,17 +330,17 @@ void CheckForConfigChanges()
       }
       else
       {
-        INFO_LOG_FMT(VR_CORE, "StereoMode is OpenVR, and Core::g_vr_openvr_instance is already initialized.");
+        INFO_LOG_FMT(VR, "StereoMode is OpenVR, and Core::g_vr_openvr_instance is already initialized.");
       }
     }
     else // StereoMode is not OpenVR (or changed away from it)
     {
       if (Core::g_vr_openvr_instance)
       {
-        INFO_LOG_FMT(VR_CORE, "StereoMode changed away from OpenVR. Shutting down Core::g_vr_openvr_instance.");
+        INFO_LOG_FMT(VR, "StereoMode changed away from OpenVR. Shutting down Core::g_vr_openvr_instance.");
         Core::g_vr_openvr_instance->Shutdown();
         Core::g_vr_openvr_instance.reset();
-        INFO_LOG_FMT(VR_CORE, "Core::g_vr_openvr_instance shut down and reset.");
+        INFO_LOG_FMT(VR, "Core::g_vr_openvr_instance shut down and reset.");
       }
     }
   }
