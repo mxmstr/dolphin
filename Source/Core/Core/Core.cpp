@@ -882,6 +882,12 @@ void Callback_FramePresented(const PresentInfo& present_info)
 // Called from VideoInterface::Update (CPU thread) at emulated field boundaries
 void Callback_NewField(Core::System& system)
 {
+  // Poll OpenVR events
+  if (g_vr_openvr_instance && g_vr_openvr_instance->IsInitialized())
+  {
+    g_vr_openvr_instance->PollEvents();
+  }
+
   if (s_frame_step)
   {
     // To ensure that s_stop_frame_step is up to date, wait for the GPU thread queue to empty,

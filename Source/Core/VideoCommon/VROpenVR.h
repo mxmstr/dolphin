@@ -45,6 +45,9 @@ public:
   Common::Matrix44 GetRawEyeToHeadTransform(vr::EVREye eye);
   long long GetAdapterLUID(); // Returns LUID of the adapter OpenVR is using, or 0 if none/error.
 
+  // Polls and processes OpenVR events
+  void PollEvents();
+
 private:
   vr::IVRSystem* m_ivr_system;
   vr::IVRCompositor* m_ivr_compositor;

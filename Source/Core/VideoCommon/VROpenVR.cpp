@@ -214,3 +214,56 @@ long long VROpenVR::GetAdapterLUID()
   }
   return adapter_luid;
 }
+
+void VROpenVR::PollEvents()
+{
+  if (!m_initialized || !m_ivr_system)
+  {
+    return;
+  }
+
+  vr::VREvent_t event;
+  while (m_ivr_system->PollNextEvent(&event, sizeof(event)))
+  {
+    // Log all events for now. Can be filtered later.
+    // Using GENERIC_LOG_FMT for consistency, assuming VR is a valid LogType.
+    GENERIC_LOG_FMT(Common::Log::LogType::VR, Common::Log::LogLevel::LDEBUG, 
+                     "OpenVR Event: {} ({})", 
+                     m_ivr_system->GetEventTypeNameFromEnum(static_cast<vr::EVREventType>(event.eventType)),
+                     static_cast<int>(event.eventType));
+
+    switch (event.eventType)
+    {
+    case vr::VREvent_Quit: // User has quit from SteamVR dashboard or similar
+    case vr::VREvent_ProcessQuit: // Another process has requested this app to quit
+      // TODO: These events should ideally trigger a graceful shutdown of VR mode in Dolphin.
+      // For now, just logging. Could post a host message or set a flag.
+      GENERIC_LOG_FMT(Common::Log::LogType::VR, Common::Log::LogLevel::LWARNING,
+                       "Received OpenVR Quit Event type: {}. VR should be shut down.", event.eventType);
+      // Example: Core::System::GetInstance().GetHost()->SetWantToStop(true); // This is hypothetical
+      break;
+    case vr::VREvent_InputFocusCaptured: // Scene app has gained input focus
+      GENERIC_LOG_FMT(Common::Log::LogType::VR, Common::Log::LogLevel::LINFO, 
+                       "OpenVR Event: Input Focus Captured by process {}.", event.data.process.pid);
+      break;
+    case vr::VREvent_InputFocusReleased: // Scene app has lost input focus
+      GENERIC_LOG_FMT(Common::Log::LogType::VR, Common::Log::LogLevel::LWARNING, 
+                       "OpenVR Event: Input Focus Released by process {}.", event.data.process.pid);
+      // When focus is lost, a scene app should typically stop rendering or pause.
+      break;
+    case vr::VREvent_ChaperoneDataHasChanged:
+      GENERIC_LOG_FMT(Common::Log::LogType::VR, Common::Log::LogLevel::LINFO, "OpenVR Event: Chaperone data has changed.");
+      // TODO: Reload chaperone data if using it for anything.
+      break;
+    /*case vr::VREvent_Compositor_DeviceDisconnected:
+       GENERIC_LOG_FMT(Common::Log::LogType::VR, Common::Log::LogLevel::LWARNING, "OpenVR Event: Compositor device disconnected.");
+       break;
+    case vr::VREvent_Compositor_RequestDisconnect:
+       GENERIC_LOG_FMT(Common::Log::LogType::VR, Common::Log::LogLevel::LWARNING, "OpenVR Event: Compositor requested disconnect.");
+       break;*/
+    // Add more cases as needed
+    default:
+      break;
+    }
+  }
+}

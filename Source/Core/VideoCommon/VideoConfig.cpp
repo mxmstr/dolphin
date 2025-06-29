@@ -34,6 +34,7 @@
 
 namespace Core { extern std::unique_ptr<VROpenVR> g_vr_openvr_instance; }
 
+
 VideoConfig g_Config;
 VideoConfig g_ActiveConfig;
 BackendInfo g_backend_info;
@@ -297,72 +298,73 @@ void CheckForConfigChanges()
   const auto old_hdr = g_ActiveConfig.bHDR;
 
   // Store previous stereo mode before UpdateActiveConfig overwrites g_ActiveConfig.stereo_mode
-  // const StereoMode previous_stereo_mode = g_ActiveConfig.stereo_mode; // Not strictly needed with the new logic below
+  const StereoMode previous_stereo_mode = g_ActiveConfig.stereo_mode; // Not strictly needed with the new logic below
 
   UpdateActiveConfig();
   FreeLook::UpdateActiveConfig();
   g_vertex_manager->OnConfigChange();
 
   // VR Instance Management based on current g_ActiveConfig
-  // This static flag tracks if we've made an attempt to init VR in this "session"
-  // (A session being VR being enabled. It's reset when VR is disabled).
-  static bool s_vr_init_attempted_this_session = false;
+  // VR Instance Management based on current g_ActiveConfig
+  static bool s_vr_init_has_been_attempted_this_enable_cycle = false;
+  static int s_vr_init_delay_frames_remaining = 0;
+  const int INITIAL_VR_INIT_DELAY_FRAMES = 3; // Number of CheckForConfigChanges calls to wait
 
-  if (g_ActiveConfig.stereo_mode == StereoMode::OpenVR)
-  {
-    if (!Core::g_vr_openvr_instance) // If no instance exists at all
-    {
-      if (!s_vr_init_attempted_this_session)
-      {
-        INFO_LOG_FMT(VR, "VideoConfig: VR is enabled and no instance exists. Attempting first VR initialization for this session.");
-        s_vr_init_attempted_this_session = true;
-        Core::g_vr_openvr_instance = std::make_unique<VROpenVR>();
-        if (Core::g_vr_openvr_instance->Init()) // Defaults to VRApplication_Scene
-        {
-          INFO_LOG_FMT(VR, "Core::g_vr_openvr_instance initialized successfully.");
-        }
-        else
-        {
-          ERROR_LOG_FMT(VR, "Failed to initialize Core::g_vr_openvr_instance. VR will not be available this session unless toggled.");
-          Core::g_vr_openvr_instance.reset(); // Failed, so reset the pointer. Flag remains true.
-        }
+  if (g_ActiveConfig.stereo_mode == StereoMode::OpenVR) {
+      if (!Core::g_vr_openvr_instance) { // If no instance exists (or was reset after a failed init)
+          if (!s_vr_init_has_been_attempted_this_enable_cycle) { // First attempt for this "VR enabled" period
+              // If this is the very first time we're trying in this enable cycle, set the delay countdown.
+              // This check ensures that s_vr_init_delay_frames_remaining is only set once when VR becomes active.
+              if (s_vr_init_delay_frames_remaining == 0 && previous_stereo_mode != StereoMode::OpenVR) {
+                  // This condition means VR was just toggled on OR it's the first run with VR enabled by default.
+                  // However, to handle startup correctly, we might need to initialize countdown outside this 'change' check
+                  // For now, let's assume this is for runtime toggle or first init after config load.
+                  // A simpler model: if previous_stereo_mode was OFF and now it's ON, start countdown.
+                  // If it starts ON, then this needs to be set at the very beginning.
+                  // For now, let's make the delay apply to any first attempt in an "enable cycle".
+                  // This will be set to INITIAL_VR_INIT_DELAY_FRAMES when s_vr_init_has_been_attempted_this_enable_cycle is false
+                  // and we enter this block.
+                  // The following logic handles it: if delay is 0 AND we haven't tried, we set delay.
+                  if (s_vr_init_delay_frames_remaining == 0) { // Initialize delay only once per enable cycle start
+                      s_vr_init_delay_frames_remaining = INITIAL_VR_INIT_DELAY_FRAMES;
+                      INFO_LOG_FMT(VR, "VideoConfig: VR enabled, starting initial VR init delay countdown to {} frames.", INITIAL_VR_INIT_DELAY_FRAMES);
+                  }
+              }
+
+              if (s_vr_init_delay_frames_remaining > 0) {
+                  INFO_LOG_FMT(VR, "VideoConfig: Deferring initial VR Scene initialization, countdown: {}", s_vr_init_delay_frames_remaining);
+                  s_vr_init_delay_frames_remaining--;
+              } else {
+                  INFO_LOG_FMT(VR, "VideoConfig: Attempting VR initialization for this session after delay.");
+                  s_vr_init_has_been_attempted_this_enable_cycle = true; // Mark that we've tried for this cycle
+                  
+                  // Ensure any old, possibly bad, instance is gone if it somehow exists but isn't initialized
+                  if (Core::g_vr_openvr_instance && !Core::g_vr_openvr_instance->IsInitialized()){
+                      INFO_LOG_FMT(VR, "VideoConfig: Found existing but uninitialized VR instance. Resetting before new attempt.");
+                      Core::g_vr_openvr_instance->Shutdown(); // Should be safe even if not fully init
+                      Core::g_vr_openvr_instance.reset();
+                  }
+
+                  Core::g_vr_openvr_instance = std::make_unique<VROpenVR>();
+                  if (Core::g_vr_openvr_instance->Init()) { // Defaults to VRApplication_Scene
+                      INFO_LOG_FMT(VR, "Core::g_vr_openvr_instance initialized successfully.");
+                  } else {
+                      ERROR_LOG_FMT(VR, "Failed to initialize Core::g_vr_openvr_instance. VR will not be available until re-enabled.");
+                      Core::g_vr_openvr_instance.reset(); // Failed, reset. Flag remains true.
+                  }
+              }
+          }
+          // else: instance is null, but we already tried this cycle and it failed. Do nothing.
       }
-      // else: VR is enabled, no instance, but we already tried and failed this session. Do nothing more automatically.
-    }
-    else if (Core::g_vr_openvr_instance && !Core::g_vr_openvr_instance->IsInitialized())
-    {
-      // This case handles if an instance somehow exists but is not initialized (e.g., from a failed prior state load that didn't nullify the pointer)
-      // AND we haven't "formally" tried to initialize in this session yet.
-      if (!s_vr_init_attempted_this_session)
-      {
-        INFO_LOG_FMT(VR, "VideoConfig: Found uninitialized VR instance. Attempting initialization for this session.");
-        s_vr_init_attempted_this_session = true;
-        // No need to Shutdown uninitialized instance, just reset and create new.
-        Core::g_vr_openvr_instance.reset();
-        Core::g_vr_openvr_instance = std::make_unique<VROpenVR>();
-        if (Core::g_vr_openvr_instance->Init()) // Defaults to VRApplication_Scene
-        {
-          INFO_LOG_FMT(VR, "Core::g_vr_openvr_instance re-initialized successfully.");
-        }
-        else
-        {
-          ERROR_LOG_FMT(VR, "Failed to re-initialize Core::g_vr_openvr_instance. VR will not be available this session unless toggled.");
-          Core::g_vr_openvr_instance.reset(); // Failed, so reset the pointer. Flag remains true.
-        }
+      // else: instance exists and is presumably initialized. Do nothing.
+  } else { // StereoMode is NOT OpenVR
+      if (Core::g_vr_openvr_instance) {
+          INFO_LOG_FMT(VR, "VideoConfig: VR is disabled. Shutting down existing VR instance.");
+          Core::g_vr_openvr_instance->Shutdown();
+          Core::g_vr_openvr_instance.reset();
       }
-      // else: Instance exists, is uninitialized, but we already tried and failed this session. Do nothing.
-    }
-    // else: Instance exists and is initialized. Do nothing.
-  }
-  else // StereoMode is NOT OpenVR
-  {
-    if (Core::g_vr_openvr_instance)
-    {
-      INFO_LOG_FMT(VR, "VideoConfig: VR is disabled. Shutting down existing VR instance.");
-      Core::g_vr_openvr_instance->Shutdown();
-      Core::g_vr_openvr_instance.reset();
-    }
-    s_vr_init_attempted_this_session = false; // Reset flag when VR is turned off, allowing a new attempt if re-enabled.
+      s_vr_init_has_been_attempted_this_enable_cycle = false; // Reset for next time VR is enabled
+      s_vr_init_delay_frames_remaining = 0; // Reset delay when VR is turned off
   }
 
   g_freelook_camera.SetControlType(FreeLook::GetActiveConfig().camera_config.control_type);
