@@ -14,18 +14,24 @@ VROpenVR::~VROpenVR()
   }
 }
 
-bool VROpenVR::Init()
+bool VROpenVR::Init(vr::EVRApplicationType app_type)
 {
   if (m_initialized)
   {
-    GENERIC_LOG_FMT(Common::Log::LogType::VR, Common::Log::LogLevel::LINFO, "VROpenVR already initialized, skipping re-initialization.");
+    // It might be an issue if Init is called again with a different app_type.
+    // For now, assume if it's initialized, it's with the correct type needed previously.
+    // Or, we could check if the existing m_ivr_system was inited with the same app_type,
+    // but VR_Init doesn't really allow querying the current application type easily.
+    // Safest might be to Shutdown and re-Init if app_type is different, but that's complex.
+    // Given current usage (temp utility init, then main scene init), this simple check is okay.
+    GENERIC_LOG_FMT(Common::Log::LogType::VR, Common::Log::LogLevel::LINFO, "VROpenVR already initialized, skipping re-initialization with new app_type {}.", static_cast<int>(app_type));
     return true;
   }
 
-  GENERIC_LOG_FMT(Common::Log::LogType::VR, Common::Log::LogLevel::LINFO, "VROpenVR initialization started.");
+  GENERIC_LOG_FMT(Common::Log::LogType::VR, Common::Log::LogLevel::LINFO, "VROpenVR initialization started with app_type: {}.", static_cast<int>(app_type));
 
   vr::EVRInitError eError = vr::VRInitError_None;
-  m_ivr_system = vr::VR_Init(&eError, vr::VRApplication_Scene); // Using VRApplication_Scene for now
+  m_ivr_system = vr::VR_Init(&eError, app_type);
 
   if (eError != vr::VRInitError_None)
   {
@@ -207,4 +213,57 @@ long long VROpenVR::GetAdapterLUID()
     GENERIC_LOG_FMT(Common::Log::LogType::VR, Common::Log::LogLevel::LINFO, "OpenVR recommended adapter LUID: {}", adapter_luid);
   }
   return adapter_luid;
+}
+
+void VROpenVR::PollEvents()
+{
+  if (!m_initialized || !m_ivr_system)
+  {
+    return;
+  }
+
+  vr::VREvent_t event;
+  while (m_ivr_system->PollNextEvent(&event, sizeof(event)))
+  {
+    // Log all events for now. Can be filtered later.
+    // Using GENERIC_LOG_FMT for consistency, assuming VR is a valid LogType.
+    GENERIC_LOG_FMT(Common::Log::LogType::VR, Common::Log::LogLevel::LDEBUG, 
+                     "OpenVR Event: {} ({})", 
+                     m_ivr_system->GetEventTypeNameFromEnum(static_cast<vr::EVREventType>(event.eventType)),
+                     static_cast<int>(event.eventType));
+
+    switch (event.eventType)
+    {
+    case vr::VREvent_Quit: // User has quit from SteamVR dashboard or similar
+    case vr::VREvent_ProcessQuit: // Another process has requested this app to quit
+      // TODO: These events should ideally trigger a graceful shutdown of VR mode in Dolphin.
+      // For now, just logging. Could post a host message or set a flag.
+      GENERIC_LOG_FMT(Common::Log::LogType::VR, Common::Log::LogLevel::LWARNING,
+                       "Received OpenVR Quit Event type: {}. VR should be shut down.", event.eventType);
+      // Example: Core::System::GetInstance().GetHost()->SetWantToStop(true); // This is hypothetical
+      break;
+    case vr::VREvent_InputFocusCaptured: // Scene app has gained input focus
+      GENERIC_LOG_FMT(Common::Log::LogType::VR, Common::Log::LogLevel::LINFO, 
+                       "OpenVR Event: Input Focus Captured by process {}.", event.data.process.pid);
+      break;
+    case vr::VREvent_InputFocusReleased: // Scene app has lost input focus
+      GENERIC_LOG_FMT(Common::Log::LogType::VR, Common::Log::LogLevel::LWARNING, 
+                       "OpenVR Event: Input Focus Released by process {}.", event.data.process.pid);
+      // When focus is lost, a scene app should typically stop rendering or pause.
+      break;
+    case vr::VREvent_ChaperoneDataHasChanged:
+      GENERIC_LOG_FMT(Common::Log::LogType::VR, Common::Log::LogLevel::LINFO, "OpenVR Event: Chaperone data has changed.");
+      // TODO: Reload chaperone data if using it for anything.
+      break;
+    /*case vr::VREvent_Compositor_DeviceDisconnected:
+       GENERIC_LOG_FMT(Common::Log::LogType::VR, Common::Log::LogLevel::LWARNING, "OpenVR Event: Compositor device disconnected.");
+       break;
+    case vr::VREvent_Compositor_RequestDisconnect:
+       GENERIC_LOG_FMT(Common::Log::LogType::VR, Common::Log::LogLevel::LWARNING, "OpenVR Event: Compositor requested disconnect.");
+       break;*/
+    // Add more cases as needed
+    default:
+      break;
+    }
+  }
 }
