@@ -156,16 +156,19 @@ bool VideoBackend::Initialize(const WindowSystemInfo& wsi)
     std::unique_ptr<VROpenVR> temp_vr_system_for_adapter_lookup = std::make_unique<VROpenVR>();
     bool temp_vr_initialized = false;
 
+    INFO_LOG_FMT(VR, "D3DMain: Attempting temporary VROpenVR init for LUID lookup with VRApplication_Utility.");
     // Initialize as Utility app type for adapter lookup, as it's less demanding.
     if (temp_vr_system_for_adapter_lookup->Init(vr::VRApplication_Utility))
     {
       temp_vr_initialized = true;
-      INFO_LOG_FMT(VR, "Temporary VROpenVR instance (Utility type) initialized for adapter LUID lookup.");
+      // Log specific to utility type already in VROpenVR::Init, this confirms it was reached
+      // INFO_LOG_FMT(VR, "Temporary VROpenVR instance (Utility type) initialized for adapter LUID lookup.");
     }
     else
     {
-      ERROR_LOG_FMT(VR, "Failed to initialize temporary VROpenVR (Utility type) for adapter selection. Using default adapter {}.", adapter_to_use);
+      // ERROR_LOG_FMT(VR, "Failed to initialize temporary VROpenVR (Utility type) for adapter selection. Using default adapter {}.", adapter_to_use);
     }
+    INFO_LOG_FMT(VR, "D3DMain: Temporary VROpenVR for LUID lookup - Init attempted (Success: %s).", temp_vr_initialized ? "true" : "false");
 
     if (temp_vr_initialized)
     {
