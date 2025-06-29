@@ -148,7 +148,6 @@ bool VRD3D::SubmitFrames()
   // Currently, VROpenVR::GetHMDPose uses GetDeviceToAbsoluteTrackingPose.
   // For now, we're just ensuring WaitGetPoses is called.
 
-
   ID3D11Texture2D* left_tex_ptr = m_left_eye_d3d_texture_for_submit.Get();
   ID3D11Texture2D* right_tex_ptr = m_right_eye_d3d_texture_for_submit.Get();
 
