@@ -61,5 +61,6 @@ private:
   uint32_t m_render_target_width = 0;
   uint32_t m_render_target_height = 0;
 
+  vr::TrackedDevicePose_t m_tracked_device_pose[vr::k_unMaxTrackedDeviceCount];
   bool m_initialized = false;
 };

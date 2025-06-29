@@ -151,22 +151,24 @@ bool VideoBackend::Initialize(const WindowSystemInfo& wsi)
 
   if (g_ActiveConfig.stereo_mode == StereoMode::OpenVR)
   {
-    // Initialize VROpenVR if not already done, to get the adapter LUID
-    if (!m_vr_openvr)
-      m_vr_openvr = std::make_unique<VROpenVR>();
+    // Create a temporary, local VROpenVR instance for adapter LUID lookup.
+    // This instance is separate from Core::g_vr_openvr_instance and is short-lived.
+    std::unique_ptr<VROpenVR> temp_vr_system_for_adapter_lookup = std::make_unique<VROpenVR>();
+    bool temp_vr_initialized = false;
 
-    if (m_vr_openvr && !m_vr_openvr->IsInitialized())
+    if (temp_vr_system_for_adapter_lookup->Init())
     {
-      if (!m_vr_openvr->Init())
-      {
-        ERROR_LOG_FMT(VR, "Failed to initialize OpenVR for adapter selection. Using default adapter {}.", adapter_to_use);
-        m_vr_openvr.reset(); // Clear if initialization failed
-      }
+      temp_vr_initialized = true;
+      INFO_LOG_FMT(VR, "Temporary VROpenVR instance initialized for adapter LUID lookup.");
+    }
+    else
+    {
+      ERROR_LOG_FMT(VR, "Failed to initialize temporary VROpenVR for adapter selection. Using default adapter {}.", adapter_to_use);
     }
 
-    if (m_vr_openvr && m_vr_openvr->IsInitialized())
+    if (temp_vr_initialized)
     {
-      long long openvr_luid_ll = m_vr_openvr->GetAdapterLUID();
+      long long openvr_luid_ll = temp_vr_system_for_adapter_lookup->GetAdapterLUID();
       if (openvr_luid_ll != 0)
       {
         ComPtr<IDXGIFactory> temp_dxgi_factory_base = D3DCommon::CreateDXGIFactory(false);
@@ -219,9 +221,14 @@ bool VideoBackend::Initialize(const WindowSystemInfo& wsi)
         WARN_LOG_FMT(VIDEO, "OpenVR did not provide a valid LUID. Using default adapter {}.", g_Config.iAdapter);
       }
     }
-    // m_vr_openvr instance might be initialized here.
-    // VideoBackendBase::InitializeShared will also attempt to initialize it,
-    // but VROpenVR::Init() is idempotent.
+    // Shutdown the temporary VR system after LUID lookup.
+    // VROpenVR::Shutdown() handles being called on an uninitialized or already shutdown instance.
+    if (temp_vr_system_for_adapter_lookup) // Check if it wasn't reset due to Init failure
+    {
+        temp_vr_system_for_adapter_lookup->Shutdown();
+        INFO_LOG_FMT(VR, "Temporary VROpenVR instance for adapter LUID lookup shut down.");
+    }
+    // temp_vr_system_for_adapter_lookup will go out of scope here and be destroyed.
   }
 
   if (!D3D::Create(adapter_to_use, g_Config.bEnableValidationLayer))
