@@ -318,9 +318,9 @@ void CheckForConfigChanges()
         Core::g_vr_openvr_instance.reset();
       }
 
-      INFO_LOG_FMT(VR, "StereoMode is OpenVR. Attempting to initialize Core::g_vr_openvr_instance.");
+      INFO_LOG_FMT(VR, "VideoConfig: About to initialize Core::g_vr_openvr_instance as Scene (app_type default).");
       Core::g_vr_openvr_instance = std::make_unique<VROpenVR>();
-      if (Core::g_vr_openvr_instance->Init())
+      if (Core::g_vr_openvr_instance->Init()) // This will use VRApplication_Scene by default
       {
         INFO_LOG_FMT(VR, "Core::g_vr_openvr_instance initialized successfully.");
       }
