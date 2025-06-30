@@ -213,6 +213,13 @@ void VRD3D::PresentationLoop()
       continue;
     }
 
+    std::unique_lock<std::mutex> lk(m_frame_mutex);
+    m_frame_cv.wait(lk, [this] { return !m_running || m_frame_ready; });
+    if (!m_running)
+      break;
+    m_frame_ready = false;
+    lk.unlock();
+
     vr::EVRCompositorError wait_error =
         m_vr_system->GetCompositor()->WaitGetPoses(m_tracked_device_pose,
                                                    vr::k_unMaxTrackedDeviceCount,
@@ -223,13 +230,7 @@ void VRD3D::PresentationLoop()
                     static_cast<int>(wait_error));
     }
 
-    std::unique_lock<std::mutex> lk(m_frame_mutex);
-    m_frame_cv.wait(lk, [this] { return !m_running || m_frame_ready; });
-    if (!m_running)
-      break;
-    m_frame_ready = false;
     SubmitFrames();
-    lk.unlock();
   }
 }
 
