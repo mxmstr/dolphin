@@ -88,6 +88,7 @@ public:
 
 private:
   void CheckForSwapChainChanges();
+  void EnsureVRD3DInitialized(); // Added for robust VRD3D initialization
 
   StateCache m_state_cache;
 
