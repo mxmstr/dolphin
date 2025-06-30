@@ -195,13 +195,8 @@ void Gfx::PresentBackbuffer()
     // Changed log type to VR
     INFO_LOG_FMT(VR, "Gfx::PresentBackbuffer (VR Path)");
 
-    // Submit frames to HMD
-    if (!m_vrd3d->SubmitFrames())
-    {
-      // Changed log type to VR
-      ERROR_LOG_FMT(VR, "Gfx::PresentBackbuffer: Failed to submit frames to OpenVR.");
-      // Potentially handle this error, e.g., by stopping VR mode.
-    }
+    // Signal VR thread that a frame is ready for submission
+    m_vrd3d->NotifyFrameReady();
 
     // TODO: Optionally render a companion view to the main swap chain.
     // For now, just present whatever is on the swap chain (likely nothing or a cleared screen).

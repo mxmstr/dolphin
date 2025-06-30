@@ -7,6 +7,9 @@
 #include <openvr.h> // For vr::VRCompositorError, vr::Texture_t, vr::VRTextureBounds_t
 #include <d3d11.h>    // For D3D11 types
 #include <wrl/client.h> // For ComPtr
+#include <thread>
+#include <mutex>
+#include <condition_variable>
 
 #include "Common/Matrix.h"
 #include "VideoCommon/AbstractTexture.h"
@@ -26,6 +29,9 @@ public:
 
   // Submits the rendered eye textures to the HMD
   bool SubmitFrames();
+
+  // Signal that a new frame is ready for submission
+  void NotifyFrameReady();
 
   // Getters for eye textures (which are D3D render targets)
   // Getters for eye textures (which are D3D render targets)
@@ -63,4 +69,12 @@ private:
 
   vr::TrackedDevicePose_t m_tracked_device_pose[vr::k_unMaxTrackedDeviceCount];
   bool m_initialized = false;
+
+  // VR presentation thread management
+  void PresentationLoop();
+  std::thread m_presentation_thread;
+  std::mutex m_frame_mutex;
+  std::condition_variable m_frame_cv;
+  bool m_running = false;
+  bool m_frame_ready = false;
 };
