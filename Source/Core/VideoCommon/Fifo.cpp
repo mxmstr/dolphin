@@ -28,6 +28,7 @@
 #include "VideoCommon/CommandProcessor.h"
 #include "VideoCommon/DataReader.h"
 #include "VideoCommon/FramebufferManager.h"
+#include "VideoCommon/BPFunctions.h"
 #include "VideoCommon/OpcodeDecoding.h"
 #include "VideoCommon/VertexLoaderManager.h"
 #include "VideoCommon/VertexManagerBase.h"
@@ -376,6 +377,9 @@ void FifoManager::RunGpuLoop()
               // Advance the main read pointer past the processed batch
               m_video_buffer_read_ptr = current_batch_start_ptr + current_batch_size;
               cyclesExecuted = total_cycles_for_batch; // Report total cycles for the batch
+              // After rendering both eyes, restore the main EFB render target
+              g_framebuffer_manager->BindEFBFramebuffer();
+              BPFunctions::SetScissorAndViewport();
             }
             else
             {
