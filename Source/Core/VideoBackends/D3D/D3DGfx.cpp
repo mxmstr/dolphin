@@ -281,18 +281,55 @@ void Gfx::EnsureVRD3DInitialized()
   if (g_ActiveConfig.stereo_mode == StereoMode::OpenVR)
   {
     // Check if the global VR instance is ready and our D3D VR instance isn't created yet
-    if (Core::g_vr_openvr_instance && Core::g_vr_openvr_instance->IsInitialized() && !m_vrd3d)
+    if (Core::g_vr_openvr_instance && Core::g_vr_openvr_instance->IsInitialized())
     {
-      INFO_LOG_FMT(VR, "D3DGfx::EnsureVRD3DInitialized - Global VR ready and m_vrd3d not set. Creating VRD3D.");
-      m_vrd3d = std::make_unique<VRD3D>(Core::g_vr_openvr_instance.get(), D3D::device.Get());
-      if (m_vrd3d && m_vrd3d->Init())
+      if (!m_vrd3d) // VRD3D not created yet
       {
-        INFO_LOG_FMT(VR, "D3DGfx::EnsureVRD3DInitialized - VRD3D initialized successfully.");
+        INFO_LOG_FMT(VR, "D3DGfx::EnsureVRD3DInitialized - VR active and m_vrd3d not set. Creating VRD3D.");
+        m_vrd3d = std::make_unique<VRD3D>(Core::g_vr_openvr_instance.get(), D3D::device.Get());
+        if (m_vrd3d && m_vrd3d->Init())
+        {
+          INFO_LOG_FMT(VR, "D3DGfx::EnsureVRD3DInitialized - VRD3D initialized successfully.");
+          // Start the VR presentation thread if it's not already running
+          if (!m_vr_thread_running.load())
+          {
+            INFO_LOG_FMT(VR, "D3DGfx::EnsureVRD3DInitialized - Starting VR presentation thread.");
+            m_vr_thread_running.store(true);
+            m_vr_presentation_thread = std::thread(&Gfx::VRRenderLoop, this);
+          }
+        }
+        else
+        {
+          ERROR_LOG_FMT(VR, "D3DGfx::EnsureVRD3DInitialized - Failed to initialize VRD3D. VR will be non-functional.");
+          m_vrd3d.reset(); // Ensure it's null if init failed
+          // If VRD3D failed, ensure thread is stopped if it somehow was started or running from a previous state
+          if (m_vr_thread_running.load())
+          {
+            INFO_LOG_FMT(VR, "D3DGfx::EnsureVRD3DInitialized - Stopping VR presentation thread due to VRD3D init failure.");
+            m_vr_thread_running.store(false);
+            if (m_vr_presentation_thread.joinable())
+            {
+              m_vr_presentation_thread.join();
+            }
+          }
+        }
       }
-      else
+      // else m_vrd3d already exists, and thread should be running. No action needed.
+    }
+    else // Global VR instance not ready
+    {
+      if (m_vrd3d) // If our VRD3D instance was somehow active, shut it down
       {
-        ERROR_LOG_FMT(VR, "D3DGfx::EnsureVRD3DInitialized - Failed to initialize VRD3D. VR will be non-functional.");
-        m_vrd3d.reset(); // Ensure it's null if init failed
+        INFO_LOG_FMT(VR, "D3DGfx::EnsureVRD3DInitialized - Global VR instance not ready, but m_vrd3d exists. Resetting VRD3D and stopping thread.");
+        if (m_vr_thread_running.load())
+        {
+          m_vr_thread_running.store(false);
+          if (m_vr_presentation_thread.joinable())
+          {
+            m_vr_presentation_thread.join();
+          }
+        }
+        m_vrd3d.reset();
       }
     }
   }
@@ -300,7 +337,15 @@ void Gfx::EnsureVRD3DInitialized()
   {
     if (m_vrd3d) // If it was previously active, shut it down
     {
-      INFO_LOG_FMT(VR, "D3DGfx::EnsureVRD3DInitialized - StereoMode is not OpenVR. Resetting m_vrd3d.");
+      INFO_LOG_FMT(VR, "D3DGfx::EnsureVRD3DInitialized - StereoMode is not OpenVR. Resetting m_vrd3d and stopping VR thread.");
+      if (m_vr_thread_running.load())
+      {
+        m_vr_thread_running.store(false);
+        if (m_vr_presentation_thread.joinable())
+        {
+          m_vr_presentation_thread.join();
+        }
+      }
       m_vrd3d.reset();
     }
   }
@@ -471,6 +516,115 @@ SurfaceInfo Gfx::GetSurfaceInfo() const
 bool Gfx::IsVRMode() const
 {
   return m_vrd3d != nullptr;
+}
+
+void Gfx::VRRenderLoop()
+{
+  INFO_LOG_FMT(VR, "VRRenderLoop started.");
+
+  // Ensure OpenVR is available
+  if (!Core::g_vr_openvr_instance || !Core::g_vr_openvr_instance->IsInitialized() || !Core::g_vr_openvr_instance->GetCompositor())
+  {
+    ERROR_LOG_FMT(VR, "VRRenderLoop: OpenVR system or compositor not available. Exiting thread.");
+    m_vr_thread_running.store(false); // Ensure flag is cleared if we exit early
+    return;
+  }
+
+  vr::IVRCompositor* compositor = Core::g_vr_openvr_instance->GetCompositor();
+  vr::TrackedDevicePose_t poses[vr::k_unMaxTrackedDeviceCount]; // For WaitGetPoses
+
+  while (m_vr_thread_running.load())
+  {
+    INFO_LOG_FMT(VR, "VRRenderLoop: Top of loop, about to call WaitGetPoses.");
+    vr::EVRCompositorError pose_error = compositor->WaitGetPoses(poses, vr::k_unMaxTrackedDeviceCount, nullptr, 0);
+    if (pose_error != vr::VRCompositorError_None)
+    {
+      ERROR_LOG_FMT(VR, "VRRenderLoop: WaitGetPoses failed with error: {}. Stopping VR thread.", static_cast<int>(pose_error));
+      m_vr_thread_running.store(false); // Signal thread to stop
+      break; 
+    }
+    INFO_LOG_FMT(VR, "VRRenderLoop: WaitGetPoses successful.");
+
+    // VROpenVR::GetHMDPose() is called by the main emulation thread to get updated poses for rendering logic.
+    // The poses obtained here are mainly for timing via WaitGetPoses.
+
+    { // This block defines the scope of the unique_lock
+      std::unique_lock<std::mutex> lock(m_d3d_context_mutex);
+      INFO_LOG_FMT(VR, "VRRenderLoop: Acquired lock, about to wait on CV.");
+      
+      m_vr_frame_ready_cv.wait(lock, [&] {
+        INFO_LOG_FMT(VR, "VRRenderLoop: CV Predicate Check: m_vr_new_frame_rendered={}, m_vr_thread_running={}", m_vr_new_frame_rendered.load(), m_vr_thread_running.load());
+        return m_vr_new_frame_rendered.load() || !m_vr_thread_running.load();
+      });
+      INFO_LOG_FMT(VR, "VRRenderLoop: Woke from CV wait. m_vr_new_frame_rendered={}, m_vr_thread_running={}", m_vr_new_frame_rendered.load(), m_vr_thread_running.load());
+
+      if (!m_vr_thread_running.load())
+      {
+        INFO_LOG_FMT(VR, "VRRenderLoop: Shutdown signaled while waiting for frame. Exiting loop.");
+        break; // lock is released as it goes out of scope
+      }
+
+      // At this point, m_vr_new_frame_rendered is true, and we hold the lock.
+      if (m_vrd3d)
+      {
+        INFO_LOG_FMT(VR, "VRRenderLoop: Preparing to copy resources.");
+        // 1. Copy Resources
+        ID3D11Texture2D* left_intermediate = m_vrd3d->GetD3DLeftEyeIntermediateTexture();
+        ID3D11Texture2D* right_intermediate = m_vrd3d->GetD3DRightEyeIntermediateTexture();
+        ID3D11Texture2D* left_submit = m_vrd3d->GetD3DLeftEyeSubmitTexture();
+        ID3D11Texture2D* right_submit = m_vrd3d->GetD3DRightEyeSubmitTexture();
+
+        INFO_LOG_FMT(VR, "VRRenderLoop: Texture Pointers - L_Intermediate: {}, L_Submit: {}, R_Intermediate: {}, R_Submit: {}",
+                     fmt::ptr(left_intermediate), fmt::ptr(left_submit), fmt::ptr(right_intermediate), fmt::ptr(right_submit));
+
+        if (left_intermediate && left_submit)
+        {
+          D3D::context->CopyResource(left_submit, left_intermediate);
+          INFO_LOG_FMT(VR, "VRRenderLoop: CopyResource called for left eye.");
+        }
+        else
+        {
+          ERROR_LOG_FMT(VR, "VRRenderLoop: Missing left eye textures for copy. Intermediate: {}, Submit: {}", fmt::ptr(left_intermediate), fmt::ptr(left_submit));
+        }
+
+        if (right_intermediate && right_submit)
+        {
+          D3D::context->CopyResource(right_submit, right_intermediate);
+          INFO_LOG_FMT(VR, "VRRenderLoop: CopyResource called for right eye.");
+        }
+        else
+        {
+          ERROR_LOG_FMT(VR, "VRRenderLoop: Missing right eye textures for copy. Intermediate: {}, Submit: {}", fmt::ptr(right_intermediate), fmt::ptr(right_submit));
+        }
+
+        // 2. Submit Frames
+        INFO_LOG_FMT(VR, "VRRenderLoop: Preparing to submit frames.");
+        if (!m_vrd3d->SubmitFrames())
+        {
+          ERROR_LOG_FMT(VR, "VRRenderLoop: m_vrd3d->SubmitFrames() failed.");
+        }
+        else
+        {
+          INFO_LOG_FMT(VR, "VRRenderLoop: m_vrd3d->SubmitFrames() successful.");
+        }
+      }
+      else
+      {
+        ERROR_LOG_FMT(VR, "VRRenderLoop: m_vrd3d is null during D3D operations. This should not happen if thread lifecycle is correct.");
+        m_vr_thread_running.store(false); // Critical error, signal shutdown
+        break; 
+      }
+      
+      // Reset the flag indicating that this frame has been consumed.
+      m_vr_new_frame_rendered.store(false);
+      INFO_LOG_FMT(VR, "VRRenderLoop: Reset m_vr_new_frame_rendered to false.");
+      
+      // The unique_lock 'lock' is released automatically when this scope ends.
+    } 
+    INFO_LOG_FMT(VR, "VRRenderLoop: End of loop iteration, lock released.");
+  } // End of while(m_vr_thread_running.load())
+
+  INFO_LOG_FMT(VR, "VRRenderLoop ended.");
 }
 
 }  // namespace DX11

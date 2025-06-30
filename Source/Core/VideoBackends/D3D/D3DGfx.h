@@ -102,5 +102,12 @@ private:
 
   std::atomic<bool> m_vr_thread_running{false};
   std::thread m_vr_presentation_thread;
+  std::mutex m_d3d_context_mutex; // Mutex to protect D3D context access & for CVs
+  std::condition_variable m_vr_frame_ready_cv;      // Signaled by main thread when a new frame is rendered
+  std::atomic<bool> m_vr_new_frame_rendered{false}; // Predicate for m_vr_frame_ready_cv
+  std::condition_variable m_vr_processing_done_cv;  // Signaled by VR thread when D3D processing for a frame is done
+  std::atomic<bool> m_vr_frame_processing_done{true}; // Predicate for m_vr_processing_done_cv (true initially)
+
+  void VRRenderLoop(); // The function for the VR presentation thread
 };
 }  // namespace DX11
