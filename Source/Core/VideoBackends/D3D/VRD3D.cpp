@@ -110,53 +110,28 @@ bool VRD3D::Init()
   }
   INFO_LOG_FMT(VR, "VRD3D::Init - Created intermediate D3D textures for Dolphin rendering.");
 
-  // Wrap the intermediate D3D textures with Dolphin's DXTexture wrappers using CreateAdopted
-  m_left_eye_render_texture_intermediate_wrapper = DX11::DXTexture::CreateAdopted(m_intermediate_left_eye_d3d_texture);
-  m_right_eye_render_texture_intermediate_wrapper = DX11::DXTexture::CreateAdopted(m_intermediate_right_eye_d3d_texture);
+  // Define the TextureConfig for the intermediate wrappers.
+  // This should match how the intermediate_tex_desc was set up for the D3D textures.
+  TextureConfig intermediate_wrapper_config(
+      m_render_target_width, m_render_target_height, 1, /* levels */
+      1,                                               /* layers */
+      1,                                               /* samples */
+      AbstractTextureFormat::RGBA8,                    // Matches DXGI_FORMAT_R8G8B8A8_UNORM
+      AbstractTextureFlag_RenderTarget | AbstractTextureFlag_ShaderResource, // Matches D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE
+      AbstractTextureType::Texture_2D);
+
+  // Wrap the intermediate D3D textures with Dolphin's DXTexture wrappers using the new CreateAdopted overload
+  m_left_eye_render_texture_intermediate_wrapper = DX11::DXTexture::CreateAdopted(
+      m_intermediate_left_eye_d3d_texture, intermediate_wrapper_config, "VRLeftEyeIntermediateWrapped");
+  m_right_eye_render_texture_intermediate_wrapper = DX11::DXTexture::CreateAdopted(
+      m_intermediate_right_eye_d3d_texture, intermediate_wrapper_config, "VRRightEyeIntermediateWrapped");
 
   if (!m_left_eye_render_texture_intermediate_wrapper || !m_right_eye_render_texture_intermediate_wrapper)
   {
-    ERROR_LOG_FMT(VR, "VRD3D::Init - Failed to create DXTexture wrappers for intermediate textures via CreateAdopted.");
+    ERROR_LOG_FMT(VR, "VRD3D::Init - Failed to create DXTexture wrappers for intermediate textures via new CreateAdopted.");
     return false;
   }
-  INFO_LOG_FMT(VR, "VRD3D::Init - Created DXTexture wrappers for intermediate textures.");
-
-  // Adjust the config of the adopted textures if necessary.
-  // CreateAdopted infers most things, but we want to ensure type is Texture_2D and specific flags.
-  // The m_config member of AbstractTexture is public.
-  // The intermediate_tex_desc had BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE
-  // CreateAdopted should pick up AbstractTextureFlag_RenderTarget.
-  // We specified DXGI_FORMAT_R8G8B8A8_UNORM -> AbstractTextureFormat::RGBA8
-  // Size, levels, layers, samples should be correctly inferred.
-  // The main thing is to ensure `type` is `Texture_2D` if `CreateAdopted` defaults to `Texture_2DArray`.
-  // And to ensure `AbstractTextureFlag_RenderTarget` is set.
-
-  auto configure_adopted_texture = [&](std::unique_ptr<DX11::DXTexture>& tex_wrapper, ID3D11Texture2D* d3d_tex_raw) {
-    if (!tex_wrapper) return; // Should not happen if previous check passed
-
-    D3D11_TEXTURE2D_DESC actual_desc;
-    d3d_tex_raw->GetDesc(&actual_desc);
-
-    tex_wrapper->m_config.type = AbstractTextureType::Texture_2D; // Explicitly set
-    tex_wrapper->m_config.format = D3DCommon::GetAbstractFormatForDXGIFormat(actual_desc.Format);
-    tex_wrapper->m_config.width = actual_desc.Width;
-    tex_wrapper->m_config.height = actual_desc.Height;
-    tex_wrapper->m_config.layers = actual_desc.ArraySize; // Should be 1
-    tex_wrapper->m_config.levels = actual_desc.MipLevels; // Should be 1
-    tex_wrapper->m_config.samples = actual_desc.SampleDesc.Count; // Should be 1
-    tex_wrapper->m_config.flags = 0; // Reset flags then add
-    if (actual_desc.BindFlags & D3D11_BIND_RENDER_TARGET)
-      tex_wrapper->m_config.flags |= AbstractTextureFlag_RenderTarget;
-    if (actual_desc.BindFlags & D3D11_BIND_SHADER_RESOURCE) // SRV is usually needed
-      tex_wrapper->m_config.flags |= AbstractTextureFlag_ShaderResource; // Assuming this flag exists or is handled by SRV creation
-    // Add other flags as necessary, e.g. AbstractTextureFlag_ComputeImage if (actual_desc.BindFlags & D3D11_BIND_UNORDERED_ACCESS)
-  };
-
-  configure_adopted_texture(m_left_eye_render_texture_intermediate_wrapper, m_intermediate_left_eye_d3d_texture.Get());
-  configure_adopted_texture(m_right_eye_render_texture_intermediate_wrapper, m_intermediate_right_eye_d3d_texture.Get());
-
-  INFO_LOG_FMT(VR, "VRD3D::Init - Adjusted config for adopted intermediate DXTextures.");
-
+  INFO_LOG_FMT(VR, "VRD3D::Init - Created DXTexture wrappers for intermediate textures using new CreateAdopted.");
 
   // Create Depth Texture (shared for now, and used with intermediate framebuffers)
   TextureConfig depth_tex_config(m_render_target_width, m_render_target_height, 1 /*levels*/, 1 /*layers*/,

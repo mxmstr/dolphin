@@ -25,7 +25,10 @@ public:
   ~DXTexture();
 
   static std::unique_ptr<DXTexture> Create(const TextureConfig& config, std::string_view name);
-  static std::unique_ptr<DXTexture> CreateAdopted(ComPtr<ID3D11Texture2D> texture);
+  static std::unique_ptr<DXTexture> CreateAdopted(ComPtr<ID3D11Texture2D> texture); // Original
+  static std::unique_ptr<DXTexture> CreateAdopted(ComPtr<ID3D11Texture2D> texture,
+                                                    const TextureConfig& config_template,
+                                                    std::string_view name); // New overload
 
   void CopyRectangleFromTexture(const AbstractTexture* src,
                                 const MathUtil::Rectangle<int>& src_rect, u32 src_layer,

@@ -67,6 +67,46 @@ std::unique_ptr<DXTexture> DXTexture::Create(const TextureConfig& config, std::s
   return tex;
 }
 
+std::unique_ptr<DXTexture> DXTexture::CreateAdopted(ComPtr<ID3D11Texture2D> texture,
+                                                    const TextureConfig& config_template,
+                                                    std::string_view name)
+{
+  if (!texture)
+  {
+    PanicAlertFmt("CreateAdopted called with null texture");
+    return nullptr;
+  }
+
+  // Use the provided config_template directly.
+  // The caller is responsible for ensuring it's compatible with the adopted texture's properties
+  // (like dimensions, format, etc., though the private constructor doesn't re-validate these against the ComPtr<ID3D11Texture2D>).
+  // The main purpose here is to allow specifying the AbstractTextureType, flags, and name correctly.
+  std::unique_ptr<DXTexture> tex(new DXTexture(config_template, std::move(texture), name));
+
+  // Get bind flags from the actual D3D texture to decide on SRV/UAV creation
+  D3D11_TEXTURE2D_DESC desc;
+  tex->GetD3DTexture()->GetDesc(&desc); // Get desc from the texture now owned by 'tex'
+
+  bool srv_needed = (desc.BindFlags & D3D11_BIND_SHADER_RESOURCE);
+  bool uav_needed = (desc.BindFlags & D3D11_BIND_UNORDERED_ACCESS) && config_template.IsComputeImage();
+
+
+  if (srv_needed && !tex->CreateSRV())
+  {
+    // CreateSRV will use m_config which is now set from config_template
+    ERROR_LOG_FMT(RENDERER, "CreateAdopted (with config) - Failed to create SRV for adopted texture '{}'", name);
+    return nullptr;
+  }
+  if (uav_needed && !tex->CreateUAV())
+  {
+    // CreateUAV will use m_config
+    ERROR_LOG_FMT(RENDERER, "CreateAdopted (with config) - Failed to create UAV for adopted texture '{}'", name);
+    return nullptr;
+  }
+
+  return tex;
+}
+
 std::unique_ptr<DXTexture> DXTexture::CreateAdopted(ComPtr<ID3D11Texture2D> texture)
 {
   D3D11_TEXTURE2D_DESC desc;
