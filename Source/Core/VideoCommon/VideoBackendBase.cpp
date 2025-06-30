@@ -61,7 +61,7 @@
 #include "VideoCommon/VertexLoaderManager.h"
 #include "VideoCommon/VertexManagerBase.h"
 #include "VideoCommon/VertexShaderManager.h"
-#include "VideoCommon/VROpenVR.h" // Added for VR
+// #include "VideoCommon/VROpenVR.h" // Removed: VR is handled by Core::g_vr_openvr_instance
 #include "VideoCommon/VideoConfig.h"
 #include "VideoCommon/VideoState.h"
 #include "VideoCommon/Widescreen.h"
@@ -343,33 +343,14 @@ bool VideoBackendBase::InitializeShared(std::unique_ptr<AbstractGfx> gfx,
 
   g_shader_cache->InitializeShaderCache();
 
-  // Initialize VR
-  m_vr_openvr = std::make_unique<VROpenVR>();
-  if (m_vr_openvr)
-  {
-    if (m_vr_openvr->Init())
-    {
-      NOTICE_LOG_FMT(VR, "OpenVR initialized successfully via VideoBackendBase. (Placeholder Test Point)");
-    }
-    else
-    {
-      ERROR_LOG_FMT(VR, "OpenVR failed to initialize via VideoBackendBase. (Placeholder Test Point)");
-      m_vr_openvr.reset(); // Clear if initialization failed
-    }
-  }
+  // VR initialization is now handled by Core::g_vr_openvr_instance, managed by VideoConfig
 
   return true;
 }
 
 void VideoBackendBase::ShutdownShared()
 {
-  // Shutdown VR
-  if (m_vr_openvr)
-  {
-    INFO_LOG_FMT(VR, "Shutting down OpenVR via VideoBackendBase.");
-    m_vr_openvr->Shutdown();
-    m_vr_openvr.reset();
-  }
+  // VR shutdown is now handled by Core::g_vr_openvr_instance, managed by VideoConfig
 
   g_frame_dumper.reset();
   g_presenter.reset();

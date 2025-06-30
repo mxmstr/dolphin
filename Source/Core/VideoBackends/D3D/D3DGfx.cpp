@@ -40,30 +40,7 @@ namespace DX11
 Gfx::Gfx(std::unique_ptr<SwapChain> swap_chain, float backbuffer_scale)
     : m_backbuffer_scale(backbuffer_scale), m_swap_chain(std::move(swap_chain))
 {
-  INFO_LOG_FMT(VIDEO, "D3DGfx::Gfx constructor - Initializing VRD3D if conditions met.");
-  bool vr_instance_exists = Core::g_vr_openvr_instance != nullptr;
-  bool vr_instance_initialized = vr_instance_exists && Core::g_vr_openvr_instance->IsInitialized();
-  INFO_LOG_FMT(VIDEO, "D3DGfx::Gfx - StereoMode: {}, VRInstanceExists: {}, VRInstanceInitialized: {}", 
-               (int)g_ActiveConfig.stereo_mode, vr_instance_exists, vr_instance_initialized);
 
-  if (g_ActiveConfig.stereo_mode == StereoMode::OpenVR && Core::g_vr_openvr_instance && Core::g_vr_openvr_instance->IsInitialized())
-  {
-    INFO_LOG_FMT(VIDEO, "D3DGfx::Gfx - Conditions met, creating VRD3D.");
-    m_vrd3d = std::make_unique<VRD3D>(Core::g_vr_openvr_instance.get(), D3D::device.Get());
-    if (m_vrd3d && m_vrd3d->Init())
-    {
-      INFO_LOG_FMT(VIDEO, "D3DGfx::Gfx - VRD3D initialized successfully.");
-    }
-    else
-    {
-      ERROR_LOG_FMT(VIDEO, "D3DGfx::Gfx - Failed to initialize VRD3D. Disabling VR rendering path.");
-      m_vrd3d.reset();
-    }
-  }
-  else
-  {
-    INFO_LOG_FMT(VIDEO, "D3DGfx::Gfx - Conditions NOT met for VRD3D creation. m_vrd3d will be null.");
-  }
 }
 
 Gfx::~Gfx()
