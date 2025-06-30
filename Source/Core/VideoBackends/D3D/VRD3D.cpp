@@ -88,7 +88,8 @@ bool VRD3D::Init()
   intermediate_tex_desc.Height = m_render_target_height;
   intermediate_tex_desc.MipLevels = 1;
   intermediate_tex_desc.ArraySize = 1;
-  intermediate_tex_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM; // Must match submit_tex_desc for CopyResource
+  // Use TYPELESS format to allow for aliasing with integer RTVs for EFB logic ops.
+  intermediate_tex_desc.Format = DXGI_FORMAT_R8G8B8A8_TYPELESS;
   intermediate_tex_desc.SampleDesc.Count = 1;
   intermediate_tex_desc.Usage = D3D11_USAGE_DEFAULT;
   // These need to be render targets. They also need to be copy sources.
