@@ -5,6 +5,10 @@
 
 #include <d3d11_4.h>
 #include <string_view>
+#include <thread> // For std::thread
+#include <mutex>  // For std::mutex
+#include <atomic> // For std::atomic<bool>
+#include <openvr.h> // For vr::TrackedDevicePose_t
 
 #include "VideoBackends/D3D/D3DState.h"
 #include "VideoCommon/AbstractGfx.h"

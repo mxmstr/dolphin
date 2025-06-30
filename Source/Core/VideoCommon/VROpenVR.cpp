@@ -1,7 +1,16 @@
 #include "VROpenVR.h"
 #include "Common/Logging/Log.h" // For logging
+#include <chrono> // For std::chrono::seconds for sleep (if needed, not directly for attempts)
+#include <thread> // For std::this_thread::sleep_for (if implementing delays between attempts here)
 
-VROpenVR::VROpenVR() : m_ivr_system(nullptr), m_ivr_compositor(nullptr), m_initialized(false)
+
+VROpenVR::VROpenVR()
+    : m_ivr_system(nullptr),
+      m_ivr_compositor(nullptr),
+      m_initialized(false),
+      m_left_controller_index(vr::k_unTrackedDeviceIndex_Invalid),
+      m_right_controller_index(vr::k_unTrackedDeviceIndex_Invalid),
+      m_controller_init_attempts_left(MAX_CONTROLLER_INIT_ATTEMPTS)
 {
 }
 

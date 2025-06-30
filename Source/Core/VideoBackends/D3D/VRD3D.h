@@ -40,27 +40,40 @@ public:
   // Get recommended render target size
   void GetRecommendedRenderTargetSize(uint32_t* width, uint32_t* height);
 
+  // Access to the D3D textures that OpenVR will use for submission
+  // These are the textures the presentation thread will copy *to*.
+  ID3D11Texture2D* GetD3DLeftEyeSubmitTexture() { return m_left_eye_d3d_texture_for_submit.Get(); }
+  ID3D11Texture2D* GetD3DRightEyeSubmitTexture() { return m_right_eye_d3d_texture_for_submit.Get(); }
+
+  // Access to intermediate textures that the game will render *to*.
+  // The presentation thread will copy *from* these.
+  ID3D11Texture2D* GetD3DLeftEyeIntermediateTexture() { return m_intermediate_left_eye_d3d_texture.Get(); }
+  ID3D11Texture2D* GetD3DRightEyeIntermediateTexture() { return m_intermediate_right_eye_d3d_texture.Get(); }
 
 private:
   VROpenVR* m_vr_system; // Raw pointer, lifecycle managed externally
   ID3D11Device* m_d3d_device; // Raw pointer to the D3D device
   ID3D11DeviceContext* m_d3d_context; // Raw pointer to the D3D device context
 
-  // Eye textures for OpenVR
+  // Eye textures for OpenVR submission (target of copy)
   Microsoft::WRL::ComPtr<ID3D11Texture2D> m_left_eye_d3d_texture_for_submit;
   Microsoft::WRL::ComPtr<ID3D11Texture2D> m_right_eye_d3d_texture_for_submit;
 
-  // Dolphin's abstract texture and framebuffer wrappers for rendering
-  std::unique_ptr<DX11::DXTexture> m_left_eye_render_texture;
-  std::unique_ptr<DX11::DXTexture> m_right_eye_render_texture;
-  std::unique_ptr<DX11::DXTexture> m_depth_buffer_texture; // Optional: could be shared or per-eye
+  // Intermediate eye textures for rendering (source of copy)
+  Microsoft::WRL::ComPtr<ID3D11Texture2D> m_intermediate_left_eye_d3d_texture;
+  Microsoft::WRL::ComPtr<ID3D11Texture2D> m_intermediate_right_eye_d3d_texture;
 
-  std::unique_ptr<DX11::DXFramebuffer> m_left_eye_framebuffer;
-  std::unique_ptr<DX11::DXFramebuffer> m_right_eye_framebuffer;
+  // Dolphin's abstract texture and framebuffer wrappers for rendering (using intermediate textures)
+  std::unique_ptr<DX11::DXTexture> m_left_eye_render_texture_intermediate_wrapper; // Wraps m_intermediate_left_eye_d3d_texture
+  std::unique_ptr<DX11::DXTexture> m_right_eye_render_texture_intermediate_wrapper; // Wraps m_intermediate_right_eye_d3d_texture
+  std::unique_ptr<DX11::DXTexture> m_depth_buffer_texture; // Shared depth
+
+  std::unique_ptr<DX11::DXFramebuffer> m_left_eye_framebuffer_intermediate;
+  std::unique_ptr<DX11::DXFramebuffer> m_right_eye_framebuffer_intermediate;
 
   uint32_t m_render_target_width = 0;
   uint32_t m_render_target_height = 0;
 
-  vr::TrackedDevicePose_t m_tracked_device_pose[vr::k_unMaxTrackedDeviceCount];
+  // vr::TrackedDevicePose_t m_tracked_device_pose[vr::k_unMaxTrackedDeviceCount]; // Moved to presentation thread
   bool m_initialized = false;
 };

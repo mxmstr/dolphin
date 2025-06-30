@@ -45,13 +45,27 @@ public:
   Common::Matrix44 GetRawEyeToHeadTransform(vr::EVREye eye);
   long long GetAdapterLUID(); // Returns LUID of the adapter OpenVR is using, or 0 if none/error.
 
-  // Polls and processes OpenVR events
-  void PollEvents();
+  // Polls and processes OpenVR events and updates controller indices
+  void PollEventsAndUpdateControllers();
+
+  // Getters for controller indices
+  vr::TrackedDeviceIndex_t GetLeftControllerIndex() const { return m_left_controller_index; }
+  vr::TrackedDeviceIndex_t GetRightControllerIndex() const { return m_right_controller_index; }
+
 
 private:
+  void UpdateControllerIndices(); // Internal method to find controllers
+
   vr::IVRSystem* m_ivr_system;
   vr::IVRCompositor* m_ivr_compositor;
   bool m_initialized;
+  vr::TrackedDeviceIndex_t m_left_controller_index;
+  vr::TrackedDeviceIndex_t m_right_controller_index;
 
-  // TODO: Add any other necessary private members, e.g., for device indices.
+  // For polling logic
+  static constexpr int MAX_CONTROLLER_INIT_ATTEMPTS = 50; // e.g. 50 attempts * 100ms = 5 seconds
+  int m_controller_init_attempts_left;
+
+
+  // TODO: Add any other necessary private members, e.g., for device poses if PollEvents handles them.
 };

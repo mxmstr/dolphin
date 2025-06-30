@@ -40,11 +40,21 @@ namespace DX11
 Gfx::Gfx(std::unique_ptr<SwapChain> swap_chain, float backbuffer_scale)
     : m_backbuffer_scale(backbuffer_scale), m_swap_chain(std::move(swap_chain))
 {
-
 }
 
 Gfx::~Gfx()
 {
+  // Stop VR Presentation Thread if it's running
+  if (m_vr_thread_running.load())
+  {
+    INFO_LOG_FMT(VR, "Gfx::~Gfx - Stopping VR presentation thread...");
+    m_vr_thread_running.store(false);
+    if (m_vr_presentation_thread.joinable())
+    {
+      m_vr_presentation_thread.join();
+      INFO_LOG_FMT(VR, "Gfx::~Gfx - VR presentation thread joined.");
+    }
+  }
   // m_vrd3d will be automatically destroyed by unique_ptr.
   // VRD3D's destructor should handle releasing its own resources.
 }
@@ -192,23 +202,41 @@ void Gfx::PresentBackbuffer()
 
   if (m_vrd3d)
   {
-    // Changed log type to VR
-    INFO_LOG_FMT(VR, "Gfx::PresentBackbuffer (VR Path)");
-
-    // Submit frames to HMD
-    if (!m_vrd3d->SubmitFrames())
-    {
-      // Changed log type to VR
-      ERROR_LOG_FMT(VR, "Gfx::PresentBackbuffer: Failed to submit frames to OpenVR.");
-      // Potentially handle this error, e.g., by stopping VR mode.
-    }
+    // VR Mode: Frame submission is now handled by the VRRenderLoop thread.
+    // This function (PresentBackbuffer) is called by the main emulation/render thread.
+    // We no longer call m_vrd3d->SubmitFrames() here.
+    INFO_LOG_FMT(VR, "Gfx::PresentBackbuffer (VR Path) - Submission handled by VR thread.");
 
     // TODO: Optionally render a companion view to the main swap chain.
-    // For now, just present whatever is on the swap chain (likely nothing or a cleared screen).
-    // Or, copy one of the eye views to the swap chain.
-    // For this initial step, we'll just present.
+    // For now, just present whatever is on the swap chain.
+    // This could be:
+    // 1. A blank/cleared screen.
+    // 2. A mirror of one of the eye views (would require a CopyResource here from an intermediate texture).
+    // 3. A custom companion view.
+    // For this refactor, we'll keep it simple and just present the swapchain.
+    // If a companion view is desired, the main thread would render it to m_swap_chain->GetFramebuffer()
+    // before this PresentBackbuffer call, or we'd copy an eye here.
+
     if (m_swap_chain)
+    {
+      // Example: Copy left eye to swap chain for a simple mirror view
+      // This is just an illustration; proper implementation would need care.
+      /*
+      DX11::DXFramebuffer* main_fb = m_swap_chain->GetFramebuffer();
+      ID3D11Texture2D* intermediate_left = m_vrd3d->GetD3DLeftEyeIntermediateTexture();
+      if (main_fb && main_fb->GetColorAttachment() && intermediate_left)
+      {
+        ID3D11Texture2D* backbuffer_tex = static_cast<DXTexture*>(main_fb->GetColorAttachment())->GetD3DTexture();
+        if (backbuffer_tex)
+        {
+          // Ensure states are good, then copy. May need to handle different sizes.
+          // This is a simplified example.
+          D3D::context->CopyResource(backbuffer_tex, intermediate_left);
+        }
+      }
+      */
       m_swap_chain->Present();
+    }
   }
   else if (m_swap_chain)
   {

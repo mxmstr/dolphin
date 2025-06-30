@@ -48,21 +48,117 @@ bool VRD3D::Init()
   INFO_LOG_FMT(VR, "VRD3D: Creating eye resources with size: {} x {}", m_render_target_width,
                m_render_target_height);
 
-  // Create Color Textures for rendering
-  TextureConfig color_tex_config(m_render_target_width, m_render_target_height, 1 /*levels*/, 1 /*layers*/,
-                                 1 /*samples*/, AbstractTextureFormat::RGBA8,
-                                 AbstractTextureFlag_RenderTarget | AbstractTextureFlag_Shared,
-                                 AbstractTextureType::Texture_2D);
-  m_left_eye_render_texture = DX11::DXTexture::Create(color_tex_config, "VRLeftEyeRT");
-  m_right_eye_render_texture = DX11::DXTexture::Create(color_tex_config, "VRRightEyeRT");
+  // Create D3D11 Textures for OpenVR Submission (these are the final ones OpenVR sees)
+  D3D11_TEXTURE2D_DESC submit_tex_desc = {};
+  submit_tex_desc.Width = m_render_target_width;
+  submit_tex_desc.Height = m_render_target_height;
+  submit_tex_desc.MipLevels = 1;
+  submit_tex_desc.ArraySize = 1;
+  submit_tex_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM; // Common format
+  submit_tex_desc.SampleDesc.Count = 1;
+  submit_tex_desc.Usage = D3D11_USAGE_DEFAULT;
+  // BindFlags must include D3D11_BIND_SHADER_RESOURCE for OpenVR,
+  // and D3D11_BIND_RENDER_TARGET if we were to render directly (but we won't for these).
+  // It also needs to be a copy destination.
+  submit_tex_desc.BindFlags = D3D11_BIND_SHADER_RESOURCE; // OpenVR needs to read from it.
+                                                          // D3D11_BIND_RENDER_TARGET is not strictly needed if only copying.
+  submit_tex_desc.CPUAccessFlags = 0;
+  // MiscFlags: D3D11_RESOURCE_MISC_SHARED for sharing with OpenVR compositor.
+  // This is crucial. OpenVR docs mention this.
+  submit_tex_desc.MiscFlags = D3D11_RESOURCE_MISC_SHARED;
 
-  if (!m_left_eye_render_texture || !m_right_eye_render_texture)
+
+  HRESULT hr = m_d3d_device->CreateTexture2D(&submit_tex_desc, nullptr, m_left_eye_d3d_texture_for_submit.GetAddressOf());
+  if (FAILED(hr))
   {
-    ERROR_LOG_FMT(VR, "VRD3D::Init - Failed to create eye render textures.");
+    ERROR_LOG_FMT(VR, "VRD3D::Init - Failed to create left eye D3D texture for submission. HRESULT: {:#x}", hr);
     return false;
   }
+  hr = m_d3d_device->CreateTexture2D(&submit_tex_desc, nullptr, m_right_eye_d3d_texture_for_submit.GetAddressOf());
+  if (FAILED(hr))
+  {
+    ERROR_LOG_FMT(VR, "VRD3D::Init - Failed to create right eye D3D texture for submission. HRESULT: {:#x}", hr);
+    return false;
+  }
+  INFO_LOG_FMT(VR, "VRD3D::Init - Created D3D textures for OpenVR submission.");
 
-  // Create Depth Texture (shared for now)
+  // Create Intermediate D3D11 Textures for Dolphin Rendering (these are rendered to by Dolphin)
+  D3D11_TEXTURE2D_DESC intermediate_tex_desc = {};
+  intermediate_tex_desc.Width = m_render_target_width;
+  intermediate_tex_desc.Height = m_render_target_height;
+  intermediate_tex_desc.MipLevels = 1;
+  intermediate_tex_desc.ArraySize = 1;
+  intermediate_tex_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM; // Must match submit_tex_desc for CopyResource
+  intermediate_tex_desc.SampleDesc.Count = 1;
+  intermediate_tex_desc.Usage = D3D11_USAGE_DEFAULT;
+  // These need to be render targets. They also need to be copy sources.
+  intermediate_tex_desc.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE; // Shader resource if Dolphin needs to read from it for effects, etc.
+  intermediate_tex_desc.CPUAccessFlags = 0;
+  intermediate_tex_desc.MiscFlags = 0; // No D3D11_RESOURCE_MISC_SHARED needed unless also directly submitted
+
+  hr = m_d3d_device->CreateTexture2D(&intermediate_tex_desc, nullptr, m_intermediate_left_eye_d3d_texture.GetAddressOf());
+  if (FAILED(hr))
+  {
+    ERROR_LOG_FMT(VR, "VRD3D::Init - Failed to create intermediate left eye D3D texture. HRESULT: {:#x}", hr);
+    return false;
+  }
+  hr = m_d3d_device->CreateTexture2D(&intermediate_tex_desc, nullptr, m_intermediate_right_eye_d3d_texture.GetAddressOf());
+  if (FAILED(hr))
+  {
+    ERROR_LOG_FMT(VR, "VRD3D::Init - Failed to create intermediate right eye D3D texture. HRESULT: {:#x}", hr);
+    return false;
+  }
+  INFO_LOG_FMT(VR, "VRD3D::Init - Created intermediate D3D textures for Dolphin rendering.");
+
+  // Wrap the intermediate D3D textures with Dolphin's DXTexture wrappers using CreateAdopted
+  m_left_eye_render_texture_intermediate_wrapper = DX11::DXTexture::CreateAdopted(m_intermediate_left_eye_d3d_texture);
+  m_right_eye_render_texture_intermediate_wrapper = DX11::DXTexture::CreateAdopted(m_intermediate_right_eye_d3d_texture);
+
+  if (!m_left_eye_render_texture_intermediate_wrapper || !m_right_eye_render_texture_intermediate_wrapper)
+  {
+    ERROR_LOG_FMT(VR, "VRD3D::Init - Failed to create DXTexture wrappers for intermediate textures via CreateAdopted.");
+    return false;
+  }
+  INFO_LOG_FMT(VR, "VRD3D::Init - Created DXTexture wrappers for intermediate textures.");
+
+  // Adjust the config of the adopted textures if necessary.
+  // CreateAdopted infers most things, but we want to ensure type is Texture_2D and specific flags.
+  // The m_config member of AbstractTexture is public.
+  // The intermediate_tex_desc had BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE
+  // CreateAdopted should pick up AbstractTextureFlag_RenderTarget.
+  // We specified DXGI_FORMAT_R8G8B8A8_UNORM -> AbstractTextureFormat::RGBA8
+  // Size, levels, layers, samples should be correctly inferred.
+  // The main thing is to ensure `type` is `Texture_2D` if `CreateAdopted` defaults to `Texture_2DArray`.
+  // And to ensure `AbstractTextureFlag_RenderTarget` is set.
+
+  auto configure_adopted_texture = [&](std::unique_ptr<DX11::DXTexture>& tex_wrapper, ID3D11Texture2D* d3d_tex_raw) {
+    if (!tex_wrapper) return; // Should not happen if previous check passed
+
+    D3D11_TEXTURE2D_DESC actual_desc;
+    d3d_tex_raw->GetDesc(&actual_desc);
+
+    tex_wrapper->m_config.type = AbstractTextureType::Texture_2D; // Explicitly set
+    tex_wrapper->m_config.format = D3DCommon::GetAbstractFormatForDXGIFormat(actual_desc.Format);
+    tex_wrapper->m_config.width = actual_desc.Width;
+    tex_wrapper->m_config.height = actual_desc.Height;
+    tex_wrapper->m_config.layers = actual_desc.ArraySize; // Should be 1
+    tex_wrapper->m_config.levels = actual_desc.MipLevels; // Should be 1
+    tex_wrapper->m_config.samples = actual_desc.SampleDesc.Count; // Should be 1
+    tex_wrapper->m_config.flags = 0; // Reset flags then add
+    if (actual_desc.BindFlags & D3D11_BIND_RENDER_TARGET)
+      tex_wrapper->m_config.flags |= AbstractTextureFlag_RenderTarget;
+    if (actual_desc.BindFlags & D3D11_BIND_SHADER_RESOURCE) // SRV is usually needed
+      tex_wrapper->m_config.flags |= AbstractTextureFlag_ShaderResource; // Assuming this flag exists or is handled by SRV creation
+    // Add other flags as necessary, e.g. AbstractTextureFlag_ComputeImage if (actual_desc.BindFlags & D3D11_BIND_UNORDERED_ACCESS)
+  };
+
+  configure_adopted_texture(m_left_eye_render_texture_intermediate_wrapper, m_intermediate_left_eye_d3d_texture.Get());
+  configure_adopted_texture(m_right_eye_render_texture_intermediate_wrapper, m_intermediate_right_eye_d3d_texture.Get());
+
+  INFO_LOG_FMT(VR, "VRD3D::Init - Adjusted config for adopted intermediate DXTextures.");
+
+
+  // Create Depth Texture (shared for now, and used with intermediate framebuffers)
   TextureConfig depth_tex_config(m_render_target_width, m_render_target_height, 1 /*levels*/, 1 /*layers*/,
                                  1 /*samples*/, AbstractTextureFormat::D24_S8,
                                  AbstractTextureFlag_RenderTarget, AbstractTextureType::Texture_2D);
@@ -72,42 +168,38 @@ bool VRD3D::Init()
     ERROR_LOG_FMT(VR, "VRD3D::Init - Failed to create VR depth buffer texture.");
     return false;
   }
+  INFO_LOG_FMT(VR, "VRD3D::Init - Created shared depth buffer.");
 
-  // Create Framebuffers
-  m_left_eye_framebuffer =  DX11::DXFramebuffer::Create(m_left_eye_render_texture.get(), m_depth_buffer_texture.get(), {});
-  m_right_eye_framebuffer = DX11::DXFramebuffer::Create(m_right_eye_render_texture.get(), m_depth_buffer_texture.get(), {});
+  // Create Framebuffers for rendering to intermediate textures
+  m_left_eye_framebuffer_intermediate = DX11::DXFramebuffer::Create(m_left_eye_render_texture_intermediate_wrapper.get(), m_depth_buffer_texture.get(), {});
+  m_right_eye_framebuffer_intermediate = DX11::DXFramebuffer::Create(m_right_eye_render_texture_intermediate_wrapper.get(), m_depth_buffer_texture.get(), {});
 
-  if (!m_left_eye_framebuffer || !m_right_eye_framebuffer)
+  if (!m_left_eye_framebuffer_intermediate || !m_right_eye_framebuffer_intermediate)
   {
-    ERROR_LOG_FMT(VR, "VRD3D::Init - Failed to create eye framebuffers.");
+    ERROR_LOG_FMT(VR, "VRD3D::Init - Failed to create intermediate eye framebuffers.");
     return false;
   }
+  INFO_LOG_FMT(VR, "VRD3D::Init - Created intermediate framebuffers.");
+
 
   // Get the underlying D3D textures for submission to OpenVR.
-  // These must be the same textures used by the framebuffers.
-  ID3D11Resource* left_res = m_left_eye_render_texture->GetD3DTexture();
-  ID3D11Resource* right_res = m_right_eye_render_texture->GetD3DTexture();
+  // These are now m_left_eye_d3d_texture_for_submit and m_right_eye_d3d_texture_for_submit
+  // which are already ComPtr<ID3D11Texture2D>. No QueryInterface needed if created correctly.
+  // ID3D11Resource* left_res = m_left_eye_render_texture->GetD3DTexture(); // Old way
+  // ID3D11Resource* right_res = m_right_eye_render_texture->GetD3DTexture(); // Old way
 
-  if (!left_res || !right_res)
+  // Validate that the submission textures were created.
+  if (!m_left_eye_d3d_texture_for_submit || !m_right_eye_d3d_texture_for_submit)
   {
-    ERROR_LOG_FMT(VR, "VRD3D::Init - Failed to get D3DResource from eye render textures.");
+    ERROR_LOG_FMT(VR, "VRD3D::Init - D3D textures for submission are null after creation attempt.");
     return false;
   }
 
-  HRESULT hr_left = left_res->QueryInterface(__uuidof(ID3D11Texture2D), (void**)m_left_eye_d3d_texture_for_submit.GetAddressOf());
-  HRESULT hr_right = right_res->QueryInterface(__uuidof(ID3D11Texture2D), (void**)m_right_eye_d3d_texture_for_submit.GetAddressOf());
-
-  if (FAILED(hr_left) || FAILED(hr_right))
-  {
-    // Log the HRESULTs for more detailed error information
-    ERROR_LOG_FMT(VR, "VRD3D::Init - Failed to QueryInterface ID3D11Texture2D from eye render textures. HR_Left: {}, HR_Right: {}", hr_left, hr_right);
-    m_left_eye_d3d_texture_for_submit.Reset();
-    m_right_eye_d3d_texture_for_submit.Reset();
-    return false;
-  }
+  // The ComPtrs m_left_eye_d3d_texture_for_submit and m_right_eye_d3d_texture_for_submit
+  // are already the ID3D11Texture2D types we need.
 
   m_initialized = true;
-  INFO_LOG_FMT(VR, "VRD3D initialized successfully with eye framebuffers and textures.");
+  INFO_LOG_FMT(VR, "VRD3D initialized successfully with intermediate and submission textures/framebuffers.");
   return true;
 }
 
@@ -130,39 +222,26 @@ bool VRD3D::SubmitFrames()
     return false;
   }
 
-  // Call WaitGetPoses before submitting frames.
-  // This is crucial for synchronization and for the compositor to be ready.
-  vr::EVRCompositorError wait_error = m_vr_system->GetCompositor()->WaitGetPoses(m_tracked_device_pose, vr::k_unMaxTrackedDeviceCount, nullptr, 0);
-  if (wait_error != vr::VRCompositorError_None)
-  {
-    ERROR_LOG_FMT(VR, "VRD3D::SubmitFrames - WaitGetPoses failed with error: {}", static_cast<int>(wait_error));
-    // Depending on the error, we might still try to submit, or return false.
-    // For now, let's try to submit anyway, but log the error.
-    // If it's VRCompositorError_RequestFailed, submit will likely also fail.
-  }
-  else
-  {
-    INFO_LOG_FMT(VR, "VRD3D::SubmitFrames - WaitGetPoses successful.");
-  }
-  // TODO: The poses in m_tracked_device_pose should ideally be used for rendering the frame.
-  // Currently, VROpenVR::GetHMDPose uses GetDeviceToAbsoluteTrackingPose.
-  // For now, we're just ensuring WaitGetPoses is called.
+  // WaitGetPoses is NO LONGER CALLED HERE. It's called by the dedicated VR presentation thread.
+  // This function now assumes that the m_left_eye_d3d_texture_for_submit and
+  // m_right_eye_d3d_texture_for_submit have already been populated (e.g., by CopyResource)
+  // by the presentation thread.
 
-  ID3D11Texture2D* left_tex_ptr = m_left_eye_d3d_texture_for_submit.Get();
-  ID3D11Texture2D* right_tex_ptr = m_right_eye_d3d_texture_for_submit.Get();
+  ID3D11Texture2D* left_submit_tex_ptr = m_left_eye_d3d_texture_for_submit.Get();
+  ID3D11Texture2D* right_submit_tex_ptr = m_right_eye_d3d_texture_for_submit.Get();
 
-  if (!left_tex_ptr || !right_tex_ptr)
+  if (!left_submit_tex_ptr || !right_submit_tex_ptr)
   {
     ERROR_LOG_FMT(VR, "VRD3D::SubmitFrames - D3D Eye textures for submission are not valid. Left: {}, Right: {}",
-                  (void*)left_tex_ptr, (void*)right_tex_ptr);
+                  (void*)left_submit_tex_ptr, (void*)right_submit_tex_ptr);
     return false;
   }
   
   INFO_LOG_FMT(VR, "VRD3D::SubmitFrames - Submitting textures. Left: {}, Right: {}",
-               (void*)left_tex_ptr, (void*)right_tex_ptr);
+               (void*)left_submit_tex_ptr, (void*)right_submit_tex_ptr);
 
-  vr::Texture_t left_eye_texture = {left_tex_ptr, vr::TextureType_DirectX, vr::ColorSpace_Auto};
-  vr::Texture_t right_eye_texture = {right_tex_ptr, vr::TextureType_DirectX, vr::ColorSpace_Auto};
+  vr::Texture_t left_eye_texture = {left_submit_tex_ptr, vr::TextureType_DirectX, vr::ColorSpace_Auto};
+  vr::Texture_t right_eye_texture = {right_submit_tex_ptr, vr::TextureType_DirectX, vr::ColorSpace_Auto};
 
   // Default bounds: Whole texture.
   vr::VRTextureBounds_t texture_bounds;
@@ -202,23 +281,27 @@ bool VRD3D::SubmitFrames()
 DX11::DXTexture* VRD3D::GetLeftEyeTexture()
 {
   // This texture is the one used for rendering, which is then submitted.
-  return m_initialized ? m_left_eye_render_texture.get() : nullptr;
+  // This should now return the WRAPPER for the INTERMEDIATE texture.
+  return m_initialized ? m_left_eye_render_texture_intermediate_wrapper.get() : nullptr;
 }
 
 DX11::DXTexture* VRD3D::GetRightEyeTexture()
 {
   // This texture is the one used for rendering, which is then submitted.
-  return m_initialized ? m_right_eye_render_texture.get() : nullptr;
+  // This should now return the WRAPPER for the INTERMEDIATE texture.
+  return m_initialized ? m_right_eye_render_texture_intermediate_wrapper.get() : nullptr;
 }
 
 DX11::DXFramebuffer* VRD3D::GetLeftEyeFramebuffer()
 {
-  return m_initialized ? m_left_eye_framebuffer.get() : nullptr;
+  // This should now return the INTERMEDIATE framebuffer.
+  return m_initialized ? m_left_eye_framebuffer_intermediate.get() : nullptr;
 }
 
 DX11::DXFramebuffer* VRD3D::GetRightEyeFramebuffer()
 {
-  return m_initialized ? m_right_eye_framebuffer.get() : nullptr;
+  // This should now return the INTERMEDIATE framebuffer.
+  return m_initialized ? m_right_eye_framebuffer_intermediate.get() : nullptr;
 }
 
 
