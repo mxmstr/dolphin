@@ -52,6 +52,8 @@ public:
   vr::TrackedDeviceIndex_t GetLeftControllerIndex() const { return m_left_controller_index; }
   vr::TrackedDeviceIndex_t GetRightControllerIndex() const { return m_right_controller_index; }
 
+  void PollEvents();
+
 
 private:
   void UpdateControllerIndices(); // Internal method to find controllers

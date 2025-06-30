@@ -99,5 +99,8 @@ private:
   float m_backbuffer_scale;
   std::unique_ptr<SwapChain> m_swap_chain;
   std::unique_ptr<VRD3D> m_vrd3d; // VR D3D specific operations
+
+  std::atomic<bool> m_vr_thread_running{false};
+  std::thread m_vr_presentation_thread;
 };
 }  // namespace DX11

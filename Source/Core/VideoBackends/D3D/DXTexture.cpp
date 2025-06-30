@@ -94,13 +94,13 @@ std::unique_ptr<DXTexture> DXTexture::CreateAdopted(ComPtr<ID3D11Texture2D> text
   if (srv_needed && !tex->CreateSRV())
   {
     // CreateSRV will use m_config which is now set from config_template
-    ERROR_LOG_FMT(RENDERER, "CreateAdopted (with config) - Failed to create SRV for adopted texture '{}'", name);
+    ERROR_LOG_FMT(VIDEO, "CreateAdopted (with config) - Failed to create SRV for adopted texture '{}'", name);
     return nullptr;
   }
   if (uav_needed && !tex->CreateUAV())
   {
     // CreateUAV will use m_config
-    ERROR_LOG_FMT(RENDERER, "CreateAdopted (with config) - Failed to create UAV for adopted texture '{}'", name);
+    ERROR_LOG_FMT(VIDEO, "CreateAdopted (with config) - Failed to create UAV for adopted texture '{}'", name);
     return nullptr;
   }
 

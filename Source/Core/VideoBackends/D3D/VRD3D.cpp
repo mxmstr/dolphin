@@ -117,7 +117,7 @@ bool VRD3D::Init()
       1,                                               /* layers */
       1,                                               /* samples */
       AbstractTextureFormat::RGBA8,                    // Matches DXGI_FORMAT_R8G8B8A8_UNORM
-      AbstractTextureFlag_RenderTarget | AbstractTextureFlag_ShaderResource, // Matches D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE
+      AbstractTextureFlag_RenderTarget, // Matches D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE
       AbstractTextureType::Texture_2D);
 
   // Wrap the intermediate D3D textures with Dolphin's DXTexture wrappers using the new CreateAdopted overload

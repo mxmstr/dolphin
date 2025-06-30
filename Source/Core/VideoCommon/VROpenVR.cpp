@@ -8,8 +8,8 @@ VROpenVR::VROpenVR()
     : m_ivr_system(nullptr),
       m_ivr_compositor(nullptr),
       m_initialized(false),
-      m_left_controller_index(vr::k_unTrackedDeviceIndex_Invalid),
-      m_right_controller_index(vr::k_unTrackedDeviceIndex_Invalid),
+      m_left_controller_index(vr::k_unTrackedDeviceIndexInvalid),
+      m_right_controller_index(vr::k_unTrackedDeviceIndexInvalid),
       m_controller_init_attempts_left(MAX_CONTROLLER_INIT_ATTEMPTS)
 {
 }
@@ -222,6 +222,64 @@ long long VROpenVR::GetAdapterLUID()
     GENERIC_LOG_FMT(Common::Log::LogType::VR, Common::Log::LogLevel::LINFO, "OpenVR recommended adapter LUID: {}", adapter_luid);
   }
   return adapter_luid;
+}
+
+void VROpenVR::UpdateControllerIndices()
+{
+  if (!m_initialized || !m_ivr_system)
+  {
+    return;
+  }
+
+  // Reset indices
+  m_left_controller_index = vr::k_unTrackedDeviceIndexInvalid;
+  m_right_controller_index = vr::k_unTrackedDeviceIndexInvalid;
+
+  // Iterate through all tracked devices
+  for (vr::TrackedDeviceIndex_t i = 0; i < vr::k_unMaxTrackedDeviceCount; ++i)
+  {
+    if (!m_ivr_system->IsTrackedDeviceConnected(i))
+      continue;
+
+    vr::ETrackedDeviceClass device_class = m_ivr_system->GetTrackedDeviceClass(i);
+    if (device_class == vr::TrackedDeviceClass_Controller)
+    {
+      // Check which controller it is
+      vr::VRControllerState_t controller_state;
+      if (m_ivr_system->GetControllerState(i, &controller_state, sizeof(controller_state)))
+      {
+        if (controller_state.ulButtonPressed & vr::ButtonMaskFromId(vr::k_EButton_SteamVR_Touchpad))
+        {
+          if (m_left_controller_index == vr::k_unTrackedDeviceIndexInvalid)
+          {
+            m_left_controller_index = i; // Assign left controller
+          }
+          else
+          {
+            m_right_controller_index = i; // Assign right controller
+          }
+        }
+      }
+    }
+  }
+
+  GENERIC_LOG_FMT(Common::Log::LogType::VR, Common::Log::LogLevel::LINFO,
+                   "Updated controller indices: Left: {}, Right: {}",
+                   m_left_controller_index, m_right_controller_index);
+}
+
+void VROpenVR::PollEventsAndUpdateControllers()
+{
+  if (!m_initialized || !m_ivr_system)
+  {
+    return;
+  }
+
+  PollEvents(); // Process OpenVR events
+
+  // Update controller indices
+  UpdateControllerIndices();
+
 }
 
 void VROpenVR::PollEvents()
