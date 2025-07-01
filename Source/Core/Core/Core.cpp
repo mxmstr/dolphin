@@ -565,16 +565,6 @@ static void EmuThread(Core::System& system, std::unique_ptr<BootParameters> boot
     return;
   }
 
-  // Initialize VR system now that the video backend is ready.
-  if (!VR::Init(system, wsi)) // Assuming VR::Init(Core::System& system, const WindowSystemInfo& wsi) signature
-  {
-    // Decide if VR initialization failure is fatal or just disables VR features.
-    // For now, treating as fatal to match typical hardware init failures.
-    PanicAlertFmt("Failed to initialize VR system!");
-    // Ensure video_guard and other guards run by returning.
-    return;
-  }
-
   Common::ScopeGuard video_guard{[] {
     // Clear on screen messages that haven't expired
     OSD::ClearMessages();

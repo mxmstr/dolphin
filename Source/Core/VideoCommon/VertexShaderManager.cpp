@@ -57,10 +57,10 @@ void VertexShaderManager::Init()
   for (int i = 0; i < 4; ++i) {
     eye_projection_left[i] = float4(0.f,0.f,0.f,0.f);
     eye_projection_right[i] = float4(0.f,0.f,0.f,0.f);
-    if (i==0) eye_projection_left[i].x = eye_projection_right[i].x = 1.f;
-    if (i==1) eye_projection_left[i].y = eye_projection_right[i].y = 1.f;
-    if (i==2) eye_projection_left[i].z = eye_projection_right[i].z = 1.f;
-    if (i==3) eye_projection_left[i].w = eye_projection_right[i].w = 1.f;
+    if (i==0) eye_projection_left[i][0] = eye_projection_right[i][0] = 1.f;
+    if (i==1) eye_projection_left[i][1] = eye_projection_right[i][1] = 1.f;
+    if (i==2) eye_projection_left[i][2] = eye_projection_right[i][2] = 1.f;
+    if (i==3) eye_projection_left[i][3] = eye_projection_right[i][3] = 1.f;
   }
 
 

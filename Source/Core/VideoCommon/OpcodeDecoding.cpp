@@ -310,9 +310,9 @@ void Init()
   // and can be accessed via Config::Get(Config::MAIN_GPU_DETERMINISM_MODE)
   // However, GPU_DETERMINISM_FAKE_COMPLETION is an enum value from Core/Config/MainSettings.h.
   // We need to compare the result of Config::Get with that enum value.
-  bool isFakeCompletion = (Config::Get(Config::MAIN_GPU_DETERMINISM_MODE) == Config::GPUDeterminismMode::FakeCompletion);
+  bool isFakeCompletion = Config::GetGPUDeterminismMode() == Config::GPUDeterminismMode::FakeCompletion;
 
-  g_opcode_replay_enabled = g_ActiveConfig.bOpcodeReplay && !isFakeCompletion && VR::IsHMDActive();
+  g_opcode_replay_enabled = g_ActiveConfig.bOpcodeReplay && !isFakeCompletion && g_has_hmd;
   g_opcode_replay_frame = false;
   g_opcode_replay_log_frame = false;
   s_bFifoErrorSeen = false;
@@ -322,7 +322,7 @@ void Init()
 void Shutdown()
 {
   // Logic from Hydra's OpcodeDecoder::Shutdown()
-  if (VR::IsHMDActive()) // Or appropriate check if an HMD was ever active for this session
+  if (g_has_hmd) // Or appropriate check if an HMD was ever active for this session
   {
     g_opcode_replay_frame = false;
     g_opcode_replay_log_frame = false;

@@ -343,21 +343,6 @@ bool VideoBackendBase::InitializeShared(std::unique_ptr<AbstractGfx> gfx,
 
   g_shader_cache->InitializeShaderCache();
 
-  // Initialize VR
-  m_vr_openvr = std::make_unique<VROpenVR>();
-  if (m_vr_openvr)
-  {
-    if (m_vr_openvr->Init())
-    {
-      NOTICE_LOG_FMT(VR, "OpenVR initialized successfully via VideoBackendBase. (Placeholder Test Point)");
-    }
-    else
-    {
-      ERROR_LOG_FMT(VR, "OpenVR failed to initialize via VideoBackendBase. (Placeholder Test Point)");
-      m_vr_openvr.reset(); // Clear if initialization failed
-    }
-  }
-
   return true;
 }
 
