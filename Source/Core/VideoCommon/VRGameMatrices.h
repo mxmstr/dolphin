@@ -5,7 +5,8 @@
 #pragma once
 
 #include "Common/MathUtil.h"
+#include "Common/Matrix.h" // Include for Common::Matrix44
 
-bool CalculateTrackingSpaceToViewSpaceMatrix(int kind, Matrix44& look_matrix);
-bool CalculateViewMatrix(int kind, Matrix44& look_matrix);
+bool CalculateTrackingSpaceToViewSpaceMatrix(int kind, Common::Matrix44& look_matrix);
+bool CalculateViewMatrix(int kind, Common::Matrix44& look_matrix);
 void VRCalculateIRPointer();
