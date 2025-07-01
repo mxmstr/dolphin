@@ -18,11 +18,18 @@
 #include "Common/Timer.h"
 #include "Common/Logging/Log.h"
 #include "Core/ConfigManager.h"
+#include "Core/Config/MainSettings.h" // Added for Config::GetGPUDeterminismMode
 //#include "Core/HW/WiimoteEmu/HydraTLayer.h"
 #include "VideoCommon/OpcodeDecoding.h"
 #include "VideoCommon/VideoConfig.h"
 #include "VideoCommon/VR.h"
 //#include "VideoCommon/VROculus.h"
+
+// Forward declare RunCallback if it's not in OpcodeDecoding.h, or include the .cpp if necessary
+// For now, assuming OpcodeDecoding.h makes RunCallback available or it's implicitly handled.
+// If RunCallback is defined in OpcodeDecoding.cpp, we might need to adjust includes or forward declare.
+// Based on previous analysis, RunCallback is in OpcodeDecoding.cpp and templated.
+// We will rely on OpcodeDecoding.h having enough for the compiler to work with the templated Run.
 
 //const char* scm_vr_sdk_str = SCM_OCULUS_STR;
 
@@ -673,18 +680,33 @@ void VR_Init()
 
   if (g_has_hmd && g_hmd_window_width > 0 && g_hmd_window_height > 0)
   {
-    SConfig::GetInstance().strFullscreenResolution =
-        StringFromFormat("%dx%d", g_hmd_window_width, g_hmd_window_height);
-    SConfig::GetInstance().iRenderWindowXPos = g_hmd_window_x;
-    SConfig::GetInstance().iRenderWindowYPos = g_hmd_window_y;
-    SConfig::GetInstance().iRenderWindowWidth = g_hmd_window_width;
-    SConfig::GetInstance().iRenderWindowHeight = g_hmd_window_height;
-    SConfig::GetInstance().m_special_case = true;
+    // Old SConfig members are removed. Window settings are now handled by VideoConfig
+    // and direct window manipulation.
+    // For VR_Init, we primarily set the desired fullscreen state.
+    // Actual window positioning/sizing will be handled by a dedicated function
+    // that interacts with MainWindow/RenderWidget, possibly called after VR_Init
+    // or as part of the VR activation sequence.
+
+    // Example: Request fullscreen if VR is active.
+    // This assumes VR always wants to control the fullscreen state.
+    g_Config.bFullscreen = true; // From VideoConfig.h
+    // g_Config.bBorderlessFullscreen = false; // Or true, depending on VR preference
+
+    // The specific resolution g_hmd_window_width x g_hmd_window_height
+    // needs to be handled by the graphics backend when it initializes the fullscreen mode,
+    // or by setting the RenderWidget's size if in windowed VR mode.
+    // StringFromFormat("%dx%d", g_hmd_window_width, g_hmd_window_height)
+    // was for SConfig::strFullscreenResolution. This info is still relevant for
+    // the display mode change logic in MainWindow::SetFullScreenResolution.
+
+    // iRenderWindowXPos, YPos, Width, Height are no longer in SConfig.
+    // These values (g_hmd_window_x, etc.) should be used by VR when it
+    // explicitly sets window geometry if not going fullscreen.
+
+    // m_special_case is removed. VR will manage restoring previous window state
+    // upon deactivation to prevent its settings from being saved.
   }
-  else
-  {
-    SConfig::GetInstance().m_special_case = false;
-  }
+  // No else needed for m_special_case
 }
 
 void VR_StopRendering()
@@ -2269,7 +2291,7 @@ void OpcodeReplayBuffer()
   static int extra_video_loops_count = 0;
   static int real_frame_count = 0;
   if (g_ActiveConfig.bOpcodeReplay &&
-      SConfig::GetInstance().m_GPUDeterminismMode != GPU_DETERMINISM_FAKE_COMPLETION)
+      Config::GetGPUDeterminismMode() != Config::GPUDeterminismMode::FakeCompletion)
   {
     g_opcode_replay_enabled = true;
     if (g_hmd_refresh_rate == 75)
@@ -2391,11 +2413,19 @@ void OpcodeReplayBuffer()
 
           if (entry.is_preprocess_log)
           {
-            OpcodeDecoder::Run<true>(entry.timewarp_log, nullptr, false);
+            OpcodeDecoder::RunCallback<true> replay_callback_true;
+            OpcodeDecoder::Run<true>(entry.timewarp_log.GetPointer(),
+                                     static_cast<u32>(entry.timewarp_log.size()),
+                                     replay_callback_true,
+                                     false); // is_outer_call = false
           }
           else
           {
-            OpcodeDecoder::Run<false>(entry.timewarp_log, nullptr, false);
+            OpcodeDecoder::RunCallback<false> replay_callback_false;
+            OpcodeDecoder::Run<false>(entry.timewarp_log.GetPointer(),
+                                      static_cast<u32>(entry.timewarp_log.size()),
+                                      replay_callback_false,
+                                      false); // is_outer_call = false
           }
         }
       }
@@ -2451,7 +2481,7 @@ void OpcodeReplayBufferInline()
   static int real_frame_count = 0;
   int extra_video_loops;
   if (g_ActiveConfig.bOpcodeReplay &&
-      SConfig::GetInstance().m_GPUDeterminismMode != GPU_DETERMINISM_FAKE_COMPLETION)
+      Config::GetGPUDeterminismMode() != Config::GPUDeterminismMode::FakeCompletion)
   {
     g_opcode_replay_enabled = true;
     g_opcode_replay_log_frame = true;
@@ -2573,11 +2603,19 @@ void OpcodeReplayBufferInline()
       {
         if (entry.is_preprocess_log)
         {
-          OpcodeDecoder::Run<true>(entry.timewarp_log, nullptr, false);
+          OpcodeDecoder::RunCallback<true> replay_callback_true;
+          OpcodeDecoder::Run<true>(entry.timewarp_log.GetPointer(),
+                                   static_cast<u32>(entry.timewarp_log.size()),
+                                   replay_callback_true,
+                                   false); // is_outer_call = false
         }
         else
         {
-          OpcodeDecoder::Run<false>(entry.timewarp_log, nullptr, false);
+          OpcodeDecoder::RunCallback<false> replay_callback_false;
+          OpcodeDecoder::Run<false>(entry.timewarp_log.GetPointer(),
+                                    static_cast<u32>(entry.timewarp_log.size()),
+                                    replay_callback_false,
+                                    false); // is_outer_call = false
         }
       }
     }
