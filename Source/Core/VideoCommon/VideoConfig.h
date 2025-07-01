@@ -14,6 +14,7 @@
 #include <vector>
 
 #include "Common/CommonTypes.h"
+#include "Common/Matrix.h" // Added for Matrix33
 #include "VideoCommon/GraphicsModSystem/Config/GraphicsModGroup.h"
 #include "VideoCommon/VideoCommon.h"
 
@@ -36,8 +37,13 @@ enum class StereoMode : int
   SBS,
   TAB,
   Anaglyph,
-  QuadBuffer,
-  Passive
+  // OSVR, // Not in VR-Hydra-Reference, but OpenVR is used
+  QuadBuffer, // QuadBuffer in both
+  // Passive, // Not in VR-Hydra-Reference
+  // 3DVision, // In VR-Hydra-Reference
+  OpenVR, // Oculus in VR-Hydra-Reference, changed to OpenVR
+  // VR920 // In VR-Hydra-Reference
+  // Adding new ones from Hydra reference, adjusting existing
 };
 
 enum class ShaderCompilationMode : int
@@ -185,12 +191,36 @@ struct BackendInfo
 extern BackendInfo g_backend_info;
 
 // NEVER inherit from this class.
+enum class TGameCamera : int
+{
+  CAMERA_YAWPITCHROLL = 0,
+  CAMERA_YAWPITCH,
+  CAMERA_YAW,
+  CAMERA_NONE
+};
+
+struct ProjectionHackConfig final
+{
+  bool m_enable;
+  bool m_sznear;
+  bool m_szfar;
+  std::string m_znear;
+  std::string m_zfar;
+};
+
+// NEVER inherit from this class.
 struct VideoConfig final
 {
-  VideoConfig() = default;
+  VideoConfig(); // Modified from default
   void Refresh();
   void VerifyValidity();
   static void Shutdown();
+  void GameIniSave(); // Added from Hydra
+  void GameIniReset(); // Added from Hydra
+  void UpdateProjectionHack(); // Added from Hydra
+  bool IsVSync() const; // Added from Hydra
+  bool VRSettingsModified(); // Added from Hydra
+
 
   // General
   bool bVSync = false;
@@ -206,20 +236,24 @@ struct VideoConfig final
   float widescreen_heuristic_widescreen_ratio = 0.f;
   bool bCrop = false;  // Aspect ratio controls.
   bool bShaderCache = false;
+  // From Hydra:
+  bool bUseXFB; // Already present in some form, ensure it's compatible
+  bool bUseRealXFB; // Already present in some form, ensure it's compatible
 
   // Enhancements
   u32 iMultisamples = 0;
   bool bSSAA = false;
   int iEFBScale = 0;
+  int iInternalResolution; // Added from Hydra
   TextureFilteringMode texture_filtering_mode = TextureFilteringMode::Default;
   OutputResamplingMode output_resampling_mode = OutputResamplingMode::Default;
-  AnisotropicFilteringMode iMaxAnisotropy = AnisotropicFilteringMode::Default;
+  AnisotropicFilteringMode iMaxAnisotropy = AnisotropicFilteringMode::Default; // bForceFiltering in Hydra, maps to texture_filtering_mode != Default
   std::string sPostProcessingShader;
   bool bForceTrueColor = false;
-  bool bDisableCopyFilter = false;
-  bool bArbitraryMipmapDetection = false;
-  float fArbitraryMipmapDetectionThreshold = 0;
-  bool bHDR = false;
+  bool bDisableCopyFilter = false; // Not in Hydra
+  bool bArbitraryMipmapDetection = false; // Not in Hydra
+  float fArbitraryMipmapDetectionThreshold = 0; // Not in Hydra
+  bool bHDR = false; // Not in Hydra
 
   // Color Correction
   struct
@@ -252,10 +286,14 @@ struct VideoConfig final
   int iPerfSampleUSec = 0;
   bool bOverlayStats = false;
   bool bOverlayProjStats = false;
-  bool bOverlayScissorStats = false;
+  bool bOverlayScissorStats = false; // Not in Hydra
   bool bTexFmtOverlayEnable = false;
   bool bTexFmtOverlayCenter = false;
   bool bLogRenderTimeToFile = false;
+  // From Hydra:
+  bool bShowNetPlayPing;
+  bool bShowNetPlayMessages;
+
 
   // Render
   bool bWireFrame = false;
@@ -271,43 +309,60 @@ struct VideoConfig final
   bool bDumpXFBTarget = false;
   bool bBorderlessFullscreen = false;
   bool bEnableGPUTextureDecoding = false;
-  bool bPreferVSForLinePointExpansion = false;
-  bool bGraphicMods = false;
-  std::optional<GraphicsModGroupConfig> graphics_mod_config;
+  bool bPreferVSForLinePointExpansion = false; // Not in Hydra
+  bool bGraphicMods = false; // Not in Hydra
+  std::optional<GraphicsModGroupConfig> graphics_mod_config; // Not in Hydra
+  // From Hydra:
+  bool bConvertHiresTextures;
+  bool bDumpFramesAsImages;
+  bool bUseFFV1;
+  std::string sDumpCodec;
+  std::string sDumpFormat;
+  std::string sDumpPath;
+  bool bInternalResolutionFrameDumps;
+  bool bFreeLook;
+  int iBitrateKbps;
+
 
   // Hacks
   bool bEFBAccessEnable = false;
-  bool bEFBAccessDeferInvalidation = false;
+  bool bEFBAccessDeferInvalidation = false; // Not in Hydra
   bool bPerfQueriesEnable = false;
   bool bBBoxEnable = false;
-  bool bCPUCull = false;
+  bool bBBoxPreferStencilImplementation; // Added from Hydra (OpenGL-only)
+  bool bCPUCull = false; // Not in Hydra, keep
+  bool bForceProgressive; // Added from Hydra
 
   bool bEFBEmulateFormatChanges = false;
+  bool bEFBCopyEnable; // Added from Hydra
+  bool bEFBCopyClearDisable; // Added from Hydra
   bool bSkipEFBCopyToRam = false;
-  bool bSkipXFBCopyToRam = false;
-  bool bDisableCopyToVRAM = false;
-  bool bDeferEFBCopies = false;
-  bool bImmediateXFB = false;
-  bool bSkipPresentingDuplicateXFBs = false;
+  bool bSkipXFBCopyToRam = false; // Not in Hydra, keep
+  bool bDisableCopyToVRAM = false; // Not in Hydra, keep
+  bool bDeferEFBCopies = false; // Not in Hydra, keep
+  bool bImmediateXFB = false; // Not in Hydra, keep
+  bool bSkipPresentingDuplicateXFBs = false; // bVISkip in current, keep logic from current
   bool bCopyEFBScaled = false;
   int iSafeTextureCache_ColorSamples = 0;
+  ProjectionHackConfig phack; // Added from Hydra
   float fAspectRatioHackW = 1;  // Initial value needed for the first frame
   float fAspectRatioHackH = 1;
   bool bEnablePixelLighting = false;
   bool bFastDepthCalc = false;
   bool bVertexRounding = false;
-  bool bVISkip = false;
-  int iEFBAccessTileSize = 0;
+  bool bVISkip = false; // Keep, part of bSkipPresentingDuplicateXFBs logic
+  int iEFBAccessTileSize = 0; // Not in Hydra, keep
+  int iLog;           // CONF_ bits, Added from Hydra
   int iSaveTargetId = 0;  // TODO: Should be dropped
-  u32 iMissingColorValue = 0;
-  bool bFastTextureSampling = false;
+  u32 iMissingColorValue = 0; // Not in Hydra, keep
+  bool bFastTextureSampling = false; // Not in Hydra, keep
 #ifdef __APPLE__
   bool bNoMipmapping = false;  // Used by macOS fifoci to work around an M1 bug
 #endif
 
   // Stereoscopy
-  StereoMode stereo_mode{};
-  bool stereo_per_eye_resolution_full = false;
+  StereoMode stereo_mode{}; // iStereoMode in Hydra
+  bool stereo_per_eye_resolution_full = false; // Not in Hydra
   int iStereoDepth = 0;
   int iStereoConvergence = 0;
   int iStereoConvergencePercentage = 0;
@@ -315,8 +370,134 @@ struct VideoConfig final
   bool bStereoEFBMonoDepth = false;
   int iStereoDepthPercentage = 0;
 
+  // VR global (Added from Hydra)
+  float fScale;
+  float fLeanBackAngle;
+  bool bStabilizeRoll;
+  bool bStabilizePitch;
+  bool bStabilizeYaw;
+  bool bStabilizeX;
+  bool bStabilizeY;
+  bool bStabilizeZ;
+  bool bKeyhole;
+  float fKeyholeWidth;
+  bool bKeyholeSnap;
+  float fKeyholeSnapSize;
+  bool bPullUp20fps;
+  bool bPullUp30fps;
+  bool bPullUp60fps;
+  bool bPullUpAuto;
+  bool bSynchronousTimewarp;
+  bool bOpcodeWarningDisable;
+  bool bReplayVertexData;
+  bool bReplayOtherData;
+  bool bPullUp20fpsTimewarp;
+  bool bPullUp30fpsTimewarp;
+  bool bPullUp60fpsTimewarp;
+  bool bPullUpAutoTimewarp;
+  bool bOpcodeReplay;
+  bool bAsynchronousTimewarp; // In Hydra but seems OpenVR specific, might need adjustment
+  bool bEnableVR; // Specific to Oculus in Hydra, make generic for OpenVR
+  bool bLowPersistence;
+  bool bDynamicPrediction;
+  bool bOrientationTracking;
+  bool bMagYawCorrection;
+  bool bPositionTracking;
+  bool bChromatic;
+  bool bTimewarp;
+  bool bVignette;
+  bool bNoRestore;
+  bool bFlipVertical;
+  bool bSRGB;
+  bool bOverdrive;
+  bool bHqDistortion;
+  bool bDisableNearClipping;
+  bool bAutoPairViveControllers; // Vive specific, consider if needed for generic OpenVR
+  bool bShowHands;
+  bool bShowFeet;
+  bool bShowController;
+  bool bShowLaserPointer;
+  bool bShowAimRectangle;
+  bool bShowHudBox;
+  bool bShow2DBox;
+  bool bShowSensorBar;
+  bool bShowGameCamera;
+  bool bShowGameFrustum;
+  bool bShowTrackingCamera;
+  bool bShowTrackingVolume;
+  bool bShowBaseStation;
+  bool bMotionSicknessAlways;
+  bool bMotionSicknessFreelook;
+  bool bMotionSickness2D;
+  bool bMotionSicknessLeftStick;
+  bool bMotionSicknessRightStick;
+  bool bMotionSicknessDPad;
+  bool bMotionSicknessIR;
+  int iMotionSicknessMethod;
+  int iMotionSicknessSkybox;
+  float fMotionSicknessFOV;
+
+  int iVRPlayer, iVRPlayer2, iMirrorPlayer;
+  int iMirrorStyle;
+  float fTimeWarpTweak;
+  u32 iExtraTimewarpedFrames;
+  u32 iExtraVideoLoops;
+  u32 iExtraVideoLoopsDivider;
+
+  std::string sLeftTexture;
+  std::string sRightTexture;
+  std::string sGCLeftTexture;
+  std::string sGCRightTexture;
+
+  // VR per game (Added from Hydra)
+  float fUnitsPerMetre;
+  float fFreeLookSensitivity;
+  float fHudThickness;
+  float fHudDistance;
+  float fHud3DCloser;
+  float fCameraForward;
+  float fCameraPitch;
+  float fAimDistance;
+  float fMinFOV;
+  float fN64FOV;
+  float fScreenHeight;
+  float fScreenThickness;
+  float fScreenDistance;
+  float fScreenRight;
+  float fScreenUp;
+  float fScreenPitch;
+  float fTelescopeMaxFOV;
+  float fReadPitch;
+
+  float fHudDespPosition0;
+  float fHudDespPosition1;
+  float fHudDespPosition2;
+  Matrix33 matrixHudrot; // Matrix33 will need to be defined or replaced with an equivalent
+
+  u32 iCameraMinPoly;
+  bool bDisable3D;
+  bool bHudFullscreen;
+  bool bHudOnTop;
+  bool bDontClearScreen;
+  bool bCanReadCameraAngles;
+  bool bDetectSkybox;
+  int iTelescopeEye;
+  int iMetroidPrime;
+  // VR layer debugging
+  int iSelectedLayer;
+  int iFlashState;
+
   // D3D only config, mostly to be merged into the above
   int iAdapter = 0;
+
+  // VideoSW Debugging (Added from Hydra, might be less relevant now or moved elsewhere)
+  int drawStart;
+  int drawEnd;
+  bool bZComploc;
+  bool bZFreeze;
+  bool bDumpObjects;
+  bool bDumpTevStages;
+  bool bDumpTevTextureFetches;
 
   // Metal only config
   TriState iManuallyUploadBuffers = TriState::Auto;
@@ -346,9 +527,25 @@ struct VideoConfig final
   std::string customDriverLibraryName;
 
   // Vertex loader
-  VertexLoaderType vertex_loader_type;
+  VertexLoaderType vertex_loader_type; // Not in Hydra
+
+  // Shader compilation settings (already present, some differences from Hydra)
+  // bool bBackgroundShaderCompiling; // Hydra: part of VideoConfig, Current: part of ShaderCompilationMode logic
+  // bool bDisableSpecializedShaders; // Hydra: part of VideoConfig, Current: part of ShaderCompilationMode logic
+  // bool bPrecompileUberShaders; // Hydra: part of VideoConfig, Current: related to ShaderCompilationMode logic
+
 
   // Utility
+  // Hydra specific utility functions that need to be merged or adapted:
+  // bool RealXFBEnabled() const { return bUseXFB && bUseRealXFB; }
+  // bool VirtualXFBEnabled() const { return bUseXFB && !bUseRealXFB; }
+  // bool EFBCopiesToTextureEnabled() const { return bEFBCopyEnable && bSkipEFBCopyToRam; }
+  // bool EFBCopiesToRamEnabled() const { return bEFBCopyEnable && !bSkipEFBCopyToRam; }
+  // bool BBoxUseFragmentShaderImplementation() const - logic refers to g_backend_info
+  // bool CanPrecompileUberShaders() const;
+  // bool CanBackgroundCompileShaders() const;
+
+
   bool UseVSForLinePointExpand() const
   {
     if (!g_backend_info.bSupportsVSLinePointExpand)
@@ -366,11 +563,13 @@ struct VideoConfig final
   {
     return g_backend_info.bSupportsGPUTextureDecoding && bEnableGPUTextureDecoding;
   }
+  // Reverted to current logic: iEFBScale != 1 means not native resolution
   bool UseVertexRounding() const { return bVertexRounding && iEFBScale != 1; }
+
   bool ManualTextureSamplingWithCustomTextureSizes() const
   {
     // If manual texture sampling is disabled, we don't need to do anything.
-    if (bFastTextureSampling)
+    if (bFastTextureSampling) // Keep this check from current
       return false;
     // Hi-res textures break the wrapping logic used by manual texture sampling, as a texture's
     // size won't match the size the game sets.
@@ -378,6 +577,7 @@ struct VideoConfig final
       return true;
     // Hi-res EFB copies (but not native-resolution EFB copies at higher internal resolutions)
     // also result in different texture sizes that need special handling.
+    // Corrected to use iEFBScale != 1 (current logic)
     if (iEFBScale != 1 && bCopyEFBScaled)
       return true;
     // Stereoscopic 3D changes the number of layers some textures have (EFB copies have 2 layers,
@@ -387,16 +587,34 @@ struct VideoConfig final
     // Otherwise, manual texture sampling can use the sizes games specify directly.
     return false;
   }
-  bool UsingUberShaders() const;
-  u32 GetShaderCompilerThreads() const;
-  u32 GetShaderPrecompilerThreads() const;
+  bool UsingUberShaders() const; // Already present
+  u32 GetShaderCompilerThreads() const; // Already present
+  u32 GetShaderPrecompilerThreads() const; // Already present
+
+  // Added from Hydra reference (or modified)
+  bool RealXFBEnabled() const { return bUseXFB && bUseRealXFB; }
+  bool VirtualXFBEnabled() const { return bUseXFB && !bUseRealXFB; }
+  bool EFBCopiesToTextureEnabled() const { return bEFBCopyEnable && bSkipEFBCopyToRam; }
+  bool EFBCopiesToRamEnabled() const { return bEFBCopyEnable && !bSkipEFBCopyToRam; }
+  bool BBoxUseFragmentShaderImplementation() const
+  {
+    // Logic from Hydra, uses g_backend_info
+    if (g_backend_info.api_type == APIType::OpenGL && bBBoxPreferStencilImplementation)
+      return false;
+    return g_backend_info.bSupportsBBox && g_backend_info.bSupportsFragmentStoresAndAtomics;
+  }
+  bool CanPrecompileUberShaders() const; // Added from Hydra
+  bool CanBackgroundCompileShaders() const; // Added from Hydra
+
 
   float GetCustomAspectRatio() const { return (float)custom_aspect_width / custom_aspect_height; }
 };
 
 extern VideoConfig g_Config;
 extern VideoConfig g_ActiveConfig;
+extern VideoConfig g_SavedConfig; // Added for VR settings state saving
 
 // Called every frame.
 void UpdateActiveConfig();
+// CheckForConfigChanges is specific to current, keep. Hydra only has UpdateActiveConfig.
 void CheckForConfigChanges();

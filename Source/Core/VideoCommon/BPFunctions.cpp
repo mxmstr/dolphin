@@ -22,6 +22,7 @@
 #include "VideoCommon/VertexShaderManager.h"
 #include "VideoCommon/VideoCommon.h"
 #include "VideoCommon/VideoConfig.h"
+#include "VideoCommon/VR.h" // Added for opcode replay globals
 #include "VideoCommon/XFMemory.h"
 
 namespace BPFunctions
@@ -296,14 +297,62 @@ void SetBlendMode()
     - convert the RGBA8 color to RGBA6/RGB8/RGB565 and convert it to RGBA8 again
     - convert the Z24 depth value to Z16 and back to Z24
 */
-void ClearScreen(const MathUtil::Rectangle<int>& rc)
+void ClearScreen(const MathUtil::Rectangle<int>& rc, bool new_frame_just_rendered)
 {
+  // Opcode Replay logic from Hydra
+  // Static arrays to store the state for the "previous" logical clear, to handle replay correctly.
+  static bool colorEnable_replay[2] = {(bpmem.blendmode.colorupdate != 0),
+                                       (bpmem.blendmode.colorupdate != 0)};
+  static bool alphaEnable_replay[2] = {(bpmem.blendmode.alphaupdate != 0),
+                                       (bpmem.blendmode.alphaupdate != 0)};
+  static bool zEnable_replay[2] = {(bpmem.zmode.updateenable != 0),
+                                   (bpmem.zmode.updateenable != 0)};
+  // Use the fully qualified PEControl::PixelFormat from BPMemory.h
+  static PEControl::PixelFormat pixel_format_replay[2] = {bpmem.zcontrol.pixel_format,
+                                                          bpmem.zcontrol.pixel_format};
+  static u32 color_replay[2] = {(bpmem.clearcolorAR << 16) | bpmem.clearcolorGB,
+                                (bpmem.clearcolorAR << 16) | bpmem.clearcolorGB};
+  static u32 z_replay[2] = {bpmem.clearZValue, bpmem.clearZValue};
+
   bool colorEnable = (bpmem.blendmode.colorupdate != 0);
   bool alphaEnable = (bpmem.blendmode.alphaupdate != 0);
   bool zEnable = (bpmem.zmode.updateenable != 0);
-  auto pixel_format = bpmem.zcontrol.pixel_format;
+  PEControl::PixelFormat pixel_format = bpmem.zcontrol.pixel_format; // Use fully qualified name
+  u32 color = (bpmem.clearcolorAR << 16) | bpmem.clearcolorGB;
+  u32 z = bpmem.clearZValue;
 
-  // (1): Disable unused color channels
+  // Opcode Replay state unwinding logic from Hydra
+  if (g_opcode_replay_enabled) // g_opcode_replay_enabled should be from VR.h
+  {
+    // Determine which static buffer to use/update based on whether this call
+    // is for a "just rendered" frame (end of real frame / start of replay)
+    // or a "current processing" frame (during real frame / during replay frame).
+    int current_idx = (g_opcode_replay_frame == new_frame_just_rendered) ? 0 : 1;
+    int previous_idx = 1 - current_idx;
+
+    if (g_opcode_replay_frame) // Currently replaying a frame
+    {
+        // Use the state that was saved at the corresponding point in the original frame.
+        colorEnable = colorEnable_replay[previous_idx];
+        alphaEnable = alphaEnable_replay[previous_idx];
+        zEnable = zEnable_replay[previous_idx];
+        pixel_format = pixel_format_replay[previous_idx];
+        color = color_replay[previous_idx];
+        z = z_replay[previous_idx];
+    }
+    else // Currently recording a frame (or replay is off - though g_opcode_replay_enabled handles that)
+    {
+        // Save the current state for potential replay.
+        colorEnable_replay[current_idx] = colorEnable;
+        alphaEnable_replay[current_idx] = alphaEnable;
+        zEnable_replay[current_idx] = zEnable;
+        pixel_format_replay[current_idx] = pixel_format;
+        color_replay[current_idx] = color;
+        z_replay[current_idx] = z;
+    }
+  }
+
+  // (1): Disable unused color channels (original logic)
   if (pixel_format == PixelFormat::RGB8_Z24 || pixel_format == PixelFormat::RGB565_Z16 ||
       pixel_format == PixelFormat::Z24)
   {
@@ -312,10 +361,7 @@ void ClearScreen(const MathUtil::Rectangle<int>& rc)
 
   if (colorEnable || alphaEnable || zEnable)
   {
-    u32 color = (bpmem.clearcolorAR << 16) | bpmem.clearcolorGB;
-    u32 z = bpmem.clearZValue;
-
-    // (2) drop additional accuracy
+    // (2) drop additional accuracy (original logic)
     if (pixel_format == PixelFormat::RGBA6_Z24)
     {
       color = RGBA8ToRGBA6ToRGBA8(color);
@@ -325,7 +371,26 @@ void ClearScreen(const MathUtil::Rectangle<int>& rc)
       color = RGBA8ToRGB565ToRGBA8(color);
       z = Z24ToZ16ToZ24(z);
     }
-    g_framebuffer_manager->ClearEFB(rc, colorEnable, alphaEnable, zEnable, color, z);
+
+    // bEFBCopyClearDisable logic from Hydra
+    // g_new_frame_tracker_for_efb_skip should be from VR.h
+    if (g_ActiveConfig.bEFBCopyEnable == false && g_ActiveConfig.bEFBCopyClearDisable && !g_new_frame_tracker_for_efb_skip)
+    {
+      // In Hydra, this called g_renderer->SkipClearScreen().
+      // The current equivalent might be to simply not call ClearEFB,
+      // or FramebufferManager needs a SkipClearEFB method.
+      // For now, let's assume not calling ClearEFB is the way.
+      // TODO: Verify how SkipClearScreen was meant to work or if ClearEFB handles this.
+      // If g_renderer->SkipClearScreen is essential, it needs to be added to AbstractGfx.
+    }
+    else
+    {
+      g_framebuffer_manager->ClearEFB(rc, colorEnable, alphaEnable, zEnable, color, z);
+      if (g_ActiveConfig.bEFBCopyEnable == false && g_ActiveConfig.bEFBCopyClearDisable)
+      {
+        g_new_frame_tracker_for_efb_skip = false;
+      }
+    }
   }
 }
 
