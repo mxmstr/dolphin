@@ -241,277 +241,414 @@ void VertexShaderManager::ScaleView(float scale)
 
 void VertexShaderManager::ClassifyCurrentDrawCall(XFStateManager& xf_state_manager)
 {
+  // Adapted from SetViewportType in Hydra's VertexShaderManager.cpp
   m_old_viewport_type = m_viewport_type;
 
-  // Simplified placeholder logic. Full logic from Hydra is complex.
-  // It involves checking xfmem.viewport against screen dimensions (e.g. g_renderer->GetTargetWidth/Height())
-  // and xfmem.projection properties.
   const Viewport& vp = xfmem.viewport;
-  float vp_width = 2.0f * vp.wd;
-  float vp_height = -2.0f * vp.ht; // ht is typically negative in GX
+  // Viewport coordinates in Hydra were relative to a 342-offset origin.
+  // Here, vp.xOrig and vp.yOrig are likely direct EFB coordinates.
+  // vp.wd and vp.ht are half-width and half-height. ht is often negative.
+  float left = vp.xOrig - vp.wd; // Effective left edge
+  float top = vp.yOrig + vp.ht;  // Effective top edge (since ht is negative, this is yOrigin - abs(ht))
+  float width = 2.0f * vp.wd;
+  float height = -2.0f * vp.ht; // Actual height
 
-  // These would ideally come from a more reliable source for the current render target.
-  // Using FramebufferManager for EFB dimensions is safer.
-  float target_width = static_cast<float>(g_framebuffer_manager->GetEFBWidth());
-  float target_height = static_cast<float>(g_framebuffer_manager->GetEFBHeight());
+  // Use EFB dimensions from FramebufferManager for target screen size
+  float screen_width = static_cast<float>(g_framebuffer_manager->GetEFBWidth());
+  float screen_height = static_cast<float>(g_framebuffer_manager->GetEFBHeight());
 
-  if (std::abs(vp_width - target_width) < 2.0f && std::abs(std::abs(vp_height) - target_height) < 2.0f && vp.xOrig - vp.wd < 2.0f && vp.yOrig + vp.ht < 2.0f) // Check origin too
-  {
-    m_viewport_type = VIEW_FULLSCREEN;
+  // Tolerances for floating point comparisons
+  const float size_tolerance = 2.0f; // Pixel tolerance for width/height
+  const float pos_tolerance = 2.0f; // Pixel tolerance for position
+
+  // Heuristics from Hydra, adapted:
+  float min_screen_width = 0.90f * screen_width;
+  float min_screen_height = 0.90f * screen_height;
+  float max_top_offset = screen_height - min_screen_height; // Max allowable offset from top for fullscreen-like
+  float max_left_offset = screen_width - min_screen_width; // Max allowable offset from left
+
+  // Default assumption
+  m_viewport_type = VIEW_HUD_ELEMENT;
+
+
+  // Power of two square viewport in the corner of the screen means we are rendering to a texture.
+  // Hydra relaxed this to: square texture on any screen edge with size a multiple of 8.
+  // Twilight Princess GC uses 216x216, 384x384. Metroid Prime 2 uses square textures.
+  // Relaxed rule: square texture on any screen edge, size multiple of 8, or known game-specific sizes.
+  // Skip if it's full EFB size (e.g. Bad Boys 2 512x512 viewport on 512x512 EFB).
+  bool is_square = std::abs(width - height) < size_tolerance;
+  bool is_power_of_two_or_special_size = false;
+  if (is_square) {
+    int int_width = static_cast<int>(width + 0.5f);
+    if (int_width == 1 || int_width == 2 || int_width == 4 || (int_width % 8 == 0) ||
+        int_width == 216 || int_width == 384 || int_width == 457) // 457x341 for TP map
+    {
+        is_power_of_two_or_special_size = true;
+    }
   }
+
+  bool on_edge = (std::abs(left) < pos_tolerance || std::abs(top) < pos_tolerance ||
+                  std::abs(top + height - screen_height) < pos_tolerance ||
+                  std::abs(left + width - screen_width) < pos_tolerance);
+  bool is_full_efb_match = (std::abs(width - screen_width) < size_tolerance && std::abs(height - screen_height) < size_tolerance);
+
+
+  if (is_square && is_power_of_two_or_special_size && on_edge && !is_full_efb_match) {
+    m_viewport_type = VIEW_RENDER_TO_TEXTURE;
+  }
+  // Zelda TP specific render-to-texture for map highlights (457x341)
+  else if (std::abs(width - 457.f) < size_tolerance && std::abs(height - 341.f) < size_tolerance &&
+           std::abs(left) < pos_tolerance && std::abs(top) < pos_tolerance)
+  {
+    m_viewport_type = VIEW_RENDER_TO_TEXTURE;
+  }
+  // Full width could mean fullscreen, letterboxed, or splitscreen top/bottom.
+  else if (width >= min_screen_width && std::abs(left) <= max_left_offset)
+  {
+    if (height >= min_screen_height && std::abs(top) <= max_top_offset)
+    {
+        // Check if it's *exactly* fullscreen or just very close (letterboxed/pillarboxed slightly)
+        if (std::abs(width - screen_width) < size_tolerance && std::abs(height - screen_height) < size_tolerance &&
+            std::abs(left) < pos_tolerance && std::abs(top) < pos_tolerance)
+        {
+            m_viewport_type = VIEW_FULLSCREEN;
+        } else {
+            m_viewport_type = VIEW_LETTERBOXED; // Covers pillarbox too if width < screen_width
+        }
+    }
+    // Split screen top/bottom checks (simplified)
+    else if (height >= min_screen_height / 2.0f - size_tolerance && height <= screen_height / 2.0f + size_tolerance)
+    {
+        if (std::abs(top) < max_top_offset) { // Top half
+            m_viewport_type = VIEW_PLAYER_1;
+            // TODO: Set a global splitscreen_type if that concept is ported
+        } else if (std::abs(top - (screen_height / 2.0f)) < max_top_offset) { // Bottom half
+            m_viewport_type = VIEW_PLAYER_2;
+        } else {
+            m_viewport_type = VIEW_LETTERBOXED; // Could be a band in the middle
+        }
+    } else {
+        m_viewport_type = VIEW_LETTERBOXED; // Default for full-width but not full-height
+    }
+  }
+  // Full height could mean splitscreen left/right.
+  else if (height >= min_screen_height && std::abs(top) <= max_top_offset)
+  {
+    if (width >= min_screen_width / 2.0f - size_tolerance && width <= screen_width / 2.0f + size_tolerance)
+    {
+        if (std::abs(left) < max_left_offset) { // Left half
+            m_viewport_type = VIEW_PLAYER_1;
+        } else if (std::abs(left - (screen_width / 2.0f)) < max_left_offset) { // Right half
+            m_viewport_type = VIEW_PLAYER_2;
+        } else {
+            m_viewport_type = VIEW_HUD_ELEMENT; // Column in the middle
+        }
+    } else {
+        m_viewport_type = VIEW_LETTERBOXED; // Default for full-height but not full-width (pillarbox)
+    }
+  }
+  // Quadrants (simplified)
+  else if (width >= (min_screen_width / 2.f) - size_tolerance && height >= (min_screen_height / 2.f) - size_tolerance &&
+           width <= (screen_width / 2.f) + size_tolerance && height <= (screen_height / 2.f) + size_tolerance)
+  {
+    if (std::abs(left) < max_left_offset && std::abs(top) < max_top_offset) m_viewport_type = VIEW_PLAYER_1; // TL
+    else if (std::abs(left - screen_width/2.f) < max_left_offset && std::abs(top) < max_top_offset) m_viewport_type = VIEW_PLAYER_2; // TR
+    else if (std::abs(left) < max_left_offset && std::abs(top - screen_height/2.f) < max_top_offset) m_viewport_type = VIEW_PLAYER_3; // BL
+    else if (std::abs(left - screen_width/2.f) < max_left_offset && std::abs(top - screen_height/2.f) < max_top_offset) m_viewport_type = VIEW_PLAYER_4; // BR
+    else m_viewport_type = VIEW_HUD_ELEMENT;
+  }
+  // Offscreen check (coordinates are way outside EFB)
+  else if (left >= screen_width || top >= screen_height || (left + width) <= 0 || (top + height) <= 0)
+  {
+    m_viewport_type = VIEW_OFFSCREEN;
+  }
+  // Default to HUD if no other classification fits
   else
   {
-    // Further classification (letterbox, splitscreen, HUD element) needed here.
-    // For now, defaulting non-fullscreen to HUD_ELEMENT.
     m_viewport_type = VIEW_HUD_ELEMENT;
   }
 
   bool old_skybox_status = m_is_skybox;
-  m_is_skybox = false; // Default
-  if (g_ActiveConfig.bDetectSkybox && m_viewport_type == VIEW_FULLSCREEN) // Skybox usually fullscreen
-  {
-      CheckSkybox(); // This method will set m_is_skybox if conditions are met
-  }
-  if (m_is_skybox) m_viewport_type = VIEW_SKYBOX;
+  m_is_skybox = false; // Reset before check
 
+  if (g_ActiveConfig.bDetectSkybox &&
+      (m_viewport_type == VIEW_FULLSCREEN || m_viewport_type == VIEW_LETTERBOXED ||
+       (m_viewport_type >= VIEW_PLAYER_1 && m_viewport_type <= VIEW_PLAYER_4)))
+  {
+    // In Hydra, skybox was also checked if znear >= 0.99f && zfar >= 0.999f within SetViewportType.
+    // This check is now primarily in CheckSkybox based on matrix properties.
+    // We might add a preliminary z-depth check here if needed.
+    // For now, CheckSkybox() called from SetConstants will handle it.
+    // If CheckSkybox() is called here, ensure it doesn't cause recursive issues or depend on uninitialized state.
+    // For now, deferring CheckSkybox() to SetConstants as it needs modelview matrix.
+  }
+  // If CheckSkybox (called later by SetConstants) sets m_is_skybox, it will override.
+  // The skybox flag is finalized in SetConstants after CheckSkybox() has run.
 
   if (m_old_viewport_type != m_viewport_type || old_skybox_status != m_is_skybox) {
-    this->dirty = true;
+    this->dirty = true; // Signal change if viewport type or skybox status changed
   }
 }
 
 bool VertexShaderManager::IsConsideredHUD(ViewportType type) const
 {
+  // From Hydra:
+  // A HUD element can be a specific HUD_ELEMENT type, or a letterboxed view,
+  // or if bHudFullscreen is true, even player views can be treated as HUD for projection.
   return type == VIEW_HUD_ELEMENT ||
          type == VIEW_LETTERBOXED ||
         (type >= VIEW_PLAYER_1 && type <= VIEW_PLAYER_4 && g_ActiveConfig.bHudFullscreen);
 }
 
-// LoadGameProjectionMatrix is already defined.
-// GetCurrentGameModelViewMatrix is already defined.
-
 void VertexShaderManager::ApplySkyboxTransformations()
 {
-    // TODO: Implement based on Hydra
-    this->dirty = true;
-}
+  // This function will be called from SetConstants when m_is_skybox is true.
+  // It needs to set constants.projection and constants.stereoparams
+  // based on VR HMD orientation, game projection, and skybox-specific rules.
 
-void VertexShaderManager::ApplyHUDTransformations()
-{
-    // TODO: Implement based on Hydra
-    this->dirty = true;
-}
+  // Skybox is typically independent of player position, only rotation.
+  // It uses the game's projection matrix as a base.
+  Common::Matrix44 vr_view_matrix = Common::Matrix44::Identity();
 
-void VertexShaderManager::ApplyWorldTransformations()
-{
-    // TODO: Implement based on Hydra
-    this->dirty = true;
-}
-
-void VertexShaderManager::CalculateStereoProjectionsAndViewports(const Common::Matrix44& base_projection)
-{
-    m_eyeProjectionLeft = base_projection;
-    m_eyeProjectionRight = base_projection;
-
-    // TODO: Integrate VR_GetProjectionMatrices (or equivalent OpenVR call) here.
-    // This will modify m_eyeProjectionLeft and m_eyeProjectionRight based on HMD properties.
-    // Example: VR::GetProjectionMatrices(m_eyeProjectionLeft, m_eyeProjectionRight, znear, zfar);
-    // where znear/zfar might be derived from base_projection or game settings.
-
-    // Store them in the float4 arrays for legacy paths if needed.
-    // The main path will use the Matrix44 versions.
-    memcpy(eye_projection_left, m_eyeProjectionLeft.GetData(), 4 * sizeof(float4));
-    memcpy(eye_projection_right, m_eyeProjectionRight.GetData(), 4 * sizeof(float4));
-    this->dirty = true;
-}
-
-void VertexShaderManager::UpdateStereoParamsForGS()
-{
-    // Derive constants.stereoparams for Geometry Shader based on m_eyeProjectionLeft/Right.
-    // This is highly dependent on how the HMD projection affects the matrices.
-    // A common way is to find the horizontal shift component in the projection matrix.
-    // Example (very simplified, assumes m_eyeProjection matrices are set):
-    // If projection matrix P has P[0][3] as horizontal shift for left eye, P[0][3] for right eye:
-    // constants.stereoparams.x = m_eyeProjectionLeft.mData[0][3];
-    // constants.stereoparams.y = m_eyeProjectionRight.mData[0][3];
-    // constants.stereoparams.z = some_convergence_or_depth_factor; (e.g., g_ActiveConfig.fStereoConvergence / m_world_scale)
-    // constants.stereoparams.w = 0.0f; // Often unused
-
-    // Using placeholder values:
-    constants.stereoparams.x = -0.03f * g_ActiveConfig.fScale; // Example: IPD/2 related offset in clip space
-    constants.stereoparams.y = 0.03f * g_ActiveConfig.fScale;
-    constants.stereoparams.z = 1.0f * g_ActiveConfig.fScale; // Example convergence plane distance in world units (if shaders use it like that)
-    constants.stereoparams.w = 0.0f;
-    this->dirty = true;
-}
-
-void VertexShaderManager::CheckOrientationConstants() { /* TODO: Implement from Hydra if camera stabilization is ported */ }
-void VertexShaderManager::CheckSkybox()
-{
-    // TODO: Implement full skybox detection logic from Hydra.
-    // Involves checking if current model-view matrix is identity or only rotation, centered at origin.
-    // And if projection is perspective.
-    // For now, keeps m_is_skybox as false unless set by more specific logic.
-    // Example simplified check:
-    // Common::Matrix44 mv = GetCurrentGameModelViewMatrix();
-    // if (xfmem.projection.type == ProjectionType::Perspective && mv.IsIdentity() && (mv.GetTranslation().LengthSquared() < 0.001f)) {
-    //    m_is_skybox = true;
-    // }
-}
-void VertexShaderManager::LockSkybox() { /* TODO: Implement from Hydra, uses m_locked_skybox_matrix, m_had_skybox_locked */ }
+  // Apply HMD orientation (rotation only for skybox)
+  // This would typically come from VR::GetHead orientación matrix.
+  // Common::Matrix44 hmd_orientation = VR::GetHeadOrientationMatrix(); // Placeholder
+  // vr_view_matrix *= hmd_orientation;
 
 
-// --- VR Method Implementations (Adapted from Hydra) ---
-
-void VertexShaderManager::SetViewportChanged()
-{
-  this->dirty = true;
-}
-
-void VertexShaderManager::SetProjectionChanged()
-{
-  this->dirty = true;
-}
-
-void VertexShaderManager::TranslateView(float left_metres, float forward_metres, float down_metres)
-{
-  float vector[3] = {left_metres, down_metres, forward_metres};
-  // TODO: Apply world scale if vector is in meters.
-  // TODO: Ensure m_viewInvRotationMatrix is correctly maintained by RotateView.
-
-  float result[3];
-  m_viewInvRotationMatrix.Multiply(vector, result);
-
-  for (size_t i = 0; i < 3; i++)
-    m_viewTranslationVector[i] += result[i];
-
-  SetProjectionChanged();
-  this->dirty = true;
-}
-
-void VertexShaderManager::RotateView(float x_rad, float y_rad)
-{
-  m_viewRotation[0] += y_rad; // Yaw
-  m_viewRotation[1] += x_rad; // Pitch
-
-  // Clamp pitch to +/- 90 degrees to avoid gimbal lock issues / flipping over
-  constexpr float half_pi = static_cast<float>(M_PI_2);
-  m_viewRotation[1] = std::max(-half_pi + 0.001f, std::min(m_viewRotation[1], half_pi - 0.001f));
-
-  Common::Matrix33 mx, my;
-  mx.RotateX(m_viewRotation[1]); // Pitch
-  my.RotateY(m_viewRotation[0]); // Yaw
-
-  // Common order: Yaw first, then Pitch
-  m_viewRotationMatrix = my * mx;
-
-  m_viewInvRotationMatrix = m_viewRotationMatrix;
-  bool inverted = m_viewInvRotationMatrix.Invert(); // Check if inversion was successful
-  if (!inverted) {
-    // Handle inversion failure, e.g., by setting to identity or logging an error
-    m_viewInvRotationMatrix.Identity();
-    ERROR_LOG_FMT(VIDEO, "View matrix inversion failed in RotateView");
-  }
-
-  SetProjectionChanged();
-  this->dirty = true;
-}
-
-void VertexShaderManager::ScaleView(float scale)
-{
-  // This was used in Hydra to scale the view translation vector when world scale changed.
-  for (int i = 0; i < 3; i++)
-    m_viewTranslationVector[i] *= scale;
-  SetProjectionChanged();
-  this->dirty = true;
-}
-
-// ResetView was added to Init() in a previous step, this is its standalone definition
-// void VertexShaderManager::ResetView() // Already defined and called by Init
-
-// --- VR Helper Method Stubs ---
-void VertexShaderManager::ClassifyCurrentDrawCall(XFStateManager& xf_state_manager)
-{
-  m_old_viewport_type = m_viewport_type;
-  // TODO: Full classification logic based on xfmem.viewport, m_gameProjectionMatrix, g_ActiveConfig, render target size
-  m_viewport_type = VIEW_FULLSCREEN;
-  m_is_skybox = false;
-  // if (g_ActiveConfig.bDetectSkybox && ...) { CheckSkybox(); }
-  if (m_old_viewport_type != m_viewport_type || m_is_skybox != (m_old_viewport_type == VIEW_SKYBOX)) { // Basic change detection
-    this->dirty = true;
-  }
-}
-
-bool VertexShaderManager::IsConsideredHUD(ViewportType type) const
-{
-  return type == VIEW_HUD_ELEMENT || type == VIEW_LETTERBOXED;
-}
-
-Common::Matrix44 VertexShaderManager::LoadGameProjectionMatrix(XFStateManager& xf_state_manager)
-{
-  if (xf_state_manager.DidProjectionChange() || m_gameProjectionMatrix == Common::Matrix44::Identity()) // Simplified load condition
+  if (g_ActiveConfig.iMotionSicknessSkybox == 2 && m_had_skybox_locked)
   {
-    const auto& rawProj = xfmem.projection;
-    float p0 = rawProj.rawProjection[0], p1 = rawProj.rawProjection[1], p2 = rawProj.rawProjection[2],
-          p3 = rawProj.rawProjection[3], p4 = rawProj.rawProjection[4], p5 = rawProj.rawProjection[5];
-
-    switch (rawProj.type)
-    {
-    case ProjectionType::Perspective:
-      m_gameProjectionMatrix = Common::Matrix44(p0,0,p1,0, 0,p2,p3,0, 0,0,p4,p5, 0,0,-1,0);
-      break;
-    case ProjectionType::Orthographic:
-      m_gameProjectionMatrix = Common::Matrix44(p0,0,0,p1, 0,p2,0,p3, 0,0,p4,p5, 0,0,0,1);
-      break;
-    default:
-      m_gameProjectionMatrix.Identity();
-      ERROR_LOG_FMT(VIDEO, "Unknown game projection type: {}", rawProj.type);
-      break;
-    }
-    if (xfmem.projection.type == ProjectionType::Perspective) {
-        // Apply aspect hack directly to the game projection matrix that will be used as base for VR
-        m_gameProjectionMatrix.mData[0][0] *= g_ActiveConfig.fAspectRatioHackW;
-        m_gameProjectionMatrix.mData[0][2] *= g_ActiveConfig.fAspectRatioHackW;
-        m_gameProjectionMatrix.mData[1][1] *= g_ActiveConfig.fAspectRatioHackH;
-        m_gameProjectionMatrix.mData[1][2] *= g_ActiveConfig.fAspectRatioHackH;
-    }
-    xf_state_manager.ResetProjectionChangeFlag();
-    this->dirty = true;
+    // Use locked skybox matrix (modelview part)
+    // The m_locked_skybox_matrix is a 3x4 matrix. Convert to 4x4.
+    Common::Matrix44 locked_mv;
+    locked_mv.mData[0][0] = m_locked_skybox_matrix[0]; locked_mv.mData[0][1] = m_locked_skybox_matrix[1]; locked_mv.mData[0][2] = m_locked_skybox_matrix[2]; locked_mv.mData[0][3] = m_locked_skybox_matrix[3];
+    locked_mv.mData[1][0] = m_locked_skybox_matrix[4]; locked_mv.mData[1][1] = m_locked_skybox_matrix[5]; locked_mv.mData[1][2] = m_locked_skybox_matrix[6]; locked_mv.mData[1][3] = m_locked_skybox_matrix[7];
+    locked_mv.mData[2][0] = m_locked_skybox_matrix[8]; locked_mv.mData[2][1] = m_locked_skybox_matrix[9]; locked_mv.mData[2][2] = m_locked_skybox_matrix[10];locked_mv.mData[2][3] = m_locked_skybox_matrix[11];
+    locked_mv.mData[3][0] = 0;                       locked_mv.mData[3][1] = 0;                       locked_mv.mData[3][2] = 0;                        locked_mv.mData[3][3] = 1;
+    vr_view_matrix = locked_mv * vr_view_matrix; // Apply HMD orientation to the locked skybox view
   }
-  return m_gameProjectionMatrix;
-}
+  else
+  {
+    // If not locked or no lock data, use current game modelview (which for skybox should be mostly rotation)
+    // and apply HMD orientation to it.
+    // vr_view_matrix = GetCurrentGameModelViewMatrix() * vr_view_matrix; // This might be too much if GetCurrent also has world translation
+    // For skybox, we usually want to remove game camera translation.
+    // HMD rotation is usually sufficient.
+  }
 
-Common::Matrix44 VertexShaderManager::GetCurrentGameModelViewMatrix()
-{
-    const u32 matrix_index = g_main_cp_state.matrix_index_a.PosNormalMtxIdx;
-    const float* mv_ptr = &xfmem.posMatrices[matrix_index * 4];
-    return Common::Matrix44(mv_ptr[0], mv_ptr[1], mv_ptr[2], mv_ptr[3],
-                            mv_ptr[4], mv_ptr[5], mv_ptr[6], mv_ptr[7],
-                            mv_ptr[8], mv_ptr[9], mv_ptr[10], mv_ptr[11],
-                            0.0f,      0.0f,      0.0f,       1.0f);
-}
 
-void VertexShaderManager::ApplySkyboxTransformations()
-{
-    this->dirty = true;
+  // Calculate stereo projections using the modified view and game's base projection
+  CalculateStereoProjectionsAndViewports(m_gameProjectionMatrix, vr_view_matrix);
+
+  // Update GS stereo parameters
+  UpdateStereoParamsForGS();
+
+  // Set constants.projection to the left eye's projection for shader use
+  // The GS will handle selecting left/right view based on stereoparams and instance ID
+  memcpy(constants.projection.data(), m_eyeProjectionLeft.GetData(), 4 * sizeof(float4));
+
+  this->dirty = true;
 }
 
 void VertexShaderManager::ApplyHUDTransformations()
 {
-    this->dirty = true;
+  // HUD elements are typically drawn with an orthographic projection or a fixed perspective.
+  // They need to be placed in 3D space relative to the HMD.
+
+  float UnitsPerMetre = g_ActiveConfig.fUnitsPerMetre * g_ActiveConfig.fScale; // Use configured scale
+
+  // Base HUD projection: often orthographic, or a specific perspective for "3D" HUD elements.
+  // For simplicity, let's assume game's projection is used if it's ortho, or a default ortho if perspective.
+  Common::Matrix44 hud_base_projection = m_gameProjectionMatrix;
+  if (xfmem.projection.type == ProjectionType::Perspective) {
+      // Create a default orthographic projection for HUD if game uses perspective for it
+      // This needs to match how the game expects its HUD to be rendered.
+      // Or, use a fixed perspective that makes sense for a "pane of glass" HUD.
+      // For now, we'll just use the game's projection, assuming it might be ortho for HUD.
+      // A more robust solution would create a canonical ortho projection based on EFB dimensions.
+  }
+
+
+  // HUD view matrix: positions the HUD plane in front of the HMD.
+  Common::Matrix44 hud_view_matrix = Common::Matrix44::Identity();
+
+  // 1. Scale: Determine the size of the HUD plane in world units.
+  //    This depends on desired perceived size and distance.
+  //    Hydra calculates HudWidth/HudHeight based on fov and distance.
+  float hud_distance_meters = g_ActiveConfig.fHudDistance;
+  float hud_depth_meters = g_ActiveConfig.fHudThickness; // How "thick" the HUD appears
+
+  // Convert game's screen space coordinates (often -1 to 1 in clip space for ortho) to world units.
+  // This requires knowing the original screen dimensions the HUD was designed for.
+  // For now, let's assume the m_gameProjectionMatrix handles the base scaling to clip space.
+  // We then transform this clip space representation into a 3D plane.
+
+  // Position the HUD plane at hud_distance_meters in front of the HMD.
+  // Common::Matrix44 translation_to_hud_plane;
+  // translation_to_hud_plane.Translate(0, 0, -hud_distance_meters * UnitsPerMetre); // Z is negative into the screen
+
+  // HMD orientation (don't apply HMD position for HUD, it's head-locked)
+  // Common::Matrix44 hmd_orientation = VR::GetHeadOrientationMatrix(); // Placeholder
+
+  // hud_view_matrix = hmd_orientation * translation_to_hud_plane;
+
+  // More complete HUD transformation from Hydra:
+  // It involves creating a scale and position matrix for the HUD quad based on its original 2D/ortho projection
+  // and then placing that quad in 3D space relative to the HMD.
+  // This is quite complex and involves assumptions about original HUD rendering.
+
+  // Simplified: Assume m_gameProjectionMatrix is what the HUD uses.
+  // We want to make this projection appear on a plane at a fixed distance, scaled appropriately.
+  // This is where a specific "HUD camera" would be constructed.
+  // For now, we'll use a very basic approach: apply HMD rotation and a fixed translation.
+
+  Common::Matrix44 hmd_transform = Common::Matrix44::Identity(); // This would be VR::GetHeadTransform()
+  // For HUD, usually only rotation part of HMD transform is used, plus a fixed offset.
+  // hmd_transform.SetTranslation(Common::Vec3(0,0,0)); // Remove HMD positional tracking for basic head-locked HUD
+
+  Common::Matrix44 offset_transform;
+  offset_transform.Translate(0, 0, -hud_distance_meters * UnitsPerMetre); // Place HUD in front
+
+  hud_view_matrix = hmd_transform * offset_transform;
+
+
+  // Calculate stereo projections for the HUD
+  CalculateStereoProjectionsAndViewports(hud_base_projection, hud_view_matrix);
+  UpdateStereoParamsForGS();
+  memcpy(constants.projection.data(), m_eyeProjectionLeft.GetData(), 4 * sizeof(float4));
+
+  this->dirty = true;
 }
 
 void VertexShaderManager::ApplyWorldTransformations()
 {
-    this->dirty = true;
+  // This is for the main 3D world rendering.
+  // It combines game camera, free look, HMD tracking, and stabilization.
+
+  float UnitsPerMetre = g_ActiveConfig.fUnitsPerMetre * g_ActiveConfig.fScale;
+
+  // 1. Start with game's modelview matrix (from XF state)
+  //    However, we usually apply VR transformations to the *projection* side,
+  //    and the game's modelview is applied by the fixed function pipeline or shader as usual.
+  //    The "VR view matrix" combines all player-centric views (free look, HMD)
+  //    and game camera stabilization.
+  Common::Matrix44 vr_view_matrix = Common::Matrix44::Identity();
+
+
+  // 2. Camera Position Stabilization (from CheckOrientationConstants)
+  //    This needs g_game_camera_pos (world space position of stabilized game camera)
+  //    and g_game_camera_rotmat (stabilized game camera rotation).
+  //    This is complex. For now, assume these are updated elsewhere if stabilization is on.
+  //    If g_ActiveConfig.bStabilizeX/Y/Z:
+  //       Common::Matrix44 game_cam_stabilized_pos_inv;
+  //       game_cam_stabilized_pos_inv.Translate(-m_stabilizedGameCameraPos[0], -m_stabilizedGameCameraPos[1], -m_stabilizedGameCameraPos[2]);
+  //       vr_view_matrix *= game_cam_stabilized_pos_inv;
+  //
+  //    If g_ActiveConfig.bStabilizePitch/Yaw/Roll:
+  //       vr_view_matrix *= m_stabilizedGameCameraRot.Inverse(); // Apply inverse of stabilized game rotation
+
+
+  // 3. Free Look (m_viewRotationMatrix, m_viewTranslationVector)
+  Common::Matrix44 free_look_translation_matrix;
+  free_look_translation_matrix.Translate(-m_viewTranslationVector[0] * UnitsPerMetre,
+                                       -m_viewTranslationVector[1] * UnitsPerMetre,
+                                       -m_viewTranslationVector[2] * UnitsPerMetre);
+  Common::Matrix44 free_look_rotation_matrix(m_viewRotationMatrix); // Assuming m_viewRotationMatrix is view (inverse of camera)
+
+  vr_view_matrix *= free_look_translation_matrix;
+  vr_view_matrix *= free_look_rotation_matrix;
+
+
+  // 4. HMD Tracking (Position and Orientation)
+  // Common::Matrix44 hmd_transform = VR::GetHeadTransform(); // Placeholder for actual HMD transform
+  // vr_view_matrix *= hmd_transform.Inverse(); // Apply inverse HMD transform to camera
+
+
+  // The game's original projection matrix (m_gameProjectionMatrix) is the base.
+  CalculateStereoProjectionsAndViewports(m_gameProjectionMatrix, vr_view_matrix);
+  UpdateStereoParamsForGS();
+  memcpy(constants.projection.data(), m_eyeProjectionLeft.GetData(), 4 * sizeof(float4));
+
+  this->dirty = true;
 }
 
-void VertexShaderManager::CalculateStereoProjectionsAndViewports(const Common::Matrix44& base_projection)
+
+void VertexShaderManager::CalculateStereoProjectionsAndViewports(const Common::Matrix44& base_projection, const Common::Matrix44& view_matrix_offset)
 {
-    // TODO: Get HMD projection matrices from VR system
-    // For now, just use base for both eyes, then apply simple offset for stereoparams
-    m_eyeProjectionLeft = base_projection;
-    m_eyeProjectionRight = base_projection;
+    // base_projection is the game's original projection (e.g., m_gameProjectionMatrix)
+    // view_matrix_offset includes HMD tracking, free look, stabilization etc.
+
+    // TODO: Get HMD projection matrices from VR system (e.g. OpenVR via VR::GetProjectionMatrices)
+    // These are raw projection matrices from the HMD, typically for Z near/far of 0.1 to 1000 or similar.
+    // We need to adapt them to the game's Z range if possible, or use the HMD's Z range and hope for the best.
+    // For now, let's assume VR::GetProjectionMatrices gives us m_eyeProjectionLeft/Right directly.
+
+    // Example: VR::GetProjectionMatrices(m_eyeProjectionLeft, m_eyeProjectionRight, game_znear, game_zfar);
+    // where game_znear/zfar are extracted from base_projection.
+    // If such an API exists, it would populate m_eyeProjectionLeft and m_eyeProjectionRight.
+
+    // If VR system provides eye offsets (IPD) and we need to construct them:
+    // float ipd_meters = VR::GetUserIPD(); // Placeholder
+    // float eye_offset_world = (ipd_meters / 2.0f) * (g_ActiveConfig.fUnitsPerMetre * g_ActiveConfig.fScale);
+    // Common::Matrix44 left_eye_offset_matrix, right_eye_offset_matrix;
+    // left_eye_offset_matrix.Translate(-eye_offset_world, 0, 0);
+    // right_eye_offset_matrix.Translate(eye_offset_world, 0, 0);
+
+    // Final view for each eye: game_modelview * view_matrix_offset * eye_offset_HMD_space
+    // Then projection: eye_projection_HMD * final_view_eye
+
+    // Simplified: Assume VR system gives full projection matrices per eye (m_rawEyeProjectionL/R)
+    // And provides eye-to-head transforms (m_rawEyeOffsetL/R)
+    // Common::Matrix44 hmd_proj_l, hmd_proj_r; // From VR_GetProjectionMatrices
+    // Common::Matrix44 eye_to_head_l, eye_to_head_r; // From VR_GetEyeToHeadTransforms
+
+    // m_eyeProjectionLeft  = hmd_proj_l * eye_to_head_l.Inverse() * view_matrix_offset.Inverse() * base_projection;
+    // m_eyeProjectionRight = hmd_proj_r * eye_to_head_r.Inverse() * view_matrix_offset.Inverse() * base_projection;
+    // This is complex. Let's assume a simpler path where HMD gives projections, and we combine with our view_matrix_offset.
+
+    // For now, as a placeholder until proper VR SDK integration:
+    // Use base_projection for both, and view_matrix_offset is applied to modelview implicitly by shaders,
+    // or explicitly if we modify the 'constants.projection' to be proj * view_offset.
+    // Let's assume constants.projection will be P_hmd * V_vr_offset * V_game_original_inverse.
+    // And game shaders do V_game_original * M_model.
+    // So we need to supply P_hmd * V_vr_offset to constants.projection.
+
+    // If view_matrix_offset is to be applied before projection:
+    m_eyeProjectionLeft = base_projection; // This would be HMD's left eye projection
+    m_eyeProjectionRight = base_projection; // This would be HMD's right eye projection
+
+    // And constants.projection would be: m_eyeProjectionLeft * view_matrix_offset
+    // OR, if view_matrix_offset is part of the "camera" that the HMD projection acts upon:
+    // The view_matrix_offset should effectively be part of the view matrix.
+    // So, constants.projection = specific_eye_hmd_projection.
+    // And the effective view matrix becomes: view_matrix_offset * game_modelview_matrix.
+    // This means game_modelview_matrix must be accessible or passed around.
+
+    // Let's follow Hydra's model more closely for SetProjectionConstants structure.
+    // Hydra builds a final_matrix_left/right which is effectively an MVP matrix.
+    // And constants.projection gets final_matrix_left.
+    // This means view_matrix_offset is combined with eye offsets and then with the base_projection.
+
+    // For now, this function will just store the HMD's projection matrices.
+    // The view_matrix_offset will be combined in Apply*Transformations.
+    // This function should ideally fetch raw HMD projections.
+    // VR::GetRawProjectionMatrices(&m_eyeProjectionLeft, &m_eyeProjectionRight, znear, zfar_from_game_proj);
+    // As a placeholder:
+    if (g_ActiveConfig.bEnableVR) { // Only if VR is enabled
+        // Simulate fetching HMD projections. These would be asymmetric.
+        // Example: slightly offset projection matrix based on IPD.
+        // This is a very rough approximation. Actual matrices come from OpenVR.
+        float ipd_offset_clip_space = 0.02f; // Approximate horizontal shift in clip space for stereo
+        m_eyeProjectionLeft = base_projection;
+        m_eyeProjectionLeft.mData[0][3] -= ipd_offset_clip_space; // Shift left eye rendering left
+
+        m_eyeProjectionRight = base_projection;
+        m_eyeProjectionRight.mData[0][3] += ipd_offset_clip_space; // Shift right eye rendering right
+    } else {
+        m_eyeProjectionLeft = base_projection;
+        m_eyeProjectionRight = base_projection;
+    }
+
 
     // Store them in the float4 arrays if still needed by some path
     memcpy(eye_projection_left, m_eyeProjectionLeft.GetData(), 4 * sizeof(float4));
@@ -519,39 +656,215 @@ void VertexShaderManager::CalculateStereoProjectionsAndViewports(const Common::M
     this->dirty = true;
 }
 
+
 void VertexShaderManager::UpdateStereoParamsForGS()
 {
     // This should derive values from m_eyeProjectionLeft/Right or HMD properties
-    // Example: if eye projections are simple translations of a center proj:
-    // float ipd_ndc_offset = ... ; // calculated based on IPD and projection
-    // constants.stereoparams.x = -ipd_ndc_offset;
-    // constants.stereoparams.y = ipd_ndc_offset;
-    // constants.stereoparams.z = some_convergence_or_depth_factor;
-    // constants.stereoparams.w = 0.0f;
+    // These parameters are used by the Geometry Shader to instance rendering for each eye.
+    // constants.stereoparams.x = Left Eye Projection matrix element [0][0] (or similar, depends on GS needs)
+    // constants.stereoparams.y = Right Eye Projection matrix element [0][0]
+    // constants.stereoparams.z = Left Eye Projection matrix element [0][2] (horizontal offset)
+    // constants.stereoparams.w = Right Eye Projection matrix element [0][2] (horizontal offset)
+    // This is highly dependent on what the Geometry Shader expects.
+    // Hydra's SetProjectionConstants:
+    // GeometryShaderManager::constants.stereoparams[0] = proj_left.data[0 * 4 + 0]; (xx)
+    // GeometryShaderManager::constants.stereoparams[1] = proj_right.data[0 * 4 + 0]; (xx)
+    // GeometryShaderManager::constants.stereoparams[2] = proj_left.data[0 * 4 + 2]; (wx, off-axis component)
+    // GeometryShaderManager::constants.stereoparams[3] = proj_right.data[0 * 4 + 2]; (wx, off-axis component)
 
-    // Using placeholder values from previous attempt for now:
-    constants.stereoparams.x = -0.05f;
-    constants.stereoparams.y = 0.05f;
-    constants.stereoparams.z = 1.0f;
-    constants.stereoparams.w = 0.0f;
+    if (g_ActiveConfig.bEnableVR) { // Or g_ActiveConfig.stereo_mode != StereoMode::Off
+        constants.stereoparams.x = m_eyeProjectionLeft.mData[0][0];
+        constants.stereoparams.y = m_eyeProjectionRight.mData[0][0];
+        constants.stereoparams.z = m_eyeProjectionLeft.mData[0][2]; // This is projection_matrix[2] in math terms (M02)
+        constants.stereoparams.w = m_eyeProjectionRight.mData[0][2];// This is projection_matrix[2] in math terms (M02)
+    } else { // Non-VR stereo or mono
+        // For anaglyph or side-by-side without GS instancing, these might be different.
+        // If GS is used for simple stereo (non-VR), it might still need these.
+        // If no stereo or GS isn't used for stereo, these can be zero.
+        float offset = 0.0f;
+        if (g_ActiveConfig.stereo_mode != StereoMode::Off) { // Non-VR stereo
+             // Simplified: anaglyph might use a color shift or a slight position offset.
+             // SBS/TAB are often handled by post-processing or viewport manipulation.
+             // If GS is used for non-VR stereo, it might need IPD-like offsets.
+            offset = g_ActiveConfig.fStereoDepth / 1000.0f; // Example value
+        }
+        constants.stereoparams.x = m_gameProjectionMatrix.mData[0][0]; // Base projection xx
+        constants.stereoparams.y = m_gameProjectionMatrix.mData[0][0]; // Base projection xx
+        constants.stereoparams.z = -offset; // Left eye offset (example)
+        constants.stereoparams.w = offset;  // Right eye offset (example)
+    }
     this->dirty = true;
 }
 
-// Stubs for CheckOrientationConstants, CheckSkybox, LockSkybox
-void VertexShaderManager::CheckOrientationConstants() {}
+void VertexShaderManager::CheckOrientationConstants()
+{
+  // Ported from Hydra's VertexShaderManager::CheckOrientationConstants
+  // This function reads game camera orientation and position for stabilization.
+  // It requires g_ActiveConfig.bCanReadCameraAngles and other stabilization flags.
+  // It updates m_stabilizedGameCameraPos and m_stabilizedGameCameraRot.
+
+  // This logic is highly game-specific and relies on heuristics (e.g., min polygon count)
+  // and assumptions about where camera data is in xfmem (e.g., constants.posnormalmatrix).
+  // For a generic port, we'll include the structure but acknowledge it might need
+  // game-specific tuning or a more robust way to get "game camera" info.
+
+  bool can_read = g_ActiveConfig.bCanReadCameraAngles &&
+                  (g_ActiveConfig.bStabilizePitch || g_ActiveConfig.bStabilizeRoll ||
+                   g_ActiveConfig.bStabilizeYaw || g_ActiveConfig.bStabilizeX ||
+                   g_ActiveConfig.bStabilizeY || g_ActiveConfig.bStabilizeZ);
+
+  // TODO: Add prim_count check from Hydra if Statistics collection is similar.
+  // int prim_count = stats.prevFrame.numPrims + stats.prevFrame.numDLPrims;
+  // if (prim_count < (int)g_ActiveConfig.iCameraMinPoly) can_read = false;
+
+  if (can_read)
+  {
+    // constants.posnormalmatrix contains the current main modelview (pos) and normal matrix.
+    // Hydra extracts game camera from the first "real 3D object drawn".
+    // This assumes constants.posnormalmatrix is that object's matrix.
+    const float* pnm_ptr = constants.posnormalmatrix[0].data(); // First row of 4x4 matrix
+    Common::Matrix44 current_game_mv; // Assuming posnormalmatrix is effectively the ModelView matrix here
+    current_game_mv.mData[0][0] = pnm_ptr[0]; current_game_mv.mData[0][1] = pnm_ptr[1]; current_game_mv.mData[0][2] = pnm_ptr[2]; current_game_mv.mData[0][3] = pnm_ptr[3];
+    pnm_ptr = constants.posnormalmatrix[1].data();
+    current_game_mv.mData[1][0] = pnm_ptr[0]; current_game_mv.mData[1][1] = pnm_ptr[1]; current_game_mv.mData[1][2] = pnm_ptr[2]; current_game_mv.mData[1][3] = pnm_ptr[3];
+    pnm_ptr = constants.posnormalmatrix[2].data();
+    current_game_mv.mData[2][0] = pnm_ptr[0]; current_game_mv.mData[2][1] = pnm_ptr[1]; current_game_mv.mData[2][2] = pnm_ptr[2]; current_game_mv.mData[2][3] = pnm_ptr[3];
+    current_game_mv.mData[3][0] = 0; current_game_mv.mData[3][1] = 0; current_game_mv.mData[3][2] = 0; current_game_mv.mData[3][3] = 1;
+
+
+    Common::Vec3 pos_camera_space = current_game_mv.GetTranslation();
+    Common::Matrix33 rot_matrix_33 = current_game_mv.ToMatrix33();
+
+    // Normalize rotation matrix (Hydra does this by checking scale factor)
+    float scale_x = Common::Vec3(rot_matrix_33(0,0), rot_matrix_33(1,0), rot_matrix_33(2,0)).Length();
+    if (std::abs(scale_x) > 0.001f && std::abs(scale_x - 1.0f) > 0.001f) { // If not identity scale
+        rot_matrix_33(0,0) /= scale_x; rot_matrix_33(0,1) /= scale_x; rot_matrix_33(0,2) /= scale_x;
+        rot_matrix_33(1,0) /= scale_x; rot_matrix_33(1,1) /= scale_x; rot_matrix_33(1,2) /= scale_x;
+        rot_matrix_33(2,0) /= scale_x; rot_matrix_33(2,1) /= scale_x; rot_matrix_33(2,2) /= scale_x;
+    }
+
+
+    // Convert camera-space position to world space (undo rotation part of MV)
+    Common::Matrix33 inv_rot_matrix = rot_matrix_33.Inverse(); // Assuming it's orthogonal, Transpose == Inverse
+    Common::Vec3 world_space_pos = inv_rot_matrix * pos_camera_space;
+
+    // TODO: Movement calculation and `totalpos` logic from Hydra if needed for more advanced stabilization.
+    // For now, directly use current world_space_pos and rot_matrix_33.
+    // Hydra's `totalpos` was an attempt to accumulate movement.
+
+    m_stabilizedGameCameraPos[0] = world_space_pos.x;
+    m_stabilizedGameCameraPos[1] = world_space_pos.y;
+    m_stabilizedGameCameraPos[2] = world_space_pos.z;
+
+    // Extract Yaw, Pitch, Roll from rot_matrix_33
+    // Common::Vec3 ypr = rot_matrix_33.GetEulerAnglesZYX(); // Or similar Euler extraction
+    // float game_yaw = ypr.x; float game_pitch = ypr.y; float game_roll = ypr.z;
+    // This part is tricky and depends on Euler angle convention. Hydra uses Matrix33::GetPieYawPitchRollR.
+    // For now, let's assume rot_matrix_33 is the game's camera orientation.
+
+    Common::Matrix33 stabilized_rot_33;
+    // Based on g_ActiveConfig.bStabilizePitch/Yaw/Roll, selectively build stabilized_rot_33
+    // If bStabilizeYaw is true, component from game_yaw is removed/countered. Same for pitch/roll.
+    // Example: if stabilizing yaw, build a rotation matrix with only game_pitch and game_roll.
+    // This is a simplification. Hydra reconstructs the matrix.
+    // For now, m_stabilizedGameCameraRot will just be the inverse of the game's camera rotation if fully stabilized.
+    // This is a placeholder for the more complex logic in Hydra.
+    if (g_ActiveConfig.bStabilizePitch || g_ActiveConfig.bStabilizeYaw || g_ActiveConfig.bStabilizeRoll) {
+        // A proper implementation would extract YPR, selectively zero them out, then reconstruct matrix.
+        // As a basic placeholder:
+        m_stabilizedGameCameraRot = Common::Matrix44(rot_matrix_33.Inverse());
+    } else {
+        m_stabilizedGameCameraRot.Identity();
+    }
+
+    // TODO: Keyhole logic from Hydra if that feature is desired.
+  } else {
+    m_stabilizedGameCameraRot.Identity();
+    std::memset(m_stabilizedGameCameraPos, 0, sizeof(m_stabilizedGameCameraPos));
+  }
+  this->dirty = true; // Constants may have changed
+}
+
 void VertexShaderManager::CheckSkybox()
 {
-    // Placeholder: actual skybox detection is complex
-    // Example: if (xfmem.projection.type == GX_PERSPECTIVE) {
-    //   Common::Matrix44 mv = GetCurrentGameModelViewMatrix();
-    //   if (mv.IsTranslationOnly() && mv.GetTranslation() == Common::Vec3(0,0,0)) {
-    //     m_is_skybox = true; // Simplified
-    //   }
-    // }
+  // Ported from Hydra's VertexShaderManager::CheckSkybox
+  // This sets m_is_skybox based on current projection and modelview matrix.
+  m_is_skybox = false; // Default
+  if (xfmem.projection.type == ProjectionType::Perspective)
+  {
+    // GetCurrentGameModelViewMatrix() gets it from xfmem.posMatrices based on CP state.
+    // Hydra used constants.posnormalmatrix which is derived from the same source.
+    Common::Matrix44 game_mv = GetCurrentGameModelViewMatrix();
+
+    // Check if translation part is near zero
+    Common::Vec3 translation = game_mv.GetTranslation();
+    if (translation.LengthSquared() < 0.01f) // Hydra used (pos[0]==0 && pos[1]==0 && pos[2]==0)
+    {
+        // Check if it's not an identity matrix (which could be a UI element at origin)
+        // Hydra checked if p[0*4+0] != 1.0f. A more robust check might be needed.
+        // An identity modelview matrix at origin could be a fullscreen quad for effects.
+        // A skybox usually has rotation but no translation or scaling.
+        Common::Matrix33 rot_part = game_mv.ToMatrix33();
+        float scale_x = Common::Vec3(rot_part(0,0), rot_part(1,0), rot_part(2,0)).Length();
+        // If scale is close to 1.0 and it's not pure identity rotation.
+        if (std::abs(scale_x - 1.0f) < 0.1f)
+        {
+            if (!rot_part.IsIdentity(0.01f)) // Not strictly identity
+            {
+                 m_is_skybox = true;
+            }
+            // Hydra's simple check: (p[0*4+0] != 1.0f), assuming if [0][0] is not 1, it's rotated.
+            // This might be too simple.
+            // A common skybox pattern is modelview matrix is identity or rotation-only, and centered at origin.
+            // And projection is perspective.
+            // The current check: perspective, at origin, scale ~1, not identity rotation -> likely skybox.
+        }
+    }
+  }
+  // Additionally, Hydra's SetViewportType had a check:
+  // if (znear >= 0.99f && zfar >= 0.999f) g_is_skybox = true;
+  // This could be added here if Viewport struct (from xfmem) is readily available and parsed.
+  // const Viewport& vp = xfmem.viewport;
+  // float znear_vp = (vp.farZ - vp.zRange) / 16777216.0f; // Max Z value
+  // float zfar_vp = vp.farZ / 16777216.0f;
+  // if (znear_vp >= 0.99f && zfar_vp >= 0.999f) m_is_skybox = true;
+
+  if (m_is_skybox) {
+    m_viewport_type = VIEW_SKYBOX; // Override viewport type if skybox detected
+  }
+  this->dirty = true;
 }
-void VertexShaderManager::LockSkybox() {}
 
+void VertexShaderManager::LockSkybox()
+{
+  // Ported from Hydra's VertexShaderManager::LockSkybox
+  // If iMotionSicknessSkybox == 2, this locks the skybox's modelview matrix.
+  if (xfmem.projection.type == ProjectionType::Perspective && g_ActiveConfig.iMotionSicknessSkybox == 2)
+  {
+    // Get current game modelview matrix (which should be the skybox's at this point)
+    Common::Matrix44 game_mv = GetCurrentGameModelViewMatrix();
 
+    if (m_had_skybox_locked)
+    {
+      // If already locked, subsequent calls might try to overwrite constants.posnormalmatrix.
+      // This function's purpose is to fill m_locked_skybox_matrix ONCE,
+      // and then ApplySkyboxTransformations will USE m_locked_skybox_matrix.
+      // So, this function primarily ensures m_locked_skybox_matrix is captured correctly.
+      // The actual "using" of the locked matrix happens in ApplySkyboxTransformations.
+      // No need to modify constants.posnormalmatrix here.
+    }
+    else
+    {
+      // Store the 3x4 part of the current modelview matrix
+      m_locked_skybox_matrix[0] = game_mv.mData[0][0]; m_locked_skybox_matrix[1] = game_mv.mData[0][1]; m_locked_skybox_matrix[2] = game_mv.mData[0][2]; m_locked_skybox_matrix[3] = game_mv.mData[0][3];
+      m_locked_skybox_matrix[4] = game_mv.mData[1][0]; m_locked_skybox_matrix[5] = game_mv.mData[1][1]; m_locked_skybox_matrix[6] = game_mv.mData[1][2]; m_locked_skybox_matrix[7] = game_mv.mData[1][3];
+      m_locked_skybox_matrix[8] = game_mv.mData[2][0]; m_locked_skybox_matrix[9] = game_mv.mData[2][1]; m_locked_skybox_matrix[10] = game_mv.mData[2][2];m_locked_skybox_matrix[11] = game_mv.mData[2][3];
+      m_had_skybox_locked = true;
+    }
+  }
+  // No direct change to 'dirty' here as this just captures state.
+  // ApplySkyboxTransformations will set dirty if it uses this and changes projections.
+}
 bool VertexShaderManager::UseVertexDepthRange()
 {
   // We can't compute the depth range in the vertex shader if we don't support depth clamp.
