@@ -106,6 +106,7 @@ extern const char* scm_vr_sdk_str;
 #include <mutex>
 
 #include "Common/MathUtil.h"
+#include "Common/Matrix.h"
 #include "VideoCommon/DataReader.h"
 
 #ifndef M_PI
@@ -167,7 +168,7 @@ void VR_GetEyePoses();
 void ReadHmdOrientation(float* roll, float* pitch, float* yaw, float* x, float* y, float* z);
 void VR_UpdateHeadTrackingIfNeeded();
 void VR_GetProjectionHalfTan(float& hmd_halftan);
-void VR_GetProjectionMatrices(Matrix44& left_eye, Matrix44& right_eye, float znear, float zfar);
+void VR_GetProjectionMatrices(Common::Matrix44& left_eye, Common::Matrix44& right_eye, float znear, float zfar);
 void VR_GetEyePos(float* posLeft, float* posRight);
 void VR_GetFovTextureSize(int* width, int* height);
 
@@ -187,8 +188,8 @@ void VR_UpdateWiimoteReportingMode(int index, u8 accel, u8 ir, u8 ext);
 
 bool VR_PairViveControllers();
 
-bool VR_GetLeftControllerPos(float* pos, float* thumbpos, Matrix33* m);
-bool VR_GetRightControllerPos(float* pos, float* thumbpos, Matrix33* m);
+bool VR_GetLeftControllerPos(float* pos, float* thumbpos, Common::Matrix33* m);
+bool VR_GetRightControllerPos(float* pos, float* thumbpos, Common::Matrix33* m);
 ControllerStyle VR_GetHydraStyle(int hand);
 
 void OpcodeReplayBuffer();
@@ -207,7 +208,7 @@ extern bool g_vr_should_swap_buffers, g_vr_dont_vsync;
 extern bool g_new_tracking_frame;
 extern bool g_new_frame_tracker_for_efb_skip;
 extern u32 skip_objects_count;
-extern Matrix44 g_head_tracking_matrix;
+extern Common::Matrix44 g_head_tracking_matrix;
 extern float g_head_tracking_position[3];
 extern float g_left_hand_tracking_position[3], g_right_hand_tracking_position[3];
 extern int g_hmd_window_width, g_hmd_window_height, g_hmd_window_x, g_hmd_window_y,
@@ -221,7 +222,7 @@ extern float vr_widest_3d_VFOV;
 extern float vr_widest_3d_zNear;
 extern float vr_widest_3d_zFar;
 extern float g_game_camera_pos[3];
-extern Matrix44 g_game_camera_rotmat;
+extern Common::Matrix44 g_game_camera_rotmat;
 
 extern double g_older_tracking_time, g_old_tracking_time, g_last_tracking_time;
 

@@ -8,15 +8,15 @@
 
 #include <windows.h>
 #include "VideoCommon/VR.h"
-#include "VideoCommon/VR920.h"
+//#include "VideoCommon/VR920.h"
 
 #include "d3d11.h"
 
-#ifdef HAVE_OCULUSSDK
-#include "OVR_CAPI_D3D.h"
-#else
-#include "OculusSystemLibraryHeaderD3D11.h"
-#endif
+//#ifdef HAVE_OCULUSSDK
+//#include "OVR_CAPI_D3D.h"
+//#else
+//#include "OculusSystemLibraryHeaderD3D11.h"
+//#endif
 
 namespace DX11
 {

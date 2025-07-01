@@ -3,8 +3,10 @@
 // Refer to the license.txt file included.
 
 #pragma once
+#include <vector>
+#include <string>
 
-#include "VideoCommon/RenderBase.h"
+//#include "VideoCommon/RenderBase.h"
 
 namespace ARBruteForcer
 {
@@ -35,7 +37,7 @@ extern std::string ch_title_id;
 extern std::string ch_code;
 
 void ARBruteForceDriver();
-void SetupScreenshotAndWriteCSV(Renderer *render);
+//void SetupScreenshotAndWriteCSV(Renderer *render);
 void ParseMapFile(std::string unique_id);
 void IncrementPositionTxt();
 void SaveLastPosition(int position);

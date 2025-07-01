@@ -3,17 +3,18 @@
 // Refer to the license.txt file included.
 
 #include "VideoCommon/VRGameMatrices.h"
+#include "Common/Common.h"
 #include "Common/FileUtil.h"
 #include "Common/MathUtil.h"
 #include "Common/MsgHandler.h"
 #include "VideoBackends/D3D/AvatarDrawer.h"
 #include "VideoBackends/D3D/D3DBase.h"
-#include "VideoBackends/D3D/D3DBlob.h"
-#include "VideoBackends/D3D/D3DShader.h"
+//#include "VideoBackends/D3D/D3DBlob.h"
+//#include "VideoBackends/D3D/D3DShader.h"
 #include "VideoBackends/D3D/D3DState.h"
-#include "VideoBackends/D3D/FramebufferManager.h"
-#include "VideoBackends/D3D/GeometryShaderCache.h"
-#include "VideoBackends/D3D/Render.h"
+//#include "VideoBackends/D3D/FramebufferManager.h"
+//#include "VideoBackends/D3D/GeometryShaderCache.h"
+//#include "VideoBackends/D3D/Render.h"
 #include "VideoBackends/D3D/tiny_obj_loader.h"
 #include "VideoCommon/GeometryShaderGen.h"
 #include "VideoCommon/GeometryShaderManager.h"
@@ -21,12 +22,12 @@
 #include "VideoCommon/VideoConfig.h"
 #include "VideoCommon/XFMemory.h"
 
-#include "InputCommon/ControllerInterface/Sixense/SixenseHack.h"
+//#include "InputCommon/ControllerInterface/Sixense/SixenseHack.h"
 
 extern float s_fViewTranslationVector[3];
 extern EFBRectangle g_final_screen_region;
 
-bool CalculateViewMatrix(int kind, Matrix44& look_matrix)
+bool CalculateViewMatrix(int kind, Common::Matrix44& look_matrix)
 {
   bool bStuckToHead = false, bIsSkybox = false, bIsPerspective = false,
        bHasWidest = (vr_widest_3d_HFOV > 0);
@@ -66,14 +67,14 @@ bool CalculateViewMatrix(int kind, Matrix44& look_matrix)
   vfov = vr_widest_3d_VFOV;
 
   // VR Headtracking and leaning back compensation
-  Matrix44 rotation_matrix;
-  Matrix44 lean_back_matrix;
-  Matrix44 camera_pitch_matrix;
+  Common::Matrix44 rotation_matrix;
+  Common::Matrix44 lean_back_matrix;
+  Common::Matrix44 camera_pitch_matrix;
   if (bStuckToHead)
   {
-    Matrix44::LoadIdentity(rotation_matrix);
-    Matrix44::LoadIdentity(lean_back_matrix);
-    Matrix44::LoadIdentity(camera_pitch_matrix);
+    Common::Matrix44::LoadIdentity(rotation_matrix);
+    Common::Matrix44::LoadIdentity(lean_back_matrix);
+    Common::Matrix44::LoadIdentity(camera_pitch_matrix);
   }
   else
   {
@@ -85,15 +86,15 @@ bool CalculateViewMatrix(int kind, Matrix44& look_matrix)
     }
     else
     {
-      Matrix44::LoadIdentity(rotation_matrix);
+      Common::Matrix44::LoadIdentity(rotation_matrix);
     }
 
-    Matrix33 pitch_matrix33;
+    Common::Matrix33 pitch_Common::Matrix33;
 
     // leaning back
     float extra_pitch = -g_ActiveConfig.fLeanBackAngle;
-    Matrix33::RotateX(pitch_matrix33, -DEGREES_TO_RADIANS(extra_pitch));
-    lean_back_matrix = pitch_matrix33;
+    Common::Matrix33::RotateX(pitch_Common::Matrix33, -DEGREES_TO_RADIANS(extra_pitch));
+    lean_back_matrix = pitch_Common::Matrix33;
 
     // camera pitch
     if ((g_ActiveConfig.bStabilizePitch || g_ActiveConfig.bStabilizeRoll ||
@@ -103,15 +104,15 @@ bool CalculateViewMatrix(int kind, Matrix44& look_matrix)
     {
       if (!g_ActiveConfig.bStabilizePitch)
       {
-        Matrix44 user_pitch44;
-        Matrix44 roll_and_yaw_matrix;
+        Common::Matrix44 user_pitch44;
+        Common::Matrix44 roll_and_yaw_matrix;
 
         if (bIsPerspective || bHasWidest)
           extra_pitch = g_ActiveConfig.fCameraPitch;
         else
           extra_pitch = g_ActiveConfig.fScreenPitch;
-        Matrix33::RotateX(pitch_matrix33, -DEGREES_TO_RADIANS(extra_pitch));
-        user_pitch44 = pitch_matrix33;
+        Common::Matrix33::RotateX(pitch_Common::Matrix33, -DEGREES_TO_RADIANS(extra_pitch));
+        user_pitch44 = pitch_Common::Matrix33;
         roll_and_yaw_matrix = g_game_camera_rotmat;
         camera_pitch_matrix = user_pitch44 * roll_and_yaw_matrix;
       }
@@ -126,18 +127,18 @@ bool CalculateViewMatrix(int kind, Matrix44& look_matrix)
         extra_pitch = g_ActiveConfig.fCameraPitch;
       else
         extra_pitch = g_ActiveConfig.fScreenPitch;
-      Matrix33::RotateX(pitch_matrix33, -DEGREES_TO_RADIANS(extra_pitch));
-      camera_pitch_matrix = pitch_matrix33;
+      Common::Matrix33::RotateX(pitch_Common::Matrix33, -DEGREES_TO_RADIANS(extra_pitch));
+      camera_pitch_matrix = pitch_Common::Matrix33;
     }
   }
 
   // Position matrices
-  Matrix44 head_position_matrix, free_look_matrix, camera_forward_matrix, camera_position_matrix;
+  Common::Matrix44 head_position_matrix, free_look_matrix, camera_forward_matrix, camera_position_matrix;
   if (bStuckToHead || bIsSkybox)
   {
-    Matrix44::LoadIdentity(head_position_matrix);
-    Matrix44::LoadIdentity(free_look_matrix);
-    Matrix44::LoadIdentity(camera_position_matrix);
+    Common::Matrix44::LoadIdentity(head_position_matrix);
+    Common::Matrix44::LoadIdentity(free_look_matrix);
+    Common::Matrix44::LoadIdentity(camera_position_matrix);
   }
   else
   {
@@ -147,28 +148,28 @@ bool CalculateViewMatrix(int kind, Matrix44& look_matrix)
     {
       for (int i = 0; i < 3; ++i)
         pos[i] = g_head_tracking_position[i] * UnitsPerMetre;
-      Matrix44::Translate(head_position_matrix, pos);
+      Common::Matrix44::Translate(head_position_matrix, pos);
     }
     else
     {
-      Matrix44::LoadIdentity(head_position_matrix);
+      Common::Matrix44::LoadIdentity(head_position_matrix);
     }
 
     // freelook camera position
     for (int i = 0; i < 3; ++i)
       pos[i] = s_fViewTranslationVector[i] * UnitsPerMetre;
-    Matrix44::Translate(free_look_matrix, pos);
+    Common::Matrix44::Translate(free_look_matrix, pos);
 
     // camera position stabilisation
     if (g_ActiveConfig.bStabilizeX || g_ActiveConfig.bStabilizeY || g_ActiveConfig.bStabilizeZ)
     {
       for (int i = 0; i < 3; ++i)
         pos[i] = -g_game_camera_pos[i] * UnitsPerMetre;
-      Matrix44::Translate(camera_position_matrix, pos);
+      Common::Matrix44::Translate(camera_position_matrix, pos);
     }
     else
     {
-      Matrix44::LoadIdentity(camera_position_matrix);
+      Common::Matrix44::LoadIdentity(camera_position_matrix);
     }
   }
 
@@ -184,7 +185,7 @@ bool CalculateViewMatrix(int kind, Matrix44& look_matrix)
     // head rotation tracking
     if (bNoForward || bIsSkybox || bStuckToHead)
     {
-      Matrix44::LoadIdentity(camera_forward_matrix);
+      Common::Matrix44::LoadIdentity(camera_forward_matrix);
     }
     else
     {
@@ -192,7 +193,7 @@ bool CalculateViewMatrix(int kind, Matrix44& look_matrix)
       pos[0] = 0;
       pos[1] = 0;
       pos[2] = (g_ActiveConfig.fCameraForward + zoom_forward) * UnitsPerMetre;
-      Matrix44::Translate(camera_forward_matrix, pos);
+      Common::Matrix44::Translate(camera_forward_matrix, pos);
     }
 
     look_matrix = camera_forward_matrix * camera_position_matrix * camera_pitch_matrix *
@@ -414,9 +415,9 @@ bool CalculateViewMatrix(int kind, Matrix44& look_matrix)
         position[2] = -HudDistance;  // - CameraForward;
     }
 
-    Matrix44 scale_matrix, position_matrix;
-    Matrix44::Scale(scale_matrix, scale);
-    Matrix44::Translate(position_matrix, position);
+    Common::Matrix44 scale_matrix, position_matrix;
+    Common::Matrix44::Scale(scale_matrix, scale);
+    Common::Matrix44::Translate(position_matrix, position);
 
     // order: scale, position
     look_matrix = scale_matrix * position_matrix * camera_position_matrix * camera_pitch_matrix *
@@ -428,7 +429,7 @@ bool CalculateViewMatrix(int kind, Matrix44& look_matrix)
 void VRCalculateIRPointer()
 {
   float wmpos[3], thumb[3];
-  Matrix33 wmrot;
+  Common::Matrix33 wmrot;
   ControllerStyle cs = CS_HYDRA_RIGHT;
   bool has_right_controller = VR_GetRightControllerPos(wmpos, thumb, &wmrot);
   if (has_right_controller)
@@ -439,19 +440,19 @@ void VRCalculateIRPointer()
     return;
   }
 
-  Matrix44 ToAimSpace, WiimoteRot;
+  Common::Matrix44 ToAimSpace, WiimoteRot;
   CalculateTrackingSpaceToViewSpaceMatrix(0, ToAimSpace);
   WiimoteRot = wmrot;
 
   float r[3], rp[3], d[3], v[3] = {0, 0, -1.0f}, ppos[3], aimpoint[3];
 
   // find pointer position
-  Matrix44::Multiply(WiimoteRot, v, ppos);
+  Common::Matrix44::Multiply(WiimoteRot, v, ppos);
   for (int i = 0; i < 3; ++i)
     ppos[i] += wmpos[i];
 
-  Matrix44::Multiply(ToAimSpace, wmpos, r);
-  Matrix44::Multiply(ToAimSpace, ppos, rp);
+  Common::Matrix44::Multiply(ToAimSpace, wmpos, r);
+  Common::Matrix44::Multiply(ToAimSpace, ppos, rp);
   for (int i = 0; i < 3; ++i)
     d[i] = rp[i] - r[i];
   float s = -r[2] / d[2];
@@ -475,7 +476,7 @@ void VRCalculateIRPointer()
   g_vr_has_ir = true;
 }
 
-bool CalculateTrackingSpaceToViewSpaceMatrix(int kind, Matrix44& look_matrix)
+bool CalculateTrackingSpaceToViewSpaceMatrix(int kind, Common::Matrix44& look_matrix)
 {
   bool bStuckToHead = false, bIsSkybox = false, bIsPerspective = false,
        bHasWidest = (vr_widest_3d_HFOV > 0);
@@ -515,26 +516,26 @@ bool CalculateTrackingSpaceToViewSpaceMatrix(int kind, Matrix44& look_matrix)
   vfov = vr_widest_3d_VFOV;
 
   // VR ~Headtracking and~ leaning back compensation
-  Matrix44 rotation_matrix;
-  Matrix44 lean_back_matrix;
-  Matrix44 camera_pitch_matrix;
+  Common::Matrix44 rotation_matrix;
+  Common::Matrix44 lean_back_matrix;
+  Common::Matrix44 camera_pitch_matrix;
   if (bStuckToHead)
   {
-    Matrix44::LoadIdentity(rotation_matrix);
-    Matrix44::LoadIdentity(lean_back_matrix);
-    Matrix44::LoadIdentity(camera_pitch_matrix);
+    Common::Matrix44::LoadIdentity(rotation_matrix);
+    Common::Matrix44::LoadIdentity(lean_back_matrix);
+    Common::Matrix44::LoadIdentity(camera_pitch_matrix);
   }
   else
   {
     // no head tracking
-    Matrix44::LoadIdentity(rotation_matrix);
+    Common::Matrix44::LoadIdentity(rotation_matrix);
 
-    Matrix33 pitch_matrix33;
+    Common::Matrix33 pitch_Common::Matrix33;
 
     // leaning back
     float extra_pitch = -g_ActiveConfig.fLeanBackAngle;
-    Matrix33::RotateX(pitch_matrix33, -DEGREES_TO_RADIANS(extra_pitch));
-    lean_back_matrix = pitch_matrix33;
+    Common::Matrix33::RotateX(pitch_Common::Matrix33, -DEGREES_TO_RADIANS(extra_pitch));
+    lean_back_matrix = pitch_Common::Matrix33;
 
     // camera pitch
     if ((g_ActiveConfig.bStabilizePitch || g_ActiveConfig.bStabilizeRoll ||
@@ -544,15 +545,15 @@ bool CalculateTrackingSpaceToViewSpaceMatrix(int kind, Matrix44& look_matrix)
     {
       if (!g_ActiveConfig.bStabilizePitch)
       {
-        Matrix44 user_pitch44;
-        Matrix44 roll_and_yaw_matrix;
+        Common::Matrix44 user_pitch44;
+        Common::Matrix44 roll_and_yaw_matrix;
 
         if (bIsPerspective || bHasWidest)
           extra_pitch = g_ActiveConfig.fCameraPitch;
         else
           extra_pitch = g_ActiveConfig.fScreenPitch;
-        Matrix33::RotateX(pitch_matrix33, -DEGREES_TO_RADIANS(extra_pitch));
-        user_pitch44 = pitch_matrix33;
+        Common::Matrix33::RotateX(pitch_Common::Matrix33, -DEGREES_TO_RADIANS(extra_pitch));
+        user_pitch44 = pitch_Common::Matrix33;
         roll_and_yaw_matrix = g_game_camera_rotmat;
         camera_pitch_matrix = user_pitch44 * roll_and_yaw_matrix;
       }
@@ -567,40 +568,40 @@ bool CalculateTrackingSpaceToViewSpaceMatrix(int kind, Matrix44& look_matrix)
         extra_pitch = g_ActiveConfig.fCameraPitch;
       else
         extra_pitch = g_ActiveConfig.fScreenPitch;
-      Matrix33::RotateX(pitch_matrix33, -DEGREES_TO_RADIANS(extra_pitch));
-      camera_pitch_matrix = pitch_matrix33;
+      Common::Matrix33::RotateX(pitch_Common::Matrix33, -DEGREES_TO_RADIANS(extra_pitch));
+      camera_pitch_matrix = pitch_Common::Matrix33;
     }
   }
 
   // Position matrices
-  Matrix44 head_position_matrix, free_look_matrix, camera_forward_matrix, camera_position_matrix;
+  Common::Matrix44 head_position_matrix, free_look_matrix, camera_forward_matrix, camera_position_matrix;
   if (bStuckToHead || bIsSkybox)
   {
-    Matrix44::LoadIdentity(head_position_matrix);
-    Matrix44::LoadIdentity(free_look_matrix);
-    Matrix44::LoadIdentity(camera_position_matrix);
+    Common::Matrix44::LoadIdentity(head_position_matrix);
+    Common::Matrix44::LoadIdentity(free_look_matrix);
+    Common::Matrix44::LoadIdentity(camera_position_matrix);
   }
   else
   {
     float pos[3];
     // no head tracking
-    Matrix44::LoadIdentity(head_position_matrix);
+    Common::Matrix44::LoadIdentity(head_position_matrix);
 
     // freelook camera position
     for (int i = 0; i < 3; ++i)
       pos[i] = s_fViewTranslationVector[i] * UnitsPerMetre;
-    Matrix44::Translate(free_look_matrix, pos);
+    Common::Matrix44::Translate(free_look_matrix, pos);
 
     // camera position stabilisation
     if (g_ActiveConfig.bStabilizeX || g_ActiveConfig.bStabilizeY || g_ActiveConfig.bStabilizeZ)
     {
       for (int i = 0; i < 3; ++i)
         pos[i] = -g_game_camera_pos[i] * UnitsPerMetre;
-      Matrix44::Translate(camera_position_matrix, pos);
+      Common::Matrix44::Translate(camera_position_matrix, pos);
     }
     else
     {
-      Matrix44::LoadIdentity(camera_position_matrix);
+      Common::Matrix44::LoadIdentity(camera_position_matrix);
     }
   }
 
@@ -616,7 +617,7 @@ bool CalculateTrackingSpaceToViewSpaceMatrix(int kind, Matrix44& look_matrix)
     // head rotation tracking
     if (bNoForward || bIsSkybox || bStuckToHead)
     {
-      Matrix44::LoadIdentity(camera_forward_matrix);
+      Common::Matrix44::LoadIdentity(camera_forward_matrix);
     }
     else
     {
@@ -624,16 +625,16 @@ bool CalculateTrackingSpaceToViewSpaceMatrix(int kind, Matrix44& look_matrix)
       pos[0] = 0;
       pos[1] = 0;
       pos[2] = (g_ActiveConfig.fCameraForward + zoom_forward) * UnitsPerMetre;
-      Matrix44::Translate(camera_forward_matrix, pos);
+      Common::Matrix44::Translate(camera_forward_matrix, pos);
     }
 
-    Matrix44::InvertRotation(camera_pitch_matrix);
-    Matrix44::InvertRotation(lean_back_matrix);
-    Matrix44::InvertRotation(rotation_matrix);
-    Matrix44::InvertTranslation(camera_position_matrix);
-    Matrix44::InvertTranslation(camera_forward_matrix);
-    Matrix44::InvertTranslation(free_look_matrix);
-    Matrix44::InvertTranslation(head_position_matrix);
+    Common::Matrix44::InvertRotation(camera_pitch_matrix);
+    Common::Matrix44::InvertRotation(lean_back_matrix);
+    Common::Matrix44::InvertRotation(rotation_matrix);
+    Common::Matrix44::InvertTranslation(camera_position_matrix);
+    Common::Matrix44::InvertTranslation(camera_forward_matrix);
+    Common::Matrix44::InvertTranslation(free_look_matrix);
+    Common::Matrix44::InvertTranslation(head_position_matrix);
 
     look_matrix = rotation_matrix * head_position_matrix * lean_back_matrix * free_look_matrix *
                   camera_pitch_matrix * camera_position_matrix * camera_forward_matrix;
@@ -856,18 +857,18 @@ bool CalculateTrackingSpaceToViewSpaceMatrix(int kind, Matrix44& look_matrix)
         position[2] = -HudDistance;  // - CameraForward;
     }
 
-    Matrix44 scale_matrix, position_matrix;
-    Matrix44::Scale(scale_matrix, scale);
-    Matrix44::Translate(position_matrix, position);
+    Common::Matrix44 scale_matrix, position_matrix;
+    Common::Matrix44::Scale(scale_matrix, scale);
+    Common::Matrix44::Translate(position_matrix, position);
 
-    Matrix44::InvertScale(scale_matrix);
-    Matrix44::InvertTranslation(position_matrix);
-    Matrix44::InvertRotation(camera_pitch_matrix);
-    Matrix44::InvertRotation(lean_back_matrix);
-    Matrix44::InvertRotation(rotation_matrix);
-    Matrix44::InvertTranslation(camera_position_matrix);
-    Matrix44::InvertTranslation(free_look_matrix);
-    Matrix44::InvertTranslation(head_position_matrix);
+    Common::Matrix44::InvertScale(scale_matrix);
+    Common::Matrix44::InvertTranslation(position_matrix);
+    Common::Matrix44::InvertRotation(camera_pitch_matrix);
+    Common::Matrix44::InvertRotation(lean_back_matrix);
+    Common::Matrix44::InvertRotation(rotation_matrix);
+    Common::Matrix44::InvertTranslation(camera_position_matrix);
+    Common::Matrix44::InvertTranslation(free_look_matrix);
+    Common::Matrix44::InvertTranslation(head_position_matrix);
 
     // invert order: position, scale
     look_matrix = rotation_matrix * head_position_matrix * lean_back_matrix * free_look_matrix *
