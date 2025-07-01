@@ -21,13 +21,13 @@
 #include "VideoCommon/VR.h"
 #include "VideoCommon/VideoConfig.h"
 #include "VideoCommon/XFMemory.h"
+#include "VideoCommon/Present.h" // For GetFinalScreenRegion()
 
 //#include "InputCommon/ControllerInterface/Sixense/SixenseHack.h"
 
 extern float s_fViewTranslationVector[3];
 // extern EFBRectangle g_final_screen_region; // Replaced with GetFinalScreenRegion()
 
-#include "VideoCommon/Present.h" // For GetFinalScreenRegion()
 
 bool CalculateViewMatrix(int kind, Common::Matrix44& look_matrix)
 {
@@ -59,8 +59,8 @@ bool CalculateViewMatrix(int kind, Common::Matrix44& look_matrix)
   if (vr_widest_3d_HFOV <= g_ActiveConfig.fMinFOV && bHasWidest)
   {
     zoom_forward = g_ActiveConfig.fAimDistance *
-                   tanf(((g_ActiveConfig.fMinFOV) * Common::PI / 180.0f) / 2) /
-                   tanf(((vr_widest_3d_HFOV) * Common::PI / 180.0f) / 2);
+                   tanf(DEGREES_TO_RADIANS(g_ActiveConfig.fMinFOV) / 2) /
+                   tanf(DEGREES_TO_RADIANS(vr_widest_3d_HFOV) / 2);
     zoom_forward -= g_ActiveConfig.fAimDistance;
   }
 
@@ -95,7 +95,7 @@ bool CalculateViewMatrix(int kind, Common::Matrix44& look_matrix)
 
     // leaning back
     float extra_pitch = -g_ActiveConfig.fLeanBackAngle;
-    pitch_matrix33 = Common::Matrix33::RotateX(-((extra_pitch) * Common::PI / 180.0f));
+    pitch_matrix33 = Common::Matrix33::RotateX(-DEGREES_TO_RADIANS(extra_pitch));
     lean_back_matrix = Common::Matrix44::FromMatrix33(pitch_matrix33);
 
     // camera pitch
@@ -113,7 +113,7 @@ bool CalculateViewMatrix(int kind, Common::Matrix44& look_matrix)
           extra_pitch = g_ActiveConfig.fCameraPitch;
         else
           extra_pitch = g_ActiveConfig.fScreenPitch;
-        user_pitch_m33 = Common::Matrix33::RotateX(-((extra_pitch) * Common::PI / 180.0f));
+        user_pitch_m33 = Common::Matrix33::RotateX(-DEGREES_TO_RADIANS(extra_pitch));
         // user_pitch44 = pitch_matrix33; // Original line, user_pitch44 was Matrix44
         roll_and_yaw_matrix = g_game_camera_rotmat; // This is Matrix44
         camera_pitch_matrix = Common::Matrix44::FromMatrix33(user_pitch_m33) * roll_and_yaw_matrix;
@@ -129,7 +129,7 @@ bool CalculateViewMatrix(int kind, Common::Matrix44& look_matrix)
         extra_pitch = g_ActiveConfig.fCameraPitch;
       else
         extra_pitch = g_ActiveConfig.fScreenPitch;
-      pitch_matrix33 = Common::Matrix33::RotateX(-((extra_pitch) * Common::PI / 180.0f));
+      pitch_matrix33 = Common::Matrix33::RotateX(-DEGREES_TO_RADIANS(extra_pitch));
       camera_pitch_matrix = Common::Matrix44::FromMatrix33(pitch_matrix33);
     }
   }
@@ -273,9 +273,9 @@ bool CalculateViewMatrix(int kind, Common::Matrix44& look_matrix)
       // float HudWidth = 2.0f * tanf(hfov / 2.0f * 3.14159f / 180.0f) * (HudDistance) * Correction;
       // float HudHeight = 2.0f * tanf(vfov / 2.0f * 3.14159f / 180.0f) * (HudDistance) *
       // Correction;
-      HudWidth = 2.0f * tanf(((hfov / 2.0f) * Common::PI / 180.0f)) * HudDistance *
+      HudWidth = 2.0f * tanf(DEGREES_TO_RADIANS(hfov / 2.0f)) * HudDistance *
                  (AimDistance + CameraForward) / AimDistance;
-      HudHeight = 2.0f * tanf(((vfov / 2.0f) * Common::PI / 180.0f)) * HudDistance *
+      HudHeight = 2.0f * tanf(DEGREES_TO_RADIANS(vfov / 2.0f)) * HudDistance *
                   (AimDistance + CameraForward) / AimDistance;
     }
 
@@ -300,8 +300,8 @@ bool CalculateViewMatrix(int kind, Common::Matrix44& look_matrix)
       top = v.yOrig + v.ht - 342;
       width = 2 * v.wd;
       height = -2 * v.ht;
-      float screen_width = (float)GetFinalScreenRegion().GetWidth();
-      float screen_height = (float)GetFinalScreenRegion().GetHeight();
+      float screen_width = (float)VideoCommon::GetFinalScreenRegion().GetWidth();
+      float screen_height = (float)VideoCommon::GetFinalScreenRegion().GetHeight();
       viewport_scale[0] = width / screen_width;
       viewport_scale[1] = height / screen_height;
       viewport_offset[0] = ((left + (width / 2)) - (0 + (screen_width / 2))) / screen_width;
@@ -551,8 +551,8 @@ bool CalculateTrackingSpaceToViewSpaceMatrix(int kind, Common::Matrix44& look_ma
   if (vr_widest_3d_HFOV <= g_ActiveConfig.fMinFOV && bHasWidest)
   {
     zoom_forward = g_ActiveConfig.fAimDistance *
-                   tanf(((g_ActiveConfig.fMinFOV) * Common::PI / 180.0f) / 2) /
-                   tanf(((vr_widest_3d_HFOV) * Common::PI / 180.0f) / 2);
+                   tanf(DEGREES_TO_RADIANS(g_ActiveConfig.fMinFOV) / 2) /
+                   tanf(DEGREES_TO_RADIANS(vr_widest_3d_HFOV) / 2);
     zoom_forward -= g_ActiveConfig.fAimDistance;
   }
 
@@ -579,7 +579,7 @@ bool CalculateTrackingSpaceToViewSpaceMatrix(int kind, Common::Matrix44& look_ma
 
     // leaning back
     float extra_pitch = -g_ActiveConfig.fLeanBackAngle;
-    pitch_matrix33 = Common::Matrix33::RotateX(-((extra_pitch) * Common::PI / 180.0f));
+    pitch_matrix33 = Common::Matrix33::RotateX(-DEGREES_TO_RADIANS(extra_pitch));
     lean_back_matrix = Common::Matrix44::FromMatrix33(pitch_matrix33);
 
     // camera pitch
@@ -597,7 +597,7 @@ bool CalculateTrackingSpaceToViewSpaceMatrix(int kind, Common::Matrix44& look_ma
           extra_pitch = g_ActiveConfig.fCameraPitch;
         else
           extra_pitch = g_ActiveConfig.fScreenPitch;
-        user_pitch_m33 = Common::Matrix33::RotateX(-((extra_pitch) * Common::PI / 180.0f));
+        user_pitch_m33 = Common::Matrix33::RotateX( -DEGREES_TO_RADIANS(extra_pitch));
         // user_pitch44 = pitch_matrix33; // Original line, user_pitch44 was Matrix44
         roll_and_yaw_matrix = g_game_camera_rotmat; // This is Matrix44
         camera_pitch_matrix = Common::Matrix44::FromMatrix33(user_pitch_m33) * roll_and_yaw_matrix;
@@ -613,7 +613,7 @@ bool CalculateTrackingSpaceToViewSpaceMatrix(int kind, Common::Matrix44& look_ma
         extra_pitch = g_ActiveConfig.fCameraPitch;
       else
         extra_pitch = g_ActiveConfig.fScreenPitch;
-      pitch_matrix33 = Common::Matrix33::RotateX(-((extra_pitch) * Common::PI / 180.0f));
+      pitch_matrix33 = Common::Matrix33::RotateX( -DEGREES_TO_RADIANS(extra_pitch));
       camera_pitch_matrix = Common::Matrix44::FromMatrix33(pitch_matrix33);
     }
   }
@@ -756,9 +756,9 @@ bool CalculateTrackingSpaceToViewSpaceMatrix(int kind, Common::Matrix44& look_ma
       // float HudWidth = 2.0f * tanf(hfov / 2.0f * 3.14159f / 180.0f) * (HudDistance) * Correction;
       // float HudHeight = 2.0f * tanf(vfov / 2.0f * 3.14159f / 180.0f) * (HudDistance) *
       // Correction;
-      HudWidth = 2.0f * tanf(((hfov / 2.0f) * Common::PI / 180.0f)) * HudDistance *
+      HudWidth = 2.0f * tanf(DEGREES_TO_RADIANS(hfov / 2.0f)) * HudDistance *
                  (AimDistance + CameraForward) / AimDistance;
-      HudHeight = 2.0f * tanf(((vfov / 2.0f) * Common::PI / 180.0f)) * HudDistance *
+      HudHeight = 2.0f * tanf(DEGREES_TO_RADIANS(vfov / 2.0f)) * HudDistance *
                   (AimDistance + CameraForward) / AimDistance;
     }
     if (kind == 0 || bShowAim)
@@ -785,8 +785,8 @@ bool CalculateTrackingSpaceToViewSpaceMatrix(int kind, Common::Matrix44& look_ma
       top = v.yOrig + v.ht - 342;
       width = 2 * v.wd;
       height = -2 * v.ht;
-      float screen_width = (float)GetFinalScreenRegion().GetWidth();
-      float screen_height = (float)GetFinalScreenRegion().GetHeight();
+      float screen_width = (float)VideoCommon::GetFinalScreenRegion().GetWidth();
+      float screen_height = (float)VideoCommon::GetFinalScreenRegion().GetHeight();
       viewport_scale[0] = width / screen_width;
       viewport_scale[1] = height / screen_height;
       viewport_offset[0] = ((left + (width / 2)) - (0 + (screen_width / 2))) / screen_width;
