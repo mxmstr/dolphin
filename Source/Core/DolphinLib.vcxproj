@@ -72,14 +72,34 @@
       <AdditionalIncludeDirectories>$(ExternalsDir)OpenVR\headers;$(ExternalsDir)zstd\zstd\lib;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
   </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <ClCompile>
+      <AdditionalIncludeDirectories>$(ExternalsDir)OpenVR\headers;$(ExternalsDir)zstd\zstd\lib;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ClCompile>
+  </ItemDefinitionGroup>
   <ItemGroup>
     <Text Include="$(BuildInfoTemplate)" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="Core\ARBruteForcer.h" />
+    <ClInclude Include="VideoBackends\D3D\AvatarDrawer.h" />
+    <ClInclude Include="VideoBackends\D3D\tiny_obj_loader.h" />
+    <ClInclude Include="VideoBackends\D3D\VRD3D.h" />
+    <ClInclude Include="VideoCommon\ARBruteForcer.h" />
+    <ClInclude Include="VideoCommon\HideObjectEngine.h" />
+    <ClInclude Include="VideoCommon\VR.h" />
+    <ClInclude Include="VideoCommon\VRGameMatrices.h" />
     <ClInclude Include="VideoCommon\VROpenVR.h" />
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="VideoCommon\VROpenVR.cpp" />
+    <ClCompile Include="Core\ARBruteForcer.cpp" />
+    <ClCompile Include="VideoBackends\D3D\AvatarDrawer.cpp" />
+    <ClCompile Include="VideoBackends\D3D\tiny_obj_loader.cpp" />
+    <ClCompile Include="VideoBackends\D3D\VRD3D.cpp" />
+    <ClCompile Include="VideoCommon\ARBruteForcer.cpp" />
+    <ClCompile Include="VideoCommon\HideObjectEngine.cpp" />
+    <ClCompile Include="VideoCommon\VR.cpp" />
+    <ClCompile Include="VideoCommon\VRGameMatrices.cpp" />
   </ItemGroup>
   <UsingTask TaskName="GetProductVersion" TaskFactory="CodeTaskFactory" AssemblyFile="$(MSBuildToolsPath)\Microsoft.Build.Tasks.Core.dll">
     <ParameterGroup>

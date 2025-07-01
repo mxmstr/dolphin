@@ -1,49 +1,51 @@
+// Copyright 2016 Dolphin Emulator Project
+// Licensed under GPLv2+
+// Refer to the license.txt file included.
+
 #pragma once
 
-#include <memory>
-#include "Common/Matrix.h" // For Common::Matrix44
+#ifdef __INTELLISENSE__
+#define HAVE_OPENVR
+#endif
+
+#ifdef HAVE_OPENVR
+// Supports OpenVR versions 1.0.5, 1.0.2 - 0.9.17
+// Does not support 1.0.4 - 1.0.3, or 0.9.16 or below
 #include <openvr.h>
+#include <string>
 
-// Forward declare OpenVR types to avoid including openvr.h in this header if possible,
-// though for IVRSystem and IVRCompositor we might need the full definition.
-// For now, let's assume openvr.h will be included in VROpenVR.cpp.
-//namespace vr
-//{
-//  class IVRSystem;
-//  class IVRCompositor;
-//  enum EVREye;
-//} // namespace vr
+// These change their names depending on OpenVR version, so just define them ourselves.
+// Handle is an ID3D11Texture. Normalized Z goes from 0 at the viewer to 1 at the far clip plane.
+#define OPENVR_DirectX (decltype(vr::Texture_t::eType))0
+// Handle is an OpenGL texture name or an OpenGL render buffer name, depending on submit flags. Normalized Z goes from 1 at the viewer to -1 at the far clip plane.
+#define OPENVR_OpenGL (decltype(vr::Texture_t::eType))1
+// Handle is a pointer to a VRVulkanTextureData_t structure
+#define OPENVR_Vulkan (decltype(vr::Texture_t::eType))2
 
-class VROpenVR
-{
-public:
-  VROpenVR();
-  ~VROpenVR();
+#ifdef INVALID_SHARED_TEXTURE_HANDLE
+#define OPENVR_103_OR_ABOVE
+#define OPENVR_0921_OR_ABOVE
+#define OPENVR_0903_OR_ABOVE
+#elif defined(INVALID_TRACKED_CAMERA_HANDLE)
+#define OPENVR_0921_OR_ABOVE
+#define OPENVR_0903_OR_ABOVE
+#elif defined(VR_INTERFACE)
+#define OPENVR_0903_OR_ABOVE
+#endif
 
-  bool Init();
-  void Shutdown();
+// There's no way to detect 1.04 or 1.05, so just assume
+#ifdef OPENVR_103_OR_ABOVE
+#define OPENVR_104_OR_ABOVE
+#define OPENVR_105_OR_ABOVE
+#endif
 
-  // Gets the HMD pose in tracking space.
-  // predicted_seconds_to_photon: Time from now when the pose will be displayed.
-  // out_pose: The Common::Matrix44 to store the HMD's pose.
-  // Returns true if the pose was successfully retrieved.
-  bool GetHMDPose(float predicted_seconds_to_photon, Common::Matrix44& out_pose);
-
-  // Gets the projection matrix for a given eye.
-  // eye: Which eye to get the projection matrix for (vr::Eye_Left or vr::Eye_Right).
-  // near_clip: The near clipping plane distance.
-  // far_clip: The far clipping plane distance.
-  // out_projection: The Common::Matrix44 to store the projection matrix.
-  // Returns true if the matrix was successfully retrieved.
-  bool GetEyeProjectionMatrix(vr::EVREye eye, float near_clip, float far_clip, Common::Matrix44& out_projection);
-
-  // TODO: Add methods for submitting frames to the compositor later.
-  // TODO: Add methods for getting recommended render target size later.
-
-private:
-  vr::IVRSystem* m_ivr_system;
-  vr::IVRCompositor* m_ivr_compositor;
-  bool m_initialized;
-
-  // TODO: Add any other necessary private members, e.g., for device indices.
-};
+extern vr::IVRSystem *m_pHMD;
+extern vr::IVRRenderModels *m_pRenderModels;
+extern vr::IVRCompositor *m_pCompositor;
+extern std::string m_strDriver;
+extern std::string m_strDisplay;
+extern vr::TrackedDevicePose_t m_rTrackedDevicePose[vr::k_unMaxTrackedDeviceCount];
+extern bool m_bUseCompositor;
+extern bool m_rbShowTrackedDevice[vr::k_unMaxTrackedDeviceCount];
+extern int m_iValidPoseCount;
+#endif
