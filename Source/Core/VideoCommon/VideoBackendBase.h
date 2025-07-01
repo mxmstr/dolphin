@@ -82,7 +82,6 @@ protected:
   void ShutdownShared();
 
   bool m_initialized = false;
-  std::unique_ptr<VROpenVR> m_vr_openvr; // Added for VR support
 };
 
 extern VideoBackendBase* g_video_backend;

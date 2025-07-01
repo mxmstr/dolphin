@@ -9,22 +9,24 @@
 #include <dxgi1_2.h> // For IDXGIOutput1, DXGI_ERROR_NOT_FOUND etc.
 #include "VideoCommon/VR.h" // For g_hmd_luid, g_hmd_device_name, etc.
 #include "VideoCommon/VideoConfig.h" // For g_Config, EFBColorFormat
-#include "Core/HW/Display.h" // For GetMainHWND
+//#include "Core/HW/Display.h" // For GetMainHWND
 // END VR MERGE - Added includes
 
 #include "Common/CommonTypes.h"
 #include "Common/DynamicLibrary.h"
 #include "Common/Logging/Log.h"
 #include "Common/MsgHandler.h"
-#include "Common/StringUtils.h" // For Common::StringUtils::ToUTF8
+#include "Common/StringUtil.h" // For Common::StringUtils::ToUTF8
 #include "Core/Config/GraphicsSettings.h"
 #include "Core/ConfigManager.h"
 #include "VideoBackends/D3D/D3DState.h"
 #include "VideoBackends/D3D/DXTexture.h"
 #include "VideoBackends/D3DCommon/D3DCommon.h"
 #include "VideoCommon/FramebufferManager.h"
+#include <Core/Config/MainSettings.h>
 // VideoCommon/VideoConfig.h already included above for VR
 
+extern LUID* g_hmd_luid;
 
 namespace DX11
 {
@@ -113,9 +115,9 @@ bool Create(u32 adapter_index, bool enable_debug_layer)
   ComPtr<IDXGIAdapter1> selected_adapter1; // Use IDXGIAdapter1 for EnumOutputs1 if needed
   ComPtr<IDXGIOutput> selected_output;
 
-  if (VR::IsHmdPresent())
+  if (g_has_hmd)
   {
-    const LUID* hmd_luid_ptr = VR::GetHmdLuid();
+    const LUID* hmd_luid_ptr = g_hmd_luid;
     if (hmd_luid_ptr)
     {
         LUID hmd_luid = *hmd_luid_ptr;
@@ -127,14 +129,14 @@ bool Create(u32 adapter_index, bool enable_debug_layer)
             if (memcmp(&desc.AdapterLuid, &hmd_luid, sizeof(LUID)) == 0)
             {
                 selected_adapter1 = current_adapter;
-                INFO_LOG_FMT(D3D, "HMD LUID matched adapter: {}", Common::StringUtils::ToUTF8(desc.Description));
+                INFO_LOG_FMT(VIDEO, "HMD LUID matched adapter: {}", WStringToUTF8(desc.Description));
                 break;
             }
         }
     }
 
     if (selected_adapter1) {
-        const std::string& hmd_device_name_str = VR::GetHmdDeviceName();
+        const std::string& hmd_device_name_str = g_hmd_device_name;
         if (!hmd_device_name_str.empty()) {
             ComPtr<IDXGIOutput> current_output;
             for (UINT j = 0; selected_adapter1->EnumOutputs(j, current_output.ReleaseAndGetAddressOf()) != DXGI_ERROR_NOT_FOUND; ++j)
@@ -147,20 +149,20 @@ bool Create(u32 adapter_index, bool enable_debug_layer)
                     hmd_device_name_str == monitor_info.szDevice)
                 {
                     selected_output = current_output;
-                    INFO_LOG_FMT(D3D, "HMD device name matched output: {}", hmd_device_name_str);
+                    INFO_LOG_FMT(VIDEO, "HMD device name matched output: {}", hmd_device_name_str);
                     break;
                 }
             }
             if (!selected_output) {
-                 WARN_LOG_FMT(D3D, "HMD LUID found, but device name '{}' did not match any output. Falling back to first output of HMD adapter.", hmd_device_name_str);
+                 WARN_LOG_FMT(VIDEO, "HMD LUID found, but device name '{}' did not match any output. Falling back to first output of HMD adapter.", hmd_device_name_str);
                  selected_adapter1->EnumOutputs(0, selected_output.ReleaseAndGetAddressOf());
             }
         } else {
-             WARN_LOG_FMT(D3D, "HMD LUID found, but HMD device name is empty. Falling back to first output of HMD adapter.");
+             WARN_LOG_FMT(VIDEO, "HMD LUID found, but HMD device name is empty. Falling back to first output of HMD adapter.");
              selected_adapter1->EnumOutputs(0, selected_output.ReleaseAndGetAddressOf());
         }
-    } else if (VR::IsHmdPresent()) { // Only warn if VR is active but adapter selection failed
-        WARN_LOG_FMT(D3D, "VR HMD is present but no matching adapter found via LUID. Falling back to default adapter selection.");
+    } else if (g_has_hmd) { // Only warn if VR is active but adapter selection failed
+        WARN_LOG_FMT(VIDEO, "VR HMD is present but no matching adapter found via LUID. Falling back to default adapter selection.");
     }
   }
 
@@ -191,25 +193,25 @@ bool Create(u32 adapter_index, bool enable_debug_layer)
       hr = generic_selected_adapter->EnumOutputs(0, selected_output.GetAddressOf());
       if(FAILED(hr)) {
           // This case should ideally not be hit if an adapter was successfully selected.
-          WARN_LOG_FMT(D3D, "Failed to get any output for the selected adapter: {}. This might be an issue with headless systems or unusual driver states.", DX11HRWrap(hr));
+          WARN_LOG_FMT(VIDEO, "Failed to get any output for the selected adapter: {}. This might be an issue with headless systems or unusual driver states.", DX11HRWrap(hr));
           // Proceeding without a specific output, D3D might pick one.
       }
   }
 
   DXGI_SWAP_CHAIN_DESC swap_chain_desc = {};
-  swap_chain_desc.BufferCount = VR::IsHmdPresent() ? 1 : 2; // 1 for VR (runtime handles it), 2 for window for smoother non-VR
+  swap_chain_desc.BufferCount = g_has_hmd ? 1 : 2; // 1 for VR (runtime handles it), 2 for window for smoother non-VR
   swap_chain_desc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
   swap_chain_desc.OutputWindow = hwnd;
   swap_chain_desc.SampleDesc.Count = 1;
   swap_chain_desc.SampleDesc.Quality = 0;
-  swap_chain_desc.Windowed = !SConfig::GetInstance().bFullscreen || g_Config.Gfx.BorderlessFullscreen;
+  swap_chain_desc.Windowed = !Config::Get(Config::MAIN_FULLSCREEN) || g_Config.bBorderlessFullscreen;
   swap_chain_desc.SwapEffect = DXGI_SWAP_EFFECT_DISCARD; // Recommended for non-stereo, DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL for newer paths
 
   // Tearing: Generally, VR runtimes prefer VSync off on the companion window to avoid extra latency.
   // D3DSwapChain::IsTearingSupported() would be the place to check this.
   // For now, let's assume if VSync is off, we want tearing.
-  bool vsync_enabled = g_Config.Gfx.VSync; // Check actual VSync setting
-  if (!vsync_enabled && D3DCommon::IsTearingSupported(dxgi_factory.Get())) {
+  bool vsync_enabled = g_Config.bVSync; // Check actual VSync setting
+  if (!vsync_enabled) { //&& D3DCommon::IsTearingSupported(dxgi_factory.Get())) {
       swap_chain_desc.Flags = DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING;
   } else {
       swap_chain_desc.Flags = 0;
@@ -217,10 +219,10 @@ bool Create(u32 adapter_index, bool enable_debug_layer)
 
 
   DXGI_MODE_DESC buffer_desc = {};
-  if (VR::IsHmdPresent())
+  if (g_has_hmd)
   {
-    buffer_desc.Width = VR::GetHmdIdealWidth();
-    buffer_desc.Height = VR::GetHmdIdealHeight();
+    buffer_desc.Width = g_hmd_window_width;
+    buffer_desc.Height = g_hmd_window_height;
     // Hydra's g_is_direct_mode logic might be relevant here if companion window needs specific sizing in direct mode.
   }
   else

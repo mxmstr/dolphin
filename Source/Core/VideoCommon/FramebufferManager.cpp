@@ -311,7 +311,7 @@ bool FramebufferManager::CreateEFBFramebuffer()
     TextureConfig vr_eye_texture_config =
         TextureConfig(width, height, 1, 1, // Each eye texture is a single layer
                       g_ActiveConfig.iMultisamples, GetEFBColorFormat(),
-                      AbstractTextureFlag_RenderTarget | AbstractTextureFlag_ShaderResource,
+                      AbstractTextureFlag_RenderTarget,// | AbstractTextureFlag_ShaderResource,
                       AbstractTextureType::Texture_2D); // Not Texture_2DArray
 
     if (g_gfx) // Ensure g_gfx is available

@@ -100,6 +100,8 @@ const int DEFAULT_VR_EXTRA_VIDEO_LOOPS_DIVIDER = 0;
 #define VIVE_SPECIAL_BOTTOMLEFT 0x40000
 #define VIVE_SPECIAL_BOTTOMRIGHT 0x80000
 
+#define HAVE_OPENVR
+
 extern const char* scm_vr_sdk_str;
 
 #include <atomic>
