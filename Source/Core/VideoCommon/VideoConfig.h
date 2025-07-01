@@ -472,7 +472,7 @@ struct VideoConfig final
   float fHudDespPosition0;
   float fHudDespPosition1;
   float fHudDespPosition2;
-  Matrix33 matrixHudrot; // Matrix33 will need to be defined or replaced with an equivalent
+  Common::Matrix33 matrixHudrot; // Matrix33 will need to be defined or replaced with an equivalent
 
   u32 iCameraMinPoly;
   bool bDisable3D;

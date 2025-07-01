@@ -89,12 +89,12 @@ bool CalculateViewMatrix(int kind, Common::Matrix44& look_matrix)
       Common::Matrix44::LoadIdentity(rotation_matrix);
     }
 
-    Common::Matrix33 pitch_Common::Matrix33;
+    Common::Matrix33 pitch_matrix33;
 
     // leaning back
     float extra_pitch = -g_ActiveConfig.fLeanBackAngle;
-    Common::Matrix33::RotateX(pitch_Common::Matrix33, -DEGREES_TO_RADIANS(extra_pitch));
-    lean_back_matrix = pitch_Common::Matrix33;
+    Common::Matrix33::RotateX(pitch_matrix33, -DEGREES_TO_RADIANS(extra_pitch));
+    lean_back_matrix = pitch_matrix33;
 
     // camera pitch
     if ((g_ActiveConfig.bStabilizePitch || g_ActiveConfig.bStabilizeRoll ||
@@ -111,8 +111,8 @@ bool CalculateViewMatrix(int kind, Common::Matrix44& look_matrix)
           extra_pitch = g_ActiveConfig.fCameraPitch;
         else
           extra_pitch = g_ActiveConfig.fScreenPitch;
-        Common::Matrix33::RotateX(pitch_Common::Matrix33, -DEGREES_TO_RADIANS(extra_pitch));
-        user_pitch44 = pitch_Common::Matrix33;
+        Common::Matrix33::RotateX(pitch_matrix33, -DEGREES_TO_RADIANS(extra_pitch));
+        user_pitch44 = pitch_matrix33;
         roll_and_yaw_matrix = g_game_camera_rotmat;
         camera_pitch_matrix = user_pitch44 * roll_and_yaw_matrix;
       }
@@ -127,8 +127,8 @@ bool CalculateViewMatrix(int kind, Common::Matrix44& look_matrix)
         extra_pitch = g_ActiveConfig.fCameraPitch;
       else
         extra_pitch = g_ActiveConfig.fScreenPitch;
-      Common::Matrix33::RotateX(pitch_Common::Matrix33, -DEGREES_TO_RADIANS(extra_pitch));
-      camera_pitch_matrix = pitch_Common::Matrix33;
+      Common::Matrix33::RotateX(pitch_matrix33, -DEGREES_TO_RADIANS(extra_pitch));
+      camera_pitch_matrix = pitch_matrix33;
     }
   }
 
@@ -530,12 +530,12 @@ bool CalculateTrackingSpaceToViewSpaceMatrix(int kind, Common::Matrix44& look_ma
     // no head tracking
     Common::Matrix44::LoadIdentity(rotation_matrix);
 
-    Common::Matrix33 pitch_Common::Matrix33;
+    Common::Matrix33 pitch_matrix33;
 
     // leaning back
     float extra_pitch = -g_ActiveConfig.fLeanBackAngle;
-    Common::Matrix33::RotateX(pitch_Common::Matrix33, -DEGREES_TO_RADIANS(extra_pitch));
-    lean_back_matrix = pitch_Common::Matrix33;
+    Common::Matrix33::RotateX(pitch_matrix33, -DEGREES_TO_RADIANS(extra_pitch));
+    lean_back_matrix = pitch_matrix33;
 
     // camera pitch
     if ((g_ActiveConfig.bStabilizePitch || g_ActiveConfig.bStabilizeRoll ||
@@ -552,8 +552,8 @@ bool CalculateTrackingSpaceToViewSpaceMatrix(int kind, Common::Matrix44& look_ma
           extra_pitch = g_ActiveConfig.fCameraPitch;
         else
           extra_pitch = g_ActiveConfig.fScreenPitch;
-        Common::Matrix33::RotateX(pitch_Common::Matrix33, -DEGREES_TO_RADIANS(extra_pitch));
-        user_pitch44 = pitch_Common::Matrix33;
+        Common::Matrix33::RotateX(pitch_matrix33, -DEGREES_TO_RADIANS(extra_pitch));
+        user_pitch44 = pitch_matrix33;
         roll_and_yaw_matrix = g_game_camera_rotmat;
         camera_pitch_matrix = user_pitch44 * roll_and_yaw_matrix;
       }
@@ -568,8 +568,8 @@ bool CalculateTrackingSpaceToViewSpaceMatrix(int kind, Common::Matrix44& look_ma
         extra_pitch = g_ActiveConfig.fCameraPitch;
       else
         extra_pitch = g_ActiveConfig.fScreenPitch;
-      Common::Matrix33::RotateX(pitch_Common::Matrix33, -DEGREES_TO_RADIANS(extra_pitch));
-      camera_pitch_matrix = pitch_Common::Matrix33;
+      Common::Matrix33::RotateX(pitch_matrix33, -DEGREES_TO_RADIANS(extra_pitch));
+      camera_pitch_matrix = pitch_matrix33;
     }
   }
 

@@ -69,14 +69,14 @@ public:
   bool dirty = false;
 
   // View manipulation members (from Hydra's static globals, now instance members)
-  Matrix33 m_viewRotationMatrix;
-  Matrix33 m_viewInvRotationMatrix;
+  Common::Matrix33 m_viewRotationMatrix;
+  Common::Matrix33 m_viewInvRotationMatrix;
   float m_viewTranslationVector[3];
   float m_viewRotation[2]; // Yaw, Pitch for free look
-  Matrix44 m_gameProjectionMatrix;      // Game's original projection matrix
-  Matrix44 m_viewportCorrectionMatrix;  // For viewport adjustments
-  Matrix44 m_vrTotalMatrix;             // Final VR matrix sent to shader (can be one eye's)
-  Matrix44 m_stabilizedGameCameraRot;
+  Common::Matrix44 m_gameProjectionMatrix;      // Game's original projection matrix
+  Common::Matrix44 m_viewportCorrectionMatrix;  // For viewport adjustments
+  Common::Matrix44 m_vrTotalMatrix;             // Final VR matrix sent to shader (can be one eye's)
+  Common::Matrix44 m_stabilizedGameCameraRot;
   float m_stabilizedGameCameraPos[3];
   bool m_had_skybox_locked = false;
   float m_locked_skybox_matrix[12]; // 3x4 matrix for skybox
