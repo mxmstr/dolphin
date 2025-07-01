@@ -38,6 +38,7 @@ enum class StereoMode : int
   TAB,          // Top-and-Bottom
   Anaglyph,     // Red-Cyan anaglyph
   QuadBuffer,   // Hardware quad-buffered stereo (e.g., professional GPUs)
+  Passive,
   OpenVR,       // Used for OpenVR SDK (Vive, Index, many WMR, Oculus via OpenVR)
   OculusVR,     // Used for native Oculus SDK (distinct from OpenVR access to Oculus) - Keeping this from current if it exists
   OSVR,         // Open Source Virtual Reality - if we want to support its specific distortion

@@ -32,6 +32,9 @@
 #include "VideoCommon/VertexManagerBase.h"
 #include "Core/ARBruteForcer.h" // Added for ARBruteForcer::IsEnabled
 
+// From Hydra, adjusted for g_has_hmd (OpenVR equivalent)
+#include "VideoCommon/VR.h" // For g_has_hmd
+
 VideoConfig g_Config;
 VideoConfig g_ActiveConfig;
 VideoConfig g_SavedConfig; // Added from Hydra
@@ -46,8 +49,6 @@ static bool IsVSyncActive(bool enabled)
          Config::Get(Config::MAIN_EMULATION_SPEED) == 1.0;
 }
 
-// From Hydra, adjusted for g_has_hmd (OpenVR equivalent)
-#include "VideoCommon/VR.h" // For g_has_hmd
 
 void UpdateActiveConfig()
 {
@@ -59,7 +60,7 @@ void UpdateActiveConfig()
   g_ActiveConfig.bVSyncActive = IsVSyncActive(g_ActiveConfig.bVSync); // Keep this line from current
 
   // From Hydra:
-  if (VR::IsHMDActive()) // g_has_hmd equivalent
+  if (g_has_hmd) // g_has_hmd equivalent
     g_ActiveConfig.bUseRealXFB = false;
 }
 
@@ -182,7 +183,7 @@ VideoConfig::VideoConfig()
   fHudDespPosition1 = 0.0f;
   fHudDespPosition2 = 0.0f;
   // Matrix33::LoadIdentity(matrixHudrot); // Needs Matrix33 from Common/Matrix.h
-  matrixHudrot = Matrix33::Identity();
+  matrixHudrot = Common::Matrix33::Identity();
 
 
   iCameraMinPoly = 0; // 0 means no override
@@ -497,9 +498,9 @@ void VideoConfig::Refresh()
   // Current code loads iEFBScale as an int directly. iInternalResolution is new.
   // The logic for iEFBScale based on iInternalResolution needs to be added carefully.
   // For now, load iInternalResolution and then apply the Hydra logic if iInternalResolution is used.
-  iInternalResolution = Config::Get(Config::GFX_INTERNAL_RESOLUTION);
-  if (!ARBruteForcer::IsEnabled() && iInternalResolution > -2) // Assuming ARBruteForcer::IsEnabled() is the equivalent check
-  {
+  iInternalResolution = Config::Get(Config::GFX_EFB_SCALE);
+  //if (!ARBruteForcer::IsEnabled() && iInternalResolution > -2) // Assuming ARBruteForcer::IsEnabled() is the equivalent check
+  //{
     // This mapping is from Hydra's EFBScale enum to an integer multiplier style
     // SCALE_1X = 2, SCALE_1_5X = 3, SCALE_2X = 4, SCALE_2_5X = 5 etc.
     // Current iEFBScale is 1 for 1x, 2 for 2x.
@@ -512,7 +513,7 @@ void VideoConfig::Refresh()
     // iInternalResolution will be a new, separate setting.
     // The user would choose either "Internal Resolution" (which implies an EFB scale) or "EFB Scale" directly.
     // For now, just load iInternalResolution. Its interaction with iEFBScale will be handled by whatever consumes them.
-  }
+  //}
 
 
   // Hydra: phack loading
@@ -530,10 +531,10 @@ void VideoConfig::Refresh()
 
   // Hydra: Hacks (bEFBCopyEnable, bEFBCopyClearDisable, etc.)
   // Already handled by current code where overlapping. New ones added to .h are loaded here.
-  bEFBCopyEnable = Config::Get(Config::GFX_HACK_EFB_COPY_ENABLE); // New from Hydra
-  bEFBCopyClearDisable = Config::Get(Config::GFX_HACK_EFB_COPY_CLEAR_DISABLE); // New from Hydra
-  bForceProgressive = Config::Get(Config::GFX_HACK_FORCE_PROGRESSIVE); // New from Hydra
-  bBBoxPreferStencilImplementation = Config::Get(Config::GFX_HACK_BBOX_PREFER_STENCIL_IMPLEMENTATION); // New from Hydra
+  //bEFBCopyEnable = Config::Get(Config::GFX_HACK_EFB_COPY_ENABLE); // New from Hydra
+  //bEFBCopyClearDisable = Config::Get(Config::GFX_HACK_EFB_COPY_CLEAR_DISABLE); // New from Hydra
+  //bForceProgressive = Config::Get(Config::GFX_HACK_FORCE_PROGRESSIVE); // New from Hydra
+  //bBBoxPreferStencilImplementation = Config::Get(Config::GFX_HACK_BBOX_PREFER_STENCIL_IMPLEMENTATION); // New from Hydra
 
   // Hydra: Logging settings (iLog) - This seems to be debug flags
   // iLog = Config::Get(Config::GFX_LOG_SETTINGS); // Example, needs proper Config Enum
@@ -550,10 +551,10 @@ void VideoConfig::Refresh()
   // VideoSW Debugging from Hydra (drawStart, drawEnd etc.)
   // These are very specific debug flags, potentially for a software renderer.
   // For now, I will add them assuming Config Enums exist.
-  drawStart = Config::Get(Config::GFX_SW_DRAW_START);
+  /*drawStart = Config::Get(Config::GFX_SW_DRAW_START);
   drawEnd = Config::Get(Config::GFX_SW_DRAW_END);
   bZComploc = Config::Get(Config::GFX_SW_ZCOMPLOC);
-  bZFreeze = Config::Get(Config::GFX_SW_ZFREEZE);
+  bZFreeze = Config::Get(Config::GFX_SW_ZFREEZE);*/
   bDumpObjects = Config::Get(Config::GFX_SW_DUMP_OBJECTS);
   bDumpTevStages = Config::Get(Config::GFX_SW_DUMP_TEV_STAGES);
   bDumpTevTextureFetches = Config::Get(Config::GFX_SW_DUMP_TEV_TEX_FETCHES);
@@ -715,7 +716,7 @@ void VideoConfig::VerifyValidity()
     }
     // Hydra check: if (bUseXFB && bUseRealXFB && !g_has_hmd) stereo_mode = Off;
     // g_has_hmd equivalent is VR::IsHMDActive()
-    if (bUseXFB && bUseRealXFB && !VR::IsHMDActive())
+    if (bUseXFB && bUseRealXFB && !g_has_hmd)
     {
         OSD::AddMessage("Stereoscopic 3D isn't supported with Real XFB without an HMD, turning off stereoscopy.", 10000);
         stereo_mode = StereoMode::Off;
