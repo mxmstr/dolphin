@@ -98,6 +98,8 @@ ShaderCode GenerateGeometryShaderCode(APIType api_type, const ShaderHostConfig& 
     out.Write("cbuffer GSBlock {{\n");
 
   out.Write("{}", s_geometry_shader_uniforms);
+  // Added for VR stereo rendering params
+  out.Write("\tfloat4 stereoparams;\n");
   out.Write("}};\n");
 
   out.Write("struct VS_OUTPUT {{\n");
@@ -231,15 +233,29 @@ ShaderCode GenerateGeometryShaderCode(APIType api_type, const ShaderHostConfig& 
 
   if (stereo)
   {
-    // For stereoscopy add a small horizontal offset in Normalized Device Coordinates proportional
-    // to the depth of the vertex. We retrieve the depth value from the w-component of the projected
-    // vertex which contains the negated z-component of the original vertex.
-    // For negative parallax (out-of-screen effects) we subtract a convergence value from
-    // the depth value. This results in objects at a distance smaller than the convergence
-    // distance to seemingly appear in front of the screen.
-    // This formula is based on page 13 of the "Nvidia 3D Vision Automatic, Best Practices Guide"
-    out.Write("\tfloat hoffset = (eye == 0) ? " I_STEREOPARAMS ".x : " I_STEREOPARAMS ".y;\n");
-    out.Write("\tf.pos.x += hoffset * (f.pos.w - " I_STEREOPARAMS ".z);\n");
+    // For stereoscopy add a small horizontal offset in Normalized Device Coordinates.
+    // The 'stereoparams' uniform (previously I_STEREOPARAMS) is expected to be set up by VertexShaderManager.
+    // .x = left eye offset, .y = right eye offset, .z = convergence plane factor (or world scale factor).
+    // .w could be unused or for other VR parameters.
+    // The exact formula for applying these offsets will depend on how VertexShaderManager calculates them for OpenVR.
+    // The Hydra code had two paths, one for general stereo and one for specific VR (Oculus).
+    // We'll adapt the general stereo path first.
+    // f.pos.w is typically 1/original_w or original_z depending on projection.
+    // If f.pos.w is 1/original_w_clip, then (f.pos.w - convergence) is not directly depth.
+    // A common approach is: f.pos.x += eye_offset * f.pos.w; (if offsets are pre-divided by w)
+    // Or: f.pos.x += eye_offset; (if offsets are already in NDC screen space)
+    // Or, like Hydra: f.pos.x += (eye == 0 ? stereoparams.x : stereoparams.y) * (f.pos.w - stereoparams.z);
+    // Let's assume stereoparams.x is left offset, .y is right offset, .z is convergence.
+    // This is a simplified application for now; VertexShaderManager will handle the precise calculation.
+    out.Write("\tfloat eye_offset = (eye == 0) ? stereoparams.x : stereoparams.y;\n");
+    // The term (f.pos.w - stereoparams.z) was used in Hydra for depth modulation.
+    // A simpler approach often used is to apply the offset directly if it's already scaled,
+    // or scale it by f.pos.w if it's a world-space offset that needs perspective division.
+    // Given that stereoparams will be calculated by VSM, let's assume it provides values
+    // that can be applied like this for now. This part might need refinement once VSM is integrated.
+    out.Write("\tf.pos.x += eye_offset * f.pos.w; // Simplified, review with VSM integration\n");
+    // Hydra's more complex version for reference:
+    // out.Write("\tf.pos.x += eye_offset * (f.pos.w - stereoparams.z);\n");
   }
 
   if (primitive_type == PrimitiveType::Lines)

@@ -160,7 +160,7 @@ void SetGenerationMode();
 void SetScissorAndViewport();
 void SetDepthMode();
 void SetBlendMode();
-void ClearScreen(const MathUtil::Rectangle<int>& rc);
+void ClearScreen(const MathUtil::Rectangle<int>& rc, bool new_frame_just_rendered); // Added new_frame_just_rendered
 void OnPixelFormatChange();
 void SetInterlacingMode(const BPCmd& bp);
 }  // namespace BPFunctions

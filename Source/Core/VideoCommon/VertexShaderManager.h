@@ -12,15 +12,38 @@
 #include "Common/Matrix.h"
 #include "VideoCommon/ConstantManager.h"
 #include "VideoCommon/NativeVertexFormat.h"
+#include "VideoCommon/VideoCommon.h" // For EFBRectangle (if used, or MathUtil::Rectangle)
 
 class PointerWrap;
 struct PortableVertexDeclaration;
 class XFStateManager;
 
+// From Hydra
+enum ViewportType
+{
+  VIEW_FULLSCREEN = 0,
+  VIEW_LETTERBOXED,
+  VIEW_HUD_ELEMENT,
+  VIEW_SKYBOX,
+  VIEW_PLAYER_1,
+  VIEW_PLAYER_2,
+  VIEW_PLAYER_3,
+  VIEW_PLAYER_4,
+  VIEW_OFFSCREEN,
+  VIEW_RENDER_TO_TEXTURE,
+};
+// extern enum ViewportType g_viewport_type; // Now member
+// extern enum ViewportType g_old_viewport_type; // Now member
+// extern bool g_is_skybox; // Now member
+
 // The non-API dependent parts.
 class alignas(16) VertexShaderManager
 {
 public:
+  ViewportType m_viewport_type = VIEW_FULLSCREEN;
+  ViewportType m_old_viewport_type = VIEW_FULLSCREEN;
+  bool m_is_skybox = false;
+
   void Init();
   void DoState(PointerWrap& p);
 
@@ -37,7 +60,56 @@ public:
   static bool UseVertexDepthRange();
 
   VertexShaderConstants constants{};
+  // From Hydra: (or equivalents will be needed)
+  // static std::vector<VertexShaderConstants> constants_replay; // For opcode replay
+  float4 eye_projection_left[4];  // Store left eye projection
+  float4 eye_projection_right[4]; // Store right eye projection
+  // float4 stereoparams_for_gs; // To be set for Geometry Shader
+
   bool dirty = false;
+
+  // View manipulation members (from Hydra's static globals, now instance members)
+  Common::Matrix33 m_viewRotationMatrix;
+  Common::Matrix33 m_viewInvRotationMatrix;
+  float m_viewTranslationVector[3];
+  float m_viewRotation[2]; // Yaw, Pitch for free look
+  Common::Matrix44 m_gameProjectionMatrix;      // Game's original projection matrix
+  Common::Matrix44 m_viewportCorrectionMatrix;  // For viewport adjustments
+  Common::Matrix44 m_vrTotalMatrix;             // Final VR matrix sent to shader (can be one eye's)
+  Common::Matrix44 m_stabilizedGameCameraRot;
+  float m_stabilizedGameCameraPos[3];
+  bool m_had_skybox_locked = false;
+  float m_locked_skybox_matrix[12]; // 3x4 matrix for skybox
+
+  // VR state tracking
+  bool m_layer_on_top = false; // from Hydra
+
+  // Change tracking (simplified for now, will rely on XFStateManager mostly)
+  // bool m_bTexMatricesChanged[2];
+  // bool m_bPosNormalMatrixChanged;
+  // bool m_bProjectionChanged;
+  // bool m_bViewportChanged;
+
+
+  // New methods from Hydra (adapted to be non-static for now)
+  void SetProjectionConstants();
+  void SetViewportConstants();
+  void CheckOrientationConstants();
+  void CheckSkybox();
+  void LockSkybox();
+
+  // void InvalidateXFRange(int start, int end); // XFStateManager handles this
+  // void SetTexMatrixChangedA(u32 value); // XFStateManager
+  // void SetTexMatrixChangedB(u32 value); // XFStateManager
+  void SetViewportChanged(); // To signal internal changes
+  void SetProjectionChanged(); // To signal internal changes
+  // void SetMaterialColorChanged(int index); // XFStateManager
+
+  void TranslateView(float left_metres, float forward_metres, float down_metres = 0.0f);
+  void RotateView(float x, float y);
+  void ScaleView(float scale);
+  void ResetView();
+
 
   static DOLPHIN_FORCE_INLINE void UpdateValue(bool* dirty, u32* old_value, u32 new_value)
   {
@@ -84,5 +156,18 @@ private:
   // track changes
   bool m_projection_graphics_mod_change = false;
 
-  Common::Matrix44 LoadProjectionMatrix();
+  Common::Matrix44 LoadProjectionMatrix(); // This might become LoadStandardProjectionMatrix or be part of VR pipeline
+
+  // VR related helpers
+  void ClassifyCurrentDrawCall(XFStateManager& xf_state_manager);
+  bool IsConsideredHUD(ViewportType type) const;
+  Common::Matrix44 LoadGameProjectionMatrix(XFStateManager& xf_state_manager);
+
+  void ApplySkyboxTransformations();
+  void ApplyHUDTransformations();
+  void ApplyWorldTransformations();
+
+  Common::Matrix44 GetCurrentViewMatrix(); // Helper to get current game view matrix
+  void CalculateStereoProjections(const Common::Matrix44& base_projection);
+  void UpdateStereoParamsGS(); // To set stereoparams for geometry shader
 };

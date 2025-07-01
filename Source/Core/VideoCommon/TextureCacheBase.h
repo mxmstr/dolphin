@@ -285,9 +285,10 @@ public:
   virtual void BindTextures(BitSet32 used_textures, const std::array<SamplerState, 8>& samplers);
   void CopyRenderTargetToTexture(u32 dstAddr, EFBCopyFormat dstFormat, u32 width, u32 height,
                                  u32 dstStride, bool is_depth_copy,
-                                 const MathUtil::Rectangle<int>& srcRect, bool isIntensity,
-                                 bool scaleByHalf, float y_scale, float gamma, bool clamp_top,
-                                 bool clamp_bottom,
+                                 const MathUtil::Rectangle<int>& gameSrcRect, // Added from Hydra
+                                 const MathUtil::Rectangle<int>& ourSrcRect, // Renamed from srcRect, effectively from Hydra
+                                 bool isIntensity, bool scaleByHalf, float y_scale, float gamma,
+                                 bool clamp_top, bool clamp_bottom,
                                  const CopyFilterCoefficients::Values& filter_coefficients);
 
   void ScaleTextureCacheEntryTo(RcTcacheEntry& entry, u32 new_width, u32 new_height);
@@ -325,13 +326,16 @@ protected:
 
   virtual void CopyEFB(AbstractStagingTexture* dst, const EFBCopyParams& params, u32 native_width,
                        u32 bytes_per_row, u32 num_blocks_y, u32 memory_stride,
-                       const MathUtil::Rectangle<int>& src_rect, bool scale_by_half,
-                       bool linear_filter, float y_scale, float gamma, bool clamp_top,
-                       bool clamp_bottom, const std::array<u32, 3>& filter_coefficients);
+                       const MathUtil::Rectangle<int>& game_src_rect, // Added from Hydra
+                       const MathUtil::Rectangle<int>& our_src_rect, // Renamed from src_rect
+                       bool scale_by_half, bool linear_filter, float y_scale, float gamma,
+                       bool clamp_top, bool clamp_bottom,
+                       const std::array<u32, 3>& filter_coefficients);
   virtual void CopyEFBToCacheEntry(RcTcacheEntry& entry, bool is_depth_copy,
-                                   const MathUtil::Rectangle<int>& src_rect, bool scale_by_half,
-                                   bool linear_filter, EFBCopyFormat dst_format, bool is_intensity,
-                                   float gamma, bool clamp_top, bool clamp_bottom,
+                                   const MathUtil::Rectangle<int>& game_src_rect, // Added from Hydra
+                                   const MathUtil::Rectangle<int>& our_src_rect, // Renamed from src_rect
+                                   bool scale_by_half, bool linear_filter, EFBCopyFormat dst_format,
+                                   bool is_intensity, float gamma, bool clamp_top, bool clamp_bottom,
                                    const std::array<u32, 3>& filter_coefficients);
 
   alignas(16) u8* m_temp = nullptr;

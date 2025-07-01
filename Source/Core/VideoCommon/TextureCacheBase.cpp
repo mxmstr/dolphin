@@ -2170,10 +2170,14 @@ bool TextureCacheBase::CopyFilterCanOverflow(const std::array<u32, 3>& coefficie
 
 void TextureCacheBase::CopyRenderTargetToTexture(
     u32 dstAddr, EFBCopyFormat dstFormat, u32 width, u32 height, u32 dstStride, bool is_depth_copy,
-    const MathUtil::Rectangle<int>& srcRect, bool isIntensity, bool scaleByHalf, float y_scale,
-    float gamma, bool clamp_top, bool clamp_bottom,
-    const CopyFilterCoefficients::Values& filter_coefficients)
+    const MathUtil::Rectangle<int>& gameSrcRect, // New parameter
+    const MathUtil::Rectangle<int>& ourSrcRect, // Was srcRect
+    bool isIntensity, bool scaleByHalf, float y_scale, float gamma, bool clamp_top,
+    bool clamp_bottom, const CopyFilterCoefficients::Values& filter_coefficients)
 {
+  // width and height parameters are from gameSrcRect.GetWidth() and gameSrcRect.GetHeight()
+  // ourSrcRect dictates the actual area to copy from EFB.
+
   // Emulation methods:
   //
   // - EFB to RAM:
@@ -2367,7 +2371,8 @@ void TextureCacheBase::CopyRenderTargetToTexture(
       entry->may_have_overlapping_textures = false;
       entry->is_custom_tex = false;
 
-      CopyEFBToCacheEntry(entry, is_depth_copy, srcRect, scaleByHalf, linear_filter, dstFormat,
+      // Use ourSrcRect for the actual EFB source area
+      CopyEFBToCacheEntry(entry, is_depth_copy, gameSrcRect, ourSrcRect, scaleByHalf, linear_filter, dstFormat,
                           isIntensity, gamma, clamp_top, clamp_bottom,
                           GetVRAMCopyFilterCoefficients(filter_coefficients));
 
@@ -2418,7 +2423,8 @@ void TextureCacheBase::CopyRenderTargetToTexture(
     std::unique_ptr<AbstractStagingTexture> staging_texture = GetEFBCopyStagingTexture();
     if (staging_texture)
     {
-      CopyEFB(staging_texture.get(), format, tex_w, bytes_per_row, num_blocks_y, dstStride, srcRect,
+      // Use ourSrcRect for the actual EFB source area
+      CopyEFB(staging_texture.get(), format, tex_w, bytes_per_row, num_blocks_y, dstStride, gameSrcRect, ourSrcRect,
               scaleByHalf, linear_filter, y_scale, gamma, clamp_top, clamp_bottom, coefficients);
 
       // We can't defer if there is no VRAM copy (since we need to update the hash).

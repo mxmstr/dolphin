@@ -19,6 +19,7 @@
 #include "Core/FifoPlayer/FifoRecorder.h"
 #include "Core/HW/Memmap.h"
 #include "Core/System.h"
+#include "Core/Config/MainSettings.h" // Added for GPUDeterminismMode
 #include "VideoCommon/BPMemory.h"
 #include "VideoCommon/CPMemory.h"
 #include "VideoCommon/CommandProcessor.h"
@@ -30,10 +31,21 @@
 #include "VideoCommon/XFMemory.h"
 #include "VideoCommon/XFStateManager.h"
 #include "VideoCommon/XFStructs.h"
+#include "VideoCommon/VideoConfig.h" // Added for g_ActiveConfig
+#include "VideoCommon/VR.h"         // For Opcode Replay globals (assuming they land here)
 
 namespace OpcodeDecoder
 {
 bool g_record_fifo_data = false;
+
+// Opcode Replay global variables (mirroring VR-Hydra-Reference/VR.h and OpcodeDecoding.cpp)
+// These should ideally be declared in VR.h and externed here, or accessed via VR::Get...()
+std::vector<TimewarpLogEntry> timewarp_logentries;
+bool g_opcode_replay_enabled = false;
+bool g_opcode_replay_frame = false;     // True if the current frame is being replayed from log
+bool g_opcode_replay_log_frame = false; // True if the current original frame should be logged
+int skipped_opcode_replay_count = 0;    // Counter for frame skipping logic with replay
+static bool s_bFifoErrorSeen = false; // For unknown opcode warnings
 
 template <bool is_preprocess>
 class RunCallback final : public Callback
@@ -164,7 +176,8 @@ public:
 
         if (start_address != nullptr)
         {
-          Run(start_address, size, *this);
+          // Called from DL, so is_outer_call = false
+          Run<is_preprocess>(start_address, size, *this, false);
         }
       }
       else
@@ -187,8 +200,8 @@ public:
         {
           // temporarily swap dl and non-dl (small "hack" for the stats)
           g_stats.SwapDL();
-
-          Run(start_address, size, *this);
+          // Called from DL, so is_outer_call = false
+          Run<false>(start_address, size, *this, false);
           INCSTAT(g_stats.this_frame.num_dlists_called);
 
           // un-swap
@@ -219,8 +232,17 @@ public:
     }
     else
     {
-      auto& system = Core::System::GetInstance();
-      system.GetCommandProcessor().HandleUnknownOpcode(opcode, data, is_preprocess);
+      // From Hydra:
+      if (!s_bFifoErrorSeen && !g_ActiveConfig.bOpcodeWarningDisable)
+      {
+        auto& system = Core::System::GetInstance();
+        // Current HandleUnknownOpcode doesn't take the extra bools from Hydra.
+        // (g_opcode_replay_frame, m_in_display_list, is_outer_call_equivalent?)
+        system.GetCommandProcessor().HandleUnknownOpcode(opcode, data, is_preprocess);
+      }
+      ERROR_LOG(VIDEO, "FIFO: Unknown Opcode(0x%02x @ %p, preprocessing = %s, in_dl = %s)",
+                opcode, data, is_preprocess ? "yes" : "no", m_in_display_list ? "yes" : "no");
+      s_bFifoErrorSeen = true;
       m_cycles += 1;
     }
   }
@@ -262,7 +284,8 @@ u8* RunFifo(DataReader src, u32* cycles)
 {
   using CallbackT = RunCallback<is_preprocess>;
   auto callback = CallbackT{};
-  u32 size = Run(src.GetPointer(), static_cast<u32>(src.size()), callback);
+  // This is the outermost call for a FIFO stream, so is_outer_call = true
+  u32 size = Run<is_preprocess>(src.GetPointer(), static_cast<u32>(src.size()), callback, true);
 
   if (cycles != nullptr)
     *cycles = callback.m_cycles;
@@ -273,5 +296,39 @@ u8* RunFifo(DataReader src, u32* cycles)
 
 template u8* RunFifo<true>(DataReader src, u32* cycles);
 template u8* RunFifo<false>(DataReader src, u32* cycles);
+
+void Init()
+{
+  // Logic from Hydra's OpcodeDecoder::Init()
+  // SConfig dependency needs to be resolved - assuming g_Config can provide GPUDeterminismMode indirectly or directly
+  // For now, using a placeholder for SConfig::GetInstance().m_GPUDeterminismMode
+  // bool isFakeCompletion = false; // Placeholder for SConfig::GetInstance().m_GPUDeterminismMode == GPU_DETERMINISM_FAKE_COMPLETION
+  // g_has_hmd needs to be VR::IsHMDActive() or similar
+
+  // TODO: Resolve SConfig::GetInstance().m_GPUDeterminismMode access.
+  // This setting is in Core/Config/MainSettings.h (MAIN_GPU_DETERMINISM_MODE)
+  // and can be accessed via Config::Get(Config::MAIN_GPU_DETERMINISM_MODE)
+  // However, GPU_DETERMINISM_FAKE_COMPLETION is an enum value from Core/Config/MainSettings.h.
+  // We need to compare the result of Config::Get with that enum value.
+  bool isFakeCompletion = (Config::Get(Config::MAIN_GPU_DETERMINISM_MODE) == Config::GPUDeterminismMode::FakeCompletion);
+
+  g_opcode_replay_enabled = g_ActiveConfig.bOpcodeReplay && !isFakeCompletion && VR::IsHMDActive();
+  g_opcode_replay_frame = false;
+  g_opcode_replay_log_frame = false;
+  s_bFifoErrorSeen = false;
+  skipped_opcode_replay_count = 0; // Ensure this is reset too.
+}
+
+void Shutdown()
+{
+  // Logic from Hydra's OpcodeDecoder::Shutdown()
+  if (VR::IsHMDActive()) // Or appropriate check if an HMD was ever active for this session
+  {
+    g_opcode_replay_frame = false;
+    g_opcode_replay_log_frame = false;
+    timewarp_logentries.clear();
+    // timewarp_logentries.shrink_to_fit(); // Optional: reduce capacity
+  }
+}
 
 }  // namespace OpcodeDecoder

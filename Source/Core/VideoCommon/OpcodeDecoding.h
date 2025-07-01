@@ -11,10 +11,14 @@
 #include "Common/Inline.h"
 #include "Common/Swap.h"
 #include "VideoCommon/CPMemory.h"
+#include "VideoCommon/DataReader.h" // For DataReader in TimewarpLogEntry
+#include "VideoCommon/VR.h"         // For TimewarpLogEntry, g_opcode_replay_log_frame etc.
+#include "VideoCommon/VideoConfig.h"// For g_ActiveConfig
 #include "VideoCommon/VertexLoaderBase.h"
 
+
 struct CPState;
-class DataReader;
+// class DataReader; // Now included via DataReader.h
 
 namespace OpcodeDecoder
 {
@@ -249,24 +253,48 @@ static DOLPHIN_FORCE_INLINE u32 RunCommand(const u8* data, u32 available, T& cal
 }
 }  // namespace detail
 
-template <typename T, typename = std::enable_if_t<std::is_base_of_v<Callback, T>>>
-DOLPHIN_FORCE_INLINE u32 RunCommand(const u8* data, u32 available, T& callback)
+// Forward declare Run so RunCommand can know about its template args if needed by T
+template <bool is_preprocess_param, typename T>
+DOLPHIN_FORCE_INLINE u32 Run(const u8* data, u32 available, T& callback, bool is_outer_call);
+
+
+template <bool is_preprocess_param, typename T, typename = std::enable_if_t<std::is_base_of_v<Callback, T>>>
+DOLPHIN_FORCE_INLINE u32 RunCommand(const u8* data, u32 available, T& callback, bool /*is_outer_call_for_logging_context -- not used here anymore */)
 {
+  // 'is_preprocess_param' is now available here.
   const u32 size = detail::RunCommand(data, available, callback);
   if (size > 0)
   {
+    // Logging decision is now primarily in OpcodeDecoder::Run, not per-command.
+    // This RunCommand is now mostly a dispatcher.
     callback.OnCommand(data, size);
   }
   return size;
 }
 
-template <typename T, typename = std::enable_if_t<std::is_base_of_v<Callback, T>>>
-DOLPHIN_FORCE_INLINE u32 Run(const u8* data, u32 available, T& callback)
+template <bool is_preprocess_param, typename T, typename = std::enable_if_t<std::is_base_of_v<Callback, T>>>
+DOLPHIN_FORCE_INLINE u32 Run(const u8* data, u32 available, T& callback, bool is_outer_call)
 {
+  // Opcode Logging Logic from Hydra, placed at the start of processing a stream (either FIFO or DL)
+  if (is_outer_call && // Only log if it's an outer call (not inside a DL that was itself logged as part of a stream)
+      g_opcode_replay_log_frame && !g_opcode_replay_frame &&
+      skipped_opcode_replay_count >= static_cast<int>(g_ActiveConfig.iExtraVideoLoopsDivider))
+  {
+    // Construct a DataReader for the *entire current stream* being processed by this Run call.
+    // This matches Hydra's TimewarpLogEntry{src, is_preprocess}
+    // where 'src' was the DataReader for the whole fifo/DL chunk.
+    DataReader current_stream_reader(data, data + available);
+    timewarp_logentries.push_back(TimewarpLogEntry{current_stream_reader, is_preprocess_param});
+
+    // Hydra also had some commented out logging for CP registers and VertexManager pointers here.
+    // These can be added if necessary for debugging.
+  }
+
   u32 size = 0;
   while (size < available)
   {
-    const u32 command_size = RunCommand(&data[size], available - size, callback);
+    // Pass is_preprocess_param. The is_outer_call is not strictly needed by RunCommand if logging is only in Run.
+    const u32 command_size = RunCommand<is_preprocess_param>(&data[size], available - size, callback, is_outer_call);
     if (command_size == 0)
       break;
     size += command_size;
@@ -275,7 +303,22 @@ DOLPHIN_FORCE_INLINE u32 Run(const u8* data, u32 available, T& callback)
 }
 
 template <bool is_preprocess = false>
-u8* RunFifo(DataReader src, u32* cycles);
+u8* RunFifo(DataReader src, u32* cycles)
+{
+  using CallbackT = RunCallback<is_preprocess>;
+  auto callback = CallbackT{};
+  // Pass 'is_preprocess' to Run
+  u32 size_processed = Run<is_preprocess>(src.GetPointer(), static_cast<u32>(src.size()), callback);
+
+  if (cycles != nullptr)
+    *cycles = callback.m_cycles;
+
+  // src.Skip(size_processed); // This was how RunFifo updated src before, but Run now returns total size
+  return src.GetPointer() + size_processed; // Correctly return pointer after processed data
+}
+
+void Init();    // Added from Hydra
+void Shutdown(); // Added from Hydra
 
 }  // namespace OpcodeDecoder
 

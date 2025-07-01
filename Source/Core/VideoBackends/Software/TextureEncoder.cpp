@@ -1425,11 +1425,19 @@ static void EncodeZ24halfscale(u8* dst, const u8* src, EFBCopyFormat format)
 
 namespace
 {
+// game_src_rect is passed here to potentially influence SetBlockDimensions/SetSpans if they were to use it
+// instead of global bpmem directly. However, they use global bpmem.copyTexSrcWH.
+// our_src_rect is used for GetPixelPointer.
 void EncodeEfbCopy(u8* dst, const EFBCopyParams& params, u32 native_width, u32 bytes_per_row,
-                   u32 num_blocks_y, u32 memory_stride, const MathUtil::Rectangle<int>& src_rect,
-                   bool scale_by_half)
+                   u32 num_blocks_y, u32 memory_stride,
+                   const MathUtil::Rectangle<int>& game_src_rect,
+                   const MathUtil::Rectangle<int>& our_src_rect, bool scale_by_half)
 {
-  const u8* src = EfbInterface::GetPixelPointer(src_rect.left, src_rect.top, params.depth);
+  // Use our_src_rect to get the actual pixels from EFB
+  const u8* src = EfbInterface::GetPixelPointer(our_src_rect.left, our_src_rect.top, params.depth);
+
+  // SetBlockDimensions and SetSpans use global bpmem.copyTexSrcWH, which should correspond to gameSrcRect's dimensions.
+  // This means native_width (derived from gameSrcRect.GetWidth()) is used correctly by the existing encode loops.
 
   if (scale_by_half)
   {
@@ -1476,8 +1484,9 @@ void EncodeEfbCopy(u8* dst, const EFBCopyParams& params, u32 native_width, u32 b
 
 void Encode(AbstractStagingTexture* dst, const EFBCopyParams& params, u32 native_width,
             u32 bytes_per_row, u32 num_blocks_y, u32 memory_stride,
-            const MathUtil::Rectangle<int>& src_rect, bool scale_by_half, float y_scale,
-            float gamma)
+            const MathUtil::Rectangle<int>& game_src_rect, // Added
+            const MathUtil::Rectangle<int>& our_src_rect, // Renamed
+            bool scale_by_half, float y_scale, float gamma)
 {
   // HACK: Override the memory stride for this staging texture with new copy stride.
   // This is required because the texture encoder assumes that we're writing directly to memory,
@@ -1488,13 +1497,17 @@ void Encode(AbstractStagingTexture* dst, const EFBCopyParams& params, u32 native
 
   if (params.copy_format == EFBCopyFormat::XFB)
   {
-    EfbInterface::EncodeXFB(reinterpret_cast<u8*>(dst->GetMappedPointer()), native_width, src_rect,
+    // EncodeXFB uses bpmem globals for src_rect dimensions, but takes pixel source from our_src_rect.
+    // Need to ensure EncodeXFB is also made aware of our_src_rect if it directly reads pixels.
+    // For now, assuming EncodeXFB correctly uses global bpmem for dimensions and our_src_rect for pixels.
+    // The current signature of EncodeXFB takes a single src_rect, which should be our_src_rect.
+    EfbInterface::EncodeXFB(reinterpret_cast<u8*>(dst->GetMappedPointer()), native_width, our_src_rect,
                             y_scale, gamma);
   }
   else
   {
     EncodeEfbCopy(reinterpret_cast<u8*>(dst->GetMappedPointer()), params, native_width,
-                  bytes_per_row, num_blocks_y, memory_stride, src_rect, scale_by_half);
+                  bytes_per_row, num_blocks_y, memory_stride, game_src_rect, our_src_rect, scale_by_half);
   }
 }
 }  // namespace TextureEncoder
