@@ -24,6 +24,7 @@ extern ComPtr<IDXGIFactory> dxgi_factory;
 extern ComPtr<ID3D11Device> device;
 extern ComPtr<ID3D11Device1> device1;
 extern ComPtr<ID3D11DeviceContext> context;
+extern ComPtr<IDXGISwapChain> swapchain;
 extern D3D_FEATURE_LEVEL feature_level;
 
 bool Create(u32 adapter_index, bool enable_debug_layer);

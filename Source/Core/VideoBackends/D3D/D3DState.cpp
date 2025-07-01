@@ -16,6 +16,7 @@
 #include "VideoBackends/D3D/DXTexture.h"
 #include "VideoBackends/D3DCommon/D3DCommon.h"
 #include "VideoCommon/VideoConfig.h"
+#include "VideoCommon/VR.h" // VR MERGE: For VR::IsHudAlwaysOnTop()
 
 namespace DX11
 {
@@ -447,6 +448,7 @@ ID3D11RasterizerState* StateCache::Get(RasterizationState state)
   desc.FillMode = D3D11_FILL_SOLID;
   desc.CullMode = cull_modes[u32(state.cullmode.Value())];
   desc.ScissorEnable = TRUE;
+  desc.DepthClipEnable = state.depth_clip_enable; // VR MERGE: Added depth_clip_enable
 
   ComPtr<ID3D11RasterizerState> res;
   HRESULT hr = D3D::device->CreateRasterizerState(&desc, res.GetAddressOf());
@@ -456,6 +458,10 @@ ID3D11RasterizerState* StateCache::Get(RasterizationState state)
 
 ID3D11DepthStencilState* StateCache::Get(DepthState state)
 {
+  // VR MERGE: VR HUD always on Top option
+  if (VR::IsHudAlwaysOnTop()) // This function needs to be implemented in VideoCommon/VR.h/cpp
+    state.func = ZMode::Function::Always;
+
   std::lock_guard<std::mutex> guard(m_lock);
   auto it = m_depth.find(state.hex);
   if (it != m_depth.end())
