@@ -28,7 +28,7 @@ std::unique_ptr<VideoCommon::ShaderCache> g_shader_cache;
 
 namespace VideoCommon
 {
-ShaderCache::ShaderCache() : m_api_type{APIType::Nothing}
+ShaderCache::ShaderCache() : m_api_type{APIType::Nothing}, m_osvr_pixel_shader(nullptr)
 {
 }
 
@@ -392,6 +392,7 @@ void ShaderCache::ClearCaches()
   ClearShaderCache(m_uber_vs_cache);
   ClearShaderCache(m_uber_ps_cache);
 
+  m_osvr_pixel_shader.reset();
   m_screen_quad_vertex_shader.reset();
   m_texture_copy_vertex_shader.reset();
   m_efb_copy_vertex_shader.reset();
@@ -1475,7 +1476,56 @@ bool ShaderCache::CompileSharedPipelines()
       "Texture copy pixel shader");
   m_color_pixel_shader = g_gfx->CreateShaderFromSource(
       ShaderStage::Pixel, FramebufferShaderGen::GenerateColorPixelShader(), "Color pixel shader");
-  if (!m_texture_copy_pixel_shader || !m_color_pixel_shader)
+
+  // OSVR Distortion Shader
+  // Code from VR-Hydra: Source/VideoBackends/D3D/PixelShaderCache.cpp
+  const char osvr_program_code[] = {
+      "sampler samp0 : register(s0);\n"
+      "Texture2DArray Tex0 : register(t0);\n"
+
+      "float2 Distort(float2 p, float k1){\n"
+      "	float r2 = p.x * p.x + p.y * p.y;\n"
+      "	float r = sqrt(r2);\n"
+      "	float newRadius = (1 + k1*r*r);\n"
+      "	p.x = p.x * newRadius;\n"
+      "	p.y = p.y * newRadius;\n"
+      "	return p;\n"
+      "}\n"
+
+      "void main(\n"
+      "out float4 ocol0 : SV_Target,\n"
+      "in float4 pos : SV_Position,\n"
+      "in float3 uv0 : TEXCOORD0){\n"
+      "	float2 uv_red, uv_green, uv_blue;\n"
+      "	float4 color_red, color_green, color_blue;\n"
+      "	float2 sectorOrigin;\n"
+
+      // Assuming uv0.z is eye index (0 for left, 1 for right)
+      // These values might need adjustment depending on how OSVR expects UVs
+      "	if (uv0.z > 0.5) // Right eye\n"
+      "		sectorOrigin = float2(1.0 - 0.47, 0.55); // Values from Hydra\n"
+      "	else // Left eye\n"
+      "		sectorOrigin = float2(0.47, 0.55); // Values from Hydra\n"
+
+      "	uv_red		= Distort(uv0.xy - sectorOrigin, 0.45) + sectorOrigin;\n"
+      "	uv_green	= Distort(uv0.xy - sectorOrigin, 0.53) + sectorOrigin;\n"
+      "	uv_blue		= Distort(uv0.xy - sectorOrigin, 0.66) + sectorOrigin;\n"
+
+      "	color_red = Tex0.Sample(samp0, float3(uv_red, uv0.z));\n"
+      "	color_green = Tex0.Sample(samp0, float3(uv_green, uv0.z));\n"
+      "	color_blue = Tex0.Sample(samp0, float3(uv_blue, uv0.z));\n"
+
+      // Boundary check to avoid sampling outside texture
+      "	if (((uv_red.x > 0.0) && (uv_red.x < 1.0) && (uv_red.y > 0.0) && (uv_red.y < 1.0)) &&\n"
+      "      ((uv_green.x > 0.0) && (uv_green.x < 1.0) && (uv_green.y > 0.0) && (uv_green.y < 1.0)) &&\n"
+      "      ((uv_blue.x > 0.0) && (uv_blue.x < 1.0) && (uv_blue.y > 0.0) && (uv_blue.y < 1.0)))\n"
+      "		ocol0 = float4(color_red.x, color_green.y, color_blue.z, 1.0);\n"
+      "	else\n"
+      "		ocol0 = float4(0.0, 0.0, 0.0, 0.0); //black\n"
+      "}\n"};
+  m_osvr_pixel_shader = g_gfx->CreateShaderFromSource(ShaderStage::Pixel, osvr_program_code, "OSVR Pixel Shader");
+
+  if (!m_texture_copy_pixel_shader || !m_color_pixel_shader || !m_osvr_pixel_shader)
     return false;
 
   AbstractPipelineConfig config;

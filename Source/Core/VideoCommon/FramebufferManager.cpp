@@ -25,14 +25,20 @@
 #include "VideoCommon/VertexManagerBase.h"
 #include "VideoCommon/VideoCommon.h"
 #include "VideoCommon/VideoConfig.h"
+#include "VideoCommon/VR.h" // For g_has_hmd
 
 // Maximum number of pixels poked in one batch * 6
 constexpr size_t MAX_POKE_VERTICES = 32768;
 
 std::unique_ptr<FramebufferManager> g_framebuffer_manager;
 
-FramebufferManager::FramebufferManager() : m_prev_efb_format(PixelFormat::INVALID_FMT)
+FramebufferManager::FramebufferManager()
+    : m_prev_efb_format(PixelFormat::INVALID_FMT),
+      m_stereo3d(g_has_hmd && g_ActiveConfig.stereo_mode != StereoMode::Off), // Updated based on VR.h and config
+      m_eye_count(m_stereo3d ? 2 : 1)
 {
+  m_vr_eye_textures[0] = nullptr;
+  m_vr_eye_textures[1] = nullptr;
 }
 
 FramebufferManager::~FramebufferManager()
@@ -296,6 +302,36 @@ bool FramebufferManager::CreateEFBFramebuffer()
   // Pixel Shader uses EFB scale as a constant, dirty that in case it changed
   Core::System::GetInstance().GetPixelShaderManager().Dirty();
 
+  // Create VR eye textures if VR is active and it's an OpenVR mode (or similar that needs them)
+  // For now, we assume D3D backend will manage the actual ID3D11Texture2D resource creation
+  // and just assign it via a setter or directly if FramebufferManager had D3D types.
+  // This part will be more fleshed out when VRD3D.cpp calls into it.
+  if (m_stereo3d && g_ActiveConfig.stereo_mode != StereoMode::OculusVR) // OculusVR manages its own textures via VRD3D
+  {
+    TextureConfig vr_eye_texture_config =
+        TextureConfig(width, height, 1, 1, // Each eye texture is a single layer
+                      g_ActiveConfig.iMultisamples, GetEFBColorFormat(),
+                      AbstractTextureFlag_RenderTarget | AbstractTextureFlag_ShaderResource,
+                      AbstractTextureType::Texture_2D); // Not Texture_2DArray
+
+    if (g_gfx) // Ensure g_gfx is available
+    {
+      for (int i = 0; i < m_eye_count; ++i)
+      {
+        m_vr_eye_textures[i] =
+            g_gfx->CreateTexture(vr_eye_texture_config, fmt::format("VR Eye Texture {}", i));
+        if (!m_vr_eye_textures[i])
+        {
+          PanicAlertFmt("Failed to create VR eye texture {}", i);
+          // Rollback previous creations if necessary
+          for (int j = 0; j < i; ++j)
+             m_vr_eye_textures[j].reset();
+          return false;
+        }
+      }
+    }
+  }
+
   return true;
 }
 
@@ -309,6 +345,12 @@ void FramebufferManager::DestroyEFBFramebuffer()
   m_efb_resolve_color_texture.reset();
   m_efb_depth_resolve_framebuffer.reset();
   m_efb_depth_resolve_texture.reset();
+
+  // Destroy VR eye textures
+  for (int i = 0; i < 2; ++i)
+  {
+    m_vr_eye_textures[i].reset();
+  }
 }
 
 void FramebufferManager::BindEFBFramebuffer()

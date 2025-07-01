@@ -33,17 +33,16 @@ enum class AspectMode : int
 
 enum class StereoMode : int
 {
-  Off,
-  SBS,
-  TAB,
-  Anaglyph,
-  // OSVR, // Not in VR-Hydra-Reference, but OpenVR is used
-  QuadBuffer, // QuadBuffer in both
-  // Passive, // Not in VR-Hydra-Reference
-  // 3DVision, // In VR-Hydra-Reference
-  OpenVR, // Oculus in VR-Hydra-Reference, changed to OpenVR
-  // VR920 // In VR-Hydra-Reference
-  // Adding new ones from Hydra reference, adjusting existing
+  Off,          // Stereo disabled
+  SBS,          // Side-by-Side
+  TAB,          // Top-and-Bottom
+  Anaglyph,     // Red-Cyan anaglyph
+  QuadBuffer,   // Hardware quad-buffered stereo (e.g., professional GPUs)
+  OpenVR,       // Used for OpenVR SDK (Vive, Index, many WMR, Oculus via OpenVR)
+  OculusVR,     // Used for native Oculus SDK (distinct from OpenVR access to Oculus) - Keeping this from current if it exists
+  OSVR,         // Open Source Virtual Reality - if we want to support its specific distortion
+  Stereo3DVision, // NVIDIA 3D Vision (quad buffer via DirectX)
+  VR920         // Vuzix VR920 HMD (old)
 };
 
 enum class ShaderCompilationMode : int
