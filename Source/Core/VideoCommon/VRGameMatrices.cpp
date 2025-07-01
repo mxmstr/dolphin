@@ -21,11 +21,13 @@
 #include "VideoCommon/VR.h"
 #include "VideoCommon/VideoConfig.h"
 #include "VideoCommon/XFMemory.h"
+#include "VideoCommon/Present.h" // For GetFinalScreenRegion()
 
 //#include "InputCommon/ControllerInterface/Sixense/SixenseHack.h"
 
 extern float s_fViewTranslationVector[3];
-extern EFBRectangle g_final_screen_region;
+// extern EFBRectangle g_final_screen_region; // Replaced with GetFinalScreenRegion()
+
 
 bool CalculateViewMatrix(int kind, Common::Matrix44& look_matrix)
 {
@@ -72,9 +74,9 @@ bool CalculateViewMatrix(int kind, Common::Matrix44& look_matrix)
   Common::Matrix44 camera_pitch_matrix;
   if (bStuckToHead)
   {
-    Common::Matrix44::LoadIdentity(rotation_matrix);
-    Common::Matrix44::LoadIdentity(lean_back_matrix);
-    Common::Matrix44::LoadIdentity(camera_pitch_matrix);
+    rotation_matrix = Common::Matrix44::Identity();
+    lean_back_matrix = Common::Matrix44::Identity();
+    camera_pitch_matrix = Common::Matrix44::Identity();
   }
   else
   {
@@ -86,15 +88,15 @@ bool CalculateViewMatrix(int kind, Common::Matrix44& look_matrix)
     }
     else
     {
-      Common::Matrix44::LoadIdentity(rotation_matrix);
+      rotation_matrix = Common::Matrix44::Identity();
     }
 
     Common::Matrix33 pitch_matrix33;
 
     // leaning back
     float extra_pitch = -g_ActiveConfig.fLeanBackAngle;
-    Common::Matrix33::RotateX(pitch_matrix33, -DEGREES_TO_RADIANS(extra_pitch));
-    lean_back_matrix = pitch_matrix33;
+    pitch_matrix33 = Common::Matrix33::RotateX(-DEGREES_TO_RADIANS(extra_pitch));
+    lean_back_matrix = Common::Matrix44::FromMatrix33(pitch_matrix33);
 
     // camera pitch
     if ((g_ActiveConfig.bStabilizePitch || g_ActiveConfig.bStabilizeRoll ||
@@ -104,17 +106,17 @@ bool CalculateViewMatrix(int kind, Common::Matrix44& look_matrix)
     {
       if (!g_ActiveConfig.bStabilizePitch)
       {
-        Common::Matrix44 user_pitch44;
+        Common::Matrix33 user_pitch_m33; // Changed variable name to avoid conflict and denote type
         Common::Matrix44 roll_and_yaw_matrix;
 
         if (bIsPerspective || bHasWidest)
           extra_pitch = g_ActiveConfig.fCameraPitch;
         else
           extra_pitch = g_ActiveConfig.fScreenPitch;
-        Common::Matrix33::RotateX(pitch_matrix33, -DEGREES_TO_RADIANS(extra_pitch));
-        user_pitch44 = pitch_matrix33;
-        roll_and_yaw_matrix = g_game_camera_rotmat;
-        camera_pitch_matrix = user_pitch44 * roll_and_yaw_matrix;
+        user_pitch_m33 = Common::Matrix33::RotateX(-DEGREES_TO_RADIANS(extra_pitch));
+        // user_pitch44 = pitch_matrix33; // Original line, user_pitch44 was Matrix44
+        roll_and_yaw_matrix = g_game_camera_rotmat; // This is Matrix44
+        camera_pitch_matrix = Common::Matrix44::FromMatrix33(user_pitch_m33) * roll_and_yaw_matrix;
       }
       else
       {
@@ -123,12 +125,12 @@ bool CalculateViewMatrix(int kind, Common::Matrix44& look_matrix)
     }
     else
     {
-      if (xfmem.projection.type == GX_PERSPECTIVE || bHasWidest)
+      if (xfmem.projection.type == ProjectionType::Perspective || bHasWidest)
         extra_pitch = g_ActiveConfig.fCameraPitch;
       else
         extra_pitch = g_ActiveConfig.fScreenPitch;
-      Common::Matrix33::RotateX(pitch_matrix33, -DEGREES_TO_RADIANS(extra_pitch));
-      camera_pitch_matrix = pitch_matrix33;
+      pitch_matrix33 = Common::Matrix33::RotateX(-DEGREES_TO_RADIANS(extra_pitch));
+      camera_pitch_matrix = Common::Matrix44::FromMatrix33(pitch_matrix33);
     }
   }
 
@@ -136,9 +138,9 @@ bool CalculateViewMatrix(int kind, Common::Matrix44& look_matrix)
   Common::Matrix44 head_position_matrix, free_look_matrix, camera_forward_matrix, camera_position_matrix;
   if (bStuckToHead || bIsSkybox)
   {
-    Common::Matrix44::LoadIdentity(head_position_matrix);
-    Common::Matrix44::LoadIdentity(free_look_matrix);
-    Common::Matrix44::LoadIdentity(camera_position_matrix);
+    head_position_matrix = Common::Matrix44::Identity();
+    free_look_matrix = Common::Matrix44::Identity();
+    camera_position_matrix = Common::Matrix44::Identity();
   }
   else
   {
@@ -148,28 +150,28 @@ bool CalculateViewMatrix(int kind, Common::Matrix44& look_matrix)
     {
       for (int i = 0; i < 3; ++i)
         pos[i] = g_head_tracking_position[i] * UnitsPerMetre;
-      Common::Matrix44::Translate(head_position_matrix, pos);
+      head_position_matrix = Common::Matrix44::Translate(Common::Vec3(pos[0], pos[1], pos[2]));
     }
     else
     {
-      Common::Matrix44::LoadIdentity(head_position_matrix);
+      head_position_matrix = Common::Matrix44::Identity();
     }
 
     // freelook camera position
     for (int i = 0; i < 3; ++i)
       pos[i] = s_fViewTranslationVector[i] * UnitsPerMetre;
-    Common::Matrix44::Translate(free_look_matrix, pos);
+    free_look_matrix = Common::Matrix44::Translate(Common::Vec3(pos[0], pos[1], pos[2]));
 
     // camera position stabilisation
     if (g_ActiveConfig.bStabilizeX || g_ActiveConfig.bStabilizeY || g_ActiveConfig.bStabilizeZ)
     {
       for (int i = 0; i < 3; ++i)
         pos[i] = -g_game_camera_pos[i] * UnitsPerMetre;
-      Common::Matrix44::Translate(camera_position_matrix, pos);
+      camera_position_matrix = Common::Matrix44::Translate(Common::Vec3(pos[0], pos[1], pos[2]));
     }
     else
     {
-      Common::Matrix44::LoadIdentity(camera_position_matrix);
+      camera_position_matrix = Common::Matrix44::Identity();
     }
   }
 
@@ -185,7 +187,7 @@ bool CalculateViewMatrix(int kind, Common::Matrix44& look_matrix)
     // head rotation tracking
     if (bNoForward || bIsSkybox || bStuckToHead)
     {
-      Common::Matrix44::LoadIdentity(camera_forward_matrix);
+      camera_forward_matrix = Common::Matrix44::Identity();
     }
     else
     {
@@ -193,7 +195,7 @@ bool CalculateViewMatrix(int kind, Common::Matrix44& look_matrix)
       pos[0] = 0;
       pos[1] = 0;
       pos[2] = (g_ActiveConfig.fCameraForward + zoom_forward) * UnitsPerMetre;
-      Common::Matrix44::Translate(camera_forward_matrix, pos);
+      camera_forward_matrix = Common::Matrix44::Translate(Common::Vec3(pos[0], pos[1], pos[2]));
     }
 
     look_matrix = camera_forward_matrix * camera_position_matrix * camera_pitch_matrix *
@@ -298,8 +300,8 @@ bool CalculateViewMatrix(int kind, Common::Matrix44& look_matrix)
       top = v.yOrig + v.ht - 342;
       width = 2 * v.wd;
       height = -2 * v.ht;
-      float screen_width = (float)g_final_screen_region.GetWidth();
-      float screen_height = (float)g_final_screen_region.GetHeight();
+      float screen_width = (float)VideoCommon::GetFinalScreenRegion().GetWidth();
+      float screen_height = (float)VideoCommon::GetFinalScreenRegion().GetHeight();
       viewport_scale[0] = width / screen_width;
       viewport_scale[1] = height / screen_height;
       viewport_offset[0] = ((left + (width / 2)) - (0 + (screen_width / 2))) / screen_width;
@@ -416,8 +418,12 @@ bool CalculateViewMatrix(int kind, Common::Matrix44& look_matrix)
     }
 
     Common::Matrix44 scale_matrix, position_matrix;
-    Common::Matrix44::Scale(scale_matrix, scale);
-    Common::Matrix44::Translate(position_matrix, position);
+    // Common::Matrix44::Scale(scale_matrix, scale);
+    {
+      Common::Matrix33 m33_scale = Common::Matrix33::Scale(Common::Vec3(scale[0], scale[1], scale[2]));
+      scale_matrix = Common::Matrix44::FromMatrix33(m33_scale);
+    }
+    position_matrix = Common::Matrix44::Translate(Common::Vec3(position[0], position[1], position[2]));
 
     // order: scale, position
     look_matrix = scale_matrix * position_matrix * camera_position_matrix * camera_pitch_matrix *
@@ -442,17 +448,35 @@ void VRCalculateIRPointer()
 
   Common::Matrix44 ToAimSpace, WiimoteRot;
   CalculateTrackingSpaceToViewSpaceMatrix(0, ToAimSpace);
-  WiimoteRot = wmrot;
+  WiimoteRot = Common::Matrix44::FromMatrix33(wmrot);
 
-  float r[3], rp[3], d[3], v[3] = {0, 0, -1.0f}, ppos[3], aimpoint[3];
+  float r[3], rp[3], d[3], v_arr[3] = {0, 0, -1.0f}, ppos[3], aimpoint[3]; // Renamed v to v_arr to avoid conflict with Vec4
 
   // find pointer position
-  Common::Matrix44::Multiply(WiimoteRot, v, ppos);
-  for (int i = 0; i < 3; ++i)
-    ppos[i] += wmpos[i];
+  // Common::Matrix44::Multiply(WiimoteRot, v, ppos);
+  Common::Vec4 v_vec4(v_arr[0], v_arr[1], v_arr[2], 0.0f); // Direction vector, w=0
+  Common::Vec4 ppos_vec4 = WiimoteRot * v_vec4;
+  ppos[0] = ppos_vec4.x;
+  ppos[1] = ppos_vec4.y;
+  ppos[2] = ppos_vec4.z;
 
-  Common::Matrix44::Multiply(ToAimSpace, wmpos, r);
-  Common::Matrix44::Multiply(ToAimSpace, ppos, rp);
+  for (int i = 0; i < 3; ++i)
+    ppos[i] += wmpos[i]; // wmpos is also float[3], ppos is now populated
+
+  // Common::Matrix44::Multiply(ToAimSpace, wmpos, r);
+  Common::Vec4 wmpos_vec4(wmpos[0], wmpos[1], wmpos[2], 1.0f); // Position vector, w=1
+  Common::Vec4 r_vec4 = ToAimSpace * wmpos_vec4;
+  r[0] = r_vec4.x;
+  r[1] = r_vec4.y;
+  r[2] = r_vec4.z;
+
+  // Common::Matrix44::Multiply(ToAimSpace, ppos, rp);
+  Common::Vec4 ppos_intermediate_vec4(ppos[0], ppos[1], ppos[2], 1.0f); // Position vector, w=1
+  Common::Vec4 rp_vec4 = ToAimSpace * ppos_intermediate_vec4;
+  rp[0] = rp_vec4.x;
+  rp[1] = rp_vec4.y;
+  rp[2] = rp_vec4.z;
+
   for (int i = 0; i < 3; ++i)
     d[i] = rp[i] - r[i];
   float s = -r[2] / d[2];
@@ -478,6 +502,27 @@ void VRCalculateIRPointer()
 
 bool CalculateTrackingSpaceToViewSpaceMatrix(int kind, Common::Matrix44& look_matrix)
 {
+  auto invert_rotation_part = [](Common::Matrix44& mat) {
+    Common::Matrix33 rot_part;
+    // Extract 3x3 part
+    for (int r = 0; r < 3; ++r) {
+      for (int c = 0; c < 3; ++c) {
+        rot_part.data[r * 3 + c] = mat.data[r * 4 + c];
+      }
+    }
+    // Extract translation part
+    Common::Vec3 trans_part = {mat.data[3], mat.data[7], mat.data[11]};
+
+    rot_part = rot_part.Inverted(); // Invert the 3x3 part
+
+    // Create new matrix from inverted 3x3 part
+    mat = Common::Matrix44::FromMatrix33(rot_part);
+    // Re-apply original translation
+    mat.data[3] = trans_part.x;
+    mat.data[7] = trans_part.y;
+    mat.data[11] = trans_part.z;
+  };
+
   bool bStuckToHead = false, bIsSkybox = false, bIsPerspective = false,
        bHasWidest = (vr_widest_3d_HFOV > 0);
   bool bIsHudElement = false, bIsOffscreen = false, bAspectWide = true, bNoForward = false,
@@ -521,21 +566,21 @@ bool CalculateTrackingSpaceToViewSpaceMatrix(int kind, Common::Matrix44& look_ma
   Common::Matrix44 camera_pitch_matrix;
   if (bStuckToHead)
   {
-    Common::Matrix44::LoadIdentity(rotation_matrix);
-    Common::Matrix44::LoadIdentity(lean_back_matrix);
-    Common::Matrix44::LoadIdentity(camera_pitch_matrix);
+    rotation_matrix = Common::Matrix44::Identity();
+    lean_back_matrix = Common::Matrix44::Identity();
+    camera_pitch_matrix = Common::Matrix44::Identity();
   }
   else
   {
     // no head tracking
-    Common::Matrix44::LoadIdentity(rotation_matrix);
+    rotation_matrix = Common::Matrix44::Identity();
 
     Common::Matrix33 pitch_matrix33;
 
     // leaning back
     float extra_pitch = -g_ActiveConfig.fLeanBackAngle;
-    Common::Matrix33::RotateX(pitch_matrix33, -DEGREES_TO_RADIANS(extra_pitch));
-    lean_back_matrix = pitch_matrix33;
+    pitch_matrix33 = Common::Matrix33::RotateX(-DEGREES_TO_RADIANS(extra_pitch));
+    lean_back_matrix = Common::Matrix44::FromMatrix33(pitch_matrix33);
 
     // camera pitch
     if ((g_ActiveConfig.bStabilizePitch || g_ActiveConfig.bStabilizeRoll ||
@@ -545,17 +590,17 @@ bool CalculateTrackingSpaceToViewSpaceMatrix(int kind, Common::Matrix44& look_ma
     {
       if (!g_ActiveConfig.bStabilizePitch)
       {
-        Common::Matrix44 user_pitch44;
+        Common::Matrix33 user_pitch_m33; // Changed variable name to avoid conflict and denote type
         Common::Matrix44 roll_and_yaw_matrix;
 
         if (bIsPerspective || bHasWidest)
           extra_pitch = g_ActiveConfig.fCameraPitch;
         else
           extra_pitch = g_ActiveConfig.fScreenPitch;
-        Common::Matrix33::RotateX(pitch_matrix33, -DEGREES_TO_RADIANS(extra_pitch));
-        user_pitch44 = pitch_matrix33;
-        roll_and_yaw_matrix = g_game_camera_rotmat;
-        camera_pitch_matrix = user_pitch44 * roll_and_yaw_matrix;
+        user_pitch_m33 = Common::Matrix33::RotateX( -DEGREES_TO_RADIANS(extra_pitch));
+        // user_pitch44 = pitch_matrix33; // Original line, user_pitch44 was Matrix44
+        roll_and_yaw_matrix = g_game_camera_rotmat; // This is Matrix44
+        camera_pitch_matrix = Common::Matrix44::FromMatrix33(user_pitch_m33) * roll_and_yaw_matrix;
       }
       else
       {
@@ -564,12 +609,12 @@ bool CalculateTrackingSpaceToViewSpaceMatrix(int kind, Common::Matrix44& look_ma
     }
     else
     {
-      if (xfmem.projection.type == GX_PERSPECTIVE || bHasWidest)
+      if (xfmem.projection.type == ProjectionType::Perspective || bHasWidest)
         extra_pitch = g_ActiveConfig.fCameraPitch;
       else
         extra_pitch = g_ActiveConfig.fScreenPitch;
-      Common::Matrix33::RotateX(pitch_matrix33, -DEGREES_TO_RADIANS(extra_pitch));
-      camera_pitch_matrix = pitch_matrix33;
+      pitch_matrix33 = Common::Matrix33::RotateX( -DEGREES_TO_RADIANS(extra_pitch));
+      camera_pitch_matrix = Common::Matrix44::FromMatrix33(pitch_matrix33);
     }
   }
 
@@ -577,31 +622,31 @@ bool CalculateTrackingSpaceToViewSpaceMatrix(int kind, Common::Matrix44& look_ma
   Common::Matrix44 head_position_matrix, free_look_matrix, camera_forward_matrix, camera_position_matrix;
   if (bStuckToHead || bIsSkybox)
   {
-    Common::Matrix44::LoadIdentity(head_position_matrix);
-    Common::Matrix44::LoadIdentity(free_look_matrix);
-    Common::Matrix44::LoadIdentity(camera_position_matrix);
+    head_position_matrix = Common::Matrix44::Identity();
+    free_look_matrix = Common::Matrix44::Identity();
+    camera_position_matrix = Common::Matrix44::Identity();
   }
   else
   {
     float pos[3];
     // no head tracking
-    Common::Matrix44::LoadIdentity(head_position_matrix);
+    head_position_matrix = Common::Matrix44::Identity();
 
     // freelook camera position
     for (int i = 0; i < 3; ++i)
       pos[i] = s_fViewTranslationVector[i] * UnitsPerMetre;
-    Common::Matrix44::Translate(free_look_matrix, pos);
+    free_look_matrix = Common::Matrix44::Translate(Common::Vec3(pos[0], pos[1], pos[2]));
 
     // camera position stabilisation
     if (g_ActiveConfig.bStabilizeX || g_ActiveConfig.bStabilizeY || g_ActiveConfig.bStabilizeZ)
     {
       for (int i = 0; i < 3; ++i)
         pos[i] = -g_game_camera_pos[i] * UnitsPerMetre;
-      Common::Matrix44::Translate(camera_position_matrix, pos);
+      camera_position_matrix = Common::Matrix44::Translate(Common::Vec3(pos[0], pos[1], pos[2]));
     }
     else
     {
-      Common::Matrix44::LoadIdentity(camera_position_matrix);
+      camera_position_matrix = Common::Matrix44::Identity();
     }
   }
 
@@ -617,7 +662,7 @@ bool CalculateTrackingSpaceToViewSpaceMatrix(int kind, Common::Matrix44& look_ma
     // head rotation tracking
     if (bNoForward || bIsSkybox || bStuckToHead)
     {
-      Common::Matrix44::LoadIdentity(camera_forward_matrix);
+      camera_forward_matrix = Common::Matrix44::Identity();
     }
     else
     {
@@ -625,16 +670,16 @@ bool CalculateTrackingSpaceToViewSpaceMatrix(int kind, Common::Matrix44& look_ma
       pos[0] = 0;
       pos[1] = 0;
       pos[2] = (g_ActiveConfig.fCameraForward + zoom_forward) * UnitsPerMetre;
-      Common::Matrix44::Translate(camera_forward_matrix, pos);
+      camera_forward_matrix = Common::Matrix44::Translate(Common::Vec3(pos[0], pos[1], pos[2]));
     }
 
-    Common::Matrix44::InvertRotation(camera_pitch_matrix);
-    Common::Matrix44::InvertRotation(lean_back_matrix);
-    Common::Matrix44::InvertRotation(rotation_matrix);
-    Common::Matrix44::InvertTranslation(camera_position_matrix);
-    Common::Matrix44::InvertTranslation(camera_forward_matrix);
-    Common::Matrix44::InvertTranslation(free_look_matrix);
-    Common::Matrix44::InvertTranslation(head_position_matrix);
+    invert_rotation_part(camera_pitch_matrix);
+    invert_rotation_part(lean_back_matrix);
+    invert_rotation_part(rotation_matrix);
+    camera_position_matrix = Common::Matrix44::Translate(Common::Vec3(-camera_position_matrix.data[3], -camera_position_matrix.data[7], -camera_position_matrix.data[11]));
+    camera_forward_matrix = Common::Matrix44::Translate(Common::Vec3(-camera_forward_matrix.data[3], -camera_forward_matrix.data[7], -camera_forward_matrix.data[11]));
+    free_look_matrix = Common::Matrix44::Translate(Common::Vec3(-free_look_matrix.data[3], -free_look_matrix.data[7], -free_look_matrix.data[11]));
+    head_position_matrix = Common::Matrix44::Translate(Common::Vec3(-head_position_matrix.data[3], -head_position_matrix.data[7], -head_position_matrix.data[11]));
 
     look_matrix = rotation_matrix * head_position_matrix * lean_back_matrix * free_look_matrix *
                   camera_pitch_matrix * camera_position_matrix * camera_forward_matrix;
@@ -740,8 +785,8 @@ bool CalculateTrackingSpaceToViewSpaceMatrix(int kind, Common::Matrix44& look_ma
       top = v.yOrig + v.ht - 342;
       width = 2 * v.wd;
       height = -2 * v.ht;
-      float screen_width = (float)g_final_screen_region.GetWidth();
-      float screen_height = (float)g_final_screen_region.GetHeight();
+      float screen_width = (float)VideoCommon::GetFinalScreenRegion().GetWidth();
+      float screen_height = (float)VideoCommon::GetFinalScreenRegion().GetHeight();
       viewport_scale[0] = width / screen_width;
       viewport_scale[1] = height / screen_height;
       viewport_offset[0] = ((left + (width / 2)) - (0 + (screen_width / 2))) / screen_width;
@@ -858,17 +903,29 @@ bool CalculateTrackingSpaceToViewSpaceMatrix(int kind, Common::Matrix44& look_ma
     }
 
     Common::Matrix44 scale_matrix, position_matrix;
-    Common::Matrix44::Scale(scale_matrix, scale);
-    Common::Matrix44::Translate(position_matrix, position);
+    // Common::Matrix44::Scale(scale_matrix, scale);
+    {
+      Common::Matrix33 m33_scale = Common::Matrix33::Scale(Common::Vec3(scale[0], scale[1], scale[2]));
+      scale_matrix = Common::Matrix44::FromMatrix33(m33_scale);
+    }
+    position_matrix = Common::Matrix44::Translate(Common::Vec3(position[0], position[1], position[2]));
 
-    Common::Matrix44::InvertScale(scale_matrix);
-    Common::Matrix44::InvertTranslation(position_matrix);
-    Common::Matrix44::InvertRotation(camera_pitch_matrix);
-    Common::Matrix44::InvertRotation(lean_back_matrix);
-    Common::Matrix44::InvertRotation(rotation_matrix);
-    Common::Matrix44::InvertTranslation(camera_position_matrix);
-    Common::Matrix44::InvertTranslation(free_look_matrix);
-    Common::Matrix44::InvertTranslation(head_position_matrix);
+    // Common::Matrix44::InvertScale(scale_matrix);
+    {
+      // Check for zero scale factors to avoid division by zero.
+      float inv_x = (scale[0] == 0.0f || scale[0] == -0.0f) ? 0.0f : 1.0f / scale[0];
+      float inv_y = (scale[1] == 0.0f || scale[1] == -0.0f) ? 0.0f : 1.0f / scale[1];
+      float inv_z = (scale[2] == 0.0f || scale[2] == -0.0f) ? 0.0f : 1.0f / scale[2];
+      Common::Matrix33 m33_scale_inv = Common::Matrix33::Scale(Common::Vec3(inv_x, inv_y, inv_z));
+      scale_matrix = Common::Matrix44::FromMatrix33(m33_scale_inv);
+    }
+    position_matrix = Common::Matrix44::Translate(Common::Vec3(-position_matrix.data[3], -position_matrix.data[7], -position_matrix.data[11]));
+    invert_rotation_part(camera_pitch_matrix);
+    invert_rotation_part(lean_back_matrix);
+    invert_rotation_part(rotation_matrix);
+    camera_position_matrix = Common::Matrix44::Translate(Common::Vec3(-camera_position_matrix.data[3], -camera_position_matrix.data[7], -camera_position_matrix.data[11]));
+    free_look_matrix = Common::Matrix44::Translate(Common::Vec3(-free_look_matrix.data[3], -free_look_matrix.data[7], -free_look_matrix.data[11]));
+    head_position_matrix = Common::Matrix44::Translate(Common::Vec3(-head_position_matrix.data[3], -head_position_matrix.data[7], -head_position_matrix.data[11]));
 
     // invert order: position, scale
     look_matrix = rotation_matrix * head_position_matrix * lean_back_matrix * free_look_matrix *

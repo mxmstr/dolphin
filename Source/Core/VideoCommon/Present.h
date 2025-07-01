@@ -169,6 +169,8 @@ private:
   Common::EventHook m_config_changed;
 };
 
+const MathUtil::Rectangle<int>& GetFinalScreenRegion();
+
 }  // namespace VideoCommon
 
 extern std::unique_ptr<VideoCommon::Presenter> g_presenter;

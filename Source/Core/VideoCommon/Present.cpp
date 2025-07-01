@@ -932,4 +932,13 @@ void Presenter::DoState(PointerWrap& p)
   }
 }
 
+const MathUtil::Rectangle<int>& GetFinalScreenRegion()
+{
+  // TODO: Ensure g_presenter is always initialized before this is called,
+  // or add a null check and return a default rectangle.
+  // For now, assuming g_presenter is valid as per original implicit contract
+  // of g_final_screen_region being valid.
+  return g_presenter->GetTargetRectangle();
+}
+
 }  // namespace VideoCommon
