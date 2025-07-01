@@ -70,6 +70,13 @@ struct SConfig
   std::string GetTriforceID() const;
   u64 GetTitleID() const;
   u16 GetRevision() const;
+
+  // VR Settings
+  bool bAsynchronousTimewarp = false;
+  bool m_BruteforceScreenshotAll = false;
+  int m_OriginalPrimitiveCount = -1;
+  bool m_showVRStateColumn = true; // For GameList
+
   void ResetRunningGameMetadata();
   void SetRunningGameMetadata(const DiscIO::Volume& volume, const DiscIO::Partition& partition);
   void SetRunningGameMetadata(const IOS::ES::TMDReader& tmd, DiscIO::Platform platform);

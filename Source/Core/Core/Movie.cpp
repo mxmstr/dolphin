@@ -185,6 +185,10 @@ void MovieManager::FrameUpdate()
   }
 
   m_polled = false;
+
+  // Perform frame skipping logic if active
+  if (m_frames_to_skip > 0) // Only call if skipping is potentially active
+    PerformFrameSkippingLogic();
 }
 
 // called when game is booting up, even if no movie is active,
@@ -1525,4 +1529,62 @@ void MovieManager::Shutdown()
   m_current_input_count = m_total_input_count = m_total_frames = m_tick_count_at_last_input = 0;
   m_temp_input.clear();
 }
+
+void MovieManager::SetFrameSkipping(unsigned int frames_to_skip)
+{
+  std::lock_guard guard(m_frame_skip_mutex);
+  m_frames_to_skip = frames_to_skip;
+  m_frame_skip_counter = 0; // Reset counter when skip value changes
+
+  // If frame skipping is turned off, ensure rendering is enabled.
+  if (m_frames_to_skip == 0)
+  {
+    if (Core::IsRunning(m_system)) // Only touch FIFO if emulation is running
+      m_system.GetFifo().SetRendering(true);
+  }
+}
+
+void MovieManager::PerformFrameSkippingLogic()
+{
+  // Frame skipping should not interfere with deterministic recordings/playback
+  if (Core::WantsDeterminism())
+  {
+    // If we want determinism but frame skipping was somehow enabled, disable it and ensure rendering.
+    if (m_frames_to_skip > 0)
+    {
+        std::lock_guard guard(m_frame_skip_mutex);
+        m_frames_to_skip = 0;
+        m_frame_skip_counter = 0;
+        if (Core::IsRunning(m_system))
+            m_system.GetFifo().SetRendering(true);
+    }
+    return;
+  }
+
+  std::lock_guard guard(m_frame_skip_mutex);
+
+  if (m_frames_to_skip == 0) // Should not be called if m_frames_to_skip is 0, but as a safe guard.
+  {
+    if (Core::IsRunning(m_system))
+        m_system.GetFifo().SetRendering(true);
+    return;
+  }
+
+  m_frame_skip_counter++;
+  bool render_this_frame = false;
+
+  // This is where Core::ShouldSkipFrame would have been.
+  // That function compared actual performance against target FPS.
+  // For VR, the primary need is to *force* skipping or *force no* skipping.
+  // A simple implementation: skip N frames, then render 1.
+  if (m_frame_skip_counter > m_frames_to_skip)
+  {
+    render_this_frame = true;
+    m_frame_skip_counter = 0;
+  }
+
+  if (Core::IsRunning(m_system))
+    m_system.GetFifo().SetRendering(render_this_frame);
+}
+
 }  // namespace Movie
