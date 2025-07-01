@@ -90,6 +90,7 @@ public:
   }
   const AbstractShader* GetColorGeometryShader() const { return m_color_geometry_shader.get(); }
   const AbstractShader* GetColorPixelShader() const { return m_color_pixel_shader.get(); }
+  const AbstractShader* GetOSVRPixelShader() const { return m_osvr_pixel_shader.get(); }
 
   // EFB copy to RAM/VRAM pipelines
   const AbstractPipeline*
@@ -251,6 +252,9 @@ private:
 
   // Texture decoding shaders
   std::map<std::pair<u32, u32>, std::unique_ptr<AbstractShader>> m_texture_decoding_shaders;
+
+  // VR Shaders
+  std::unique_ptr<AbstractShader> m_osvr_pixel_shader;
 
   Common::EventHook m_frame_end_handler;
 };

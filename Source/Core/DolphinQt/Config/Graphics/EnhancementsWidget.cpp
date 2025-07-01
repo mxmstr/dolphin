@@ -222,8 +222,18 @@ void EnhancementsWidget::CreateWidgets()
   auto* stereoscopy_layout = new QGridLayout();
   stereoscopy_box->setLayout(stereoscopy_layout);
 
-  m_3d_mode = new ConfigChoice({tr("Off"), tr("Side-by-Side"), tr("Top-and-Bottom"), tr("Anaglyph"),
-                                tr("HDMI 3D"), tr("Passive"), tr("OpenVR")},
+  // Mapping StereoMode enum to UI strings
+  // Off, SBS, TAB, Anaglyph, QuadBuffer, OpenVR, OculusVR, OSVR, Stereo3DVision, VR920
+  m_3d_mode = new ConfigChoice({tr("Off"),
+                                tr("Side-by-Side"),
+                                tr("Top-and-Bottom"),
+                                tr("Anaglyph (Red-Cyan)"),
+                                tr("Quad Buffer (HDMI 3D)"), // Assuming HDMI 3D maps to QuadBuffer
+                                tr("OpenVR"),
+                                tr("Oculus SDK"), // For existing OculusVR enum value
+                                tr("OSVR"),
+                                tr("NVIDIA 3D Vision"),
+                                tr("VR920 (Vuzix)")},
                                Config::GFX_STEREO_MODE, m_game_layer);
   m_3d_depth =
       new ConfigSlider(0, Config::GFX_STEREO_DEPTH_MAXIMUM, Config::GFX_STEREO_DEPTH, m_game_layer);

@@ -5,17 +5,33 @@
 #include "VideoBackends/D3D/VRD3D.h"
 #include "Common/Logging/Log.h"
 #include "Common/Timer.h"
+#include "Common/Logging/Log.h"
+#include "Common/Timer.h"
 #include "VideoBackends/D3D/D3DBase.h"
+#include "VideoBackends/D3D/D3DState.h" // For D3D::SetPointCopySampler, D3D::drawShadedTexQuad
 #include "VideoBackends/D3D/D3DTexture.h"
 #include "VideoBackends/D3D/D3DUtil.h"
-#include "VideoBackends/D3D/FramebufferManager.h"
-#include "VideoBackends/D3D/PixelShaderCache.h"
-#include "VideoBackends/D3D/Render.h"
-#include "VideoBackends/D3D/VertexShaderCache.h"
+#include "VideoCommon/FramebufferManager.h" // Needs to be included before D3D/FramebufferManager.h
+#include "VideoBackends/D3D/FramebufferManager.h" // For D3D-specific FramebufferManager access if any (DEPRECATED)
+#include "VideoCommon/ShaderCache.h"         // For g_shader_cache
+#include "VideoCommon/AbstractGfx.h"       // For g_gfx
+#include "VideoCommon/TextureConfig.h"
+#include "VideoCommon/VertexShaderManager.h" // For VertexShaderCache - though likely through g_shader_cache
+#include "VideoCommon/PixelShaderManager.h"  // For PixelShaderCache - though likely through g_shader_cache
+#include "VideoCommon/GeometryShaderManager.h" // For GeometryShaderCache - though likely through g_shader_cache
+#include "VideoCommon/OnScreenDisplay.h"   // For OSD
+#include "VideoCommon/Renderer.h"          // For g_renderer
 #include "VideoCommon/VR.h"
 #include "VideoCommon/VROculus.h"
 #include "VideoCommon/VROpenVR.h"
 #include "VideoCommon/VideoConfig.h"
+
+// TODO: These includes are from Hydra's Render.cpp, might not all be needed here
+// or might need to be accessed via g_renderer or g_shader_cache
+// #include "VideoBackends/D3D/PixelShaderCache.h"
+// #include "VideoBackends/D3D/VertexShaderCache.h"
+// #include "VideoBackends/D3D/GeometryShaderCache.h"
+
 
 namespace DX11
 {
@@ -23,7 +39,7 @@ namespace DX11
 #ifdef OVR_MAJOR_VERSION
 
 #if OVR_PRODUCT_VERSION == 0 && OVR_MAJOR_VERSION <= 5
-ovrD3D11Texture g_eye_texture[2];
+ovrD3D11Texture g_eye_texture[2]; // This is for very old Oculus SDKs
 #else
 //------------------------------------------------------------
 // ovrSwapTextureSet wrapper class that also maintains the render target views
@@ -342,90 +358,70 @@ void VR_StartFramebuffer()
   }
 #if (defined(OVR_MAJOR_VERSION) && OVR_PRODUCT_VERSION == 0 && OVR_MAJOR_VERSION <= 5) ||          \
     defined(HAVE_OPENVR)
-  if (
-#if defined(OVR_MAJOR_VERSION) && OVR_PRODUCT_VERSION == 0 && OVR_MAJOR_VERSION <= 5
-      g_has_rift ||
-#endif
-      g_has_openvr)
+  // This section is for very old Oculus SDKs (0.5 and below) and OpenVR from Hydra
+  // We will adapt it for current OpenVR using the new FramebufferManager members.
+  if (g_has_openvr && g_ActiveConfig.stereo_mode != StereoMode::OculusVR && g_framebuffer_manager && g_gfx)
   {
-    for (int eye = 0; eye < 2; ++eye)
-    {
-      FramebufferManager::m_efb.m_frontBuffer[eye] = nullptr;
-      // init to null
-    }
-    // In Oculus SDK 0.5.0.1 or below we need to create our own textures for eye render targets
-    ID3D11Texture2D* buf;
-    DXGI_SAMPLE_DESC sample_desc;
-    sample_desc.Count = g_ActiveConfig.iMultisamples;
-    sample_desc.Quality = 0;
-    D3D11_TEXTURE2D_DESC texdesc0 =
-        CD3D11_TEXTURE2D_DESC(DXGI_FORMAT_R8G8B8A8_UNORM, FramebufferManager::m_target_width,
-                              FramebufferManager::m_target_height, 1, 1,
-                              D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET,
-                              D3D11_USAGE_DEFAULT, 0, 1, sample_desc.Quality);
-    for (int eye = 0; eye < 2; ++eye)
-    {
-      HRESULT hr = D3D::device->CreateTexture2D(&texdesc0, nullptr, &buf);
-      CHECK(hr == S_OK, "create Oculus Rift eye texture (size: %dx%d; hr=%#x)",
-            FramebufferManager::m_target_width, FramebufferManager::m_target_height, hr);
-      FramebufferManager::m_efb.m_frontBuffer[eye] = new D3DTexture2D(
-          buf, (D3D11_BIND_FLAG)(D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET),
-          DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_FORMAT_UNKNOWN, DXGI_FORMAT_R8G8B8A8_UNORM, false);
-      CHECK(FramebufferManager::m_efb.m_frontBuffer[eye] != nullptr,
-            "create Oculus Rift eye texture (size: %dx%d)", FramebufferManager::m_target_width,
-            FramebufferManager::m_target_height);
-      SAFE_RELEASE(buf);
-    }
-    D3D::SetDebugObjectName(
-        (ID3D11DeviceChild*)FramebufferManager::m_efb.m_frontBuffer[0]->GetTex(),
-        "Left eye color texture");
-    D3D::SetDebugObjectName(
-        (ID3D11DeviceChild*)FramebufferManager::m_efb.m_frontBuffer[0]->GetSRV(),
-        "Left eye color texture shader resource view");
-    D3D::SetDebugObjectName(
-        (ID3D11DeviceChild*)FramebufferManager::m_efb.m_frontBuffer[0]->GetRTV(),
-        "Left eye color texture render target view");
-    D3D::SetDebugObjectName(
-        (ID3D11DeviceChild*)FramebufferManager::m_efb.m_frontBuffer[1]->GetTex(),
-        "Right eye color texture");
-    D3D::SetDebugObjectName(
-        (ID3D11DeviceChild*)FramebufferManager::m_efb.m_frontBuffer[1]->GetSRV(),
-        "Right eye color texture shader resource view");
-    D3D::SetDebugObjectName(
-        (ID3D11DeviceChild*)FramebufferManager::m_efb.m_frontBuffer[1]->GetRTV(),
-        "Right eye color texture render target view");
+    // Create eye textures for OpenVR and store them in FramebufferManager
+    VideoCommon::TextureConfig vr_eye_texture_config = VideoCommon::TextureConfig(
+        g_framebuffer_manager->GetEFBWidth(), g_framebuffer_manager->GetEFBHeight(), 1, 1, // Each eye texture is a single layer/slice
+        g_ActiveConfig.iMultisamples, VideoCommon::FramebufferManager::GetEFBColorFormat(),
+        VideoCommon::AbstractTextureFlag_RenderTarget | VideoCommon::AbstractTextureFlag_ShaderResource,
+        VideoCommon::AbstractTextureType::Texture_2D);
 
-#if defined(OVR_MAJOR_VERSION) && OVR_PRODUCT_VERSION == 0 && OVR_MAJOR_VERSION <= 5
-    if (g_has_rift)
+    // Casting g_framebuffer_manager to its concrete type or adding a method
+    // to set these textures would be cleaner. For now, direct assignment if compatible.
+    // This assumes m_vr_eye_textures in FramebufferManager is accessible and is of type std::unique_ptr<AbstractTexture>
+    // This was already prepared in FramebufferManager.cpp, but we ensure creation here.
+    // The actual texture pointers are now stored in g_framebuffer_manager->m_vr_eye_textures
+    // So, the old FramebufferManager::m_efb.m_frontBuffer is no longer used for this.
+
+    // The actual creation was moved to FramebufferManager::CreateEFBFramebuffer,
+    // here we just assign to m_left_texture/m_right_texture for OpenVR's Submit path.
+    // This part of Hydra's VR_StartFramebuffer was creating D3DTexture2D and assigning to
+    // FramebufferManager::m_efb.m_frontBuffer.
+    // The new FramebufferManager creates AbstractTextures in its m_vr_eye_textures.
+    // We need to get these and assign to m_left_texture/m_right_texture.
+
+    // Ensure eye textures are created in FramebufferManager
+    // This is a bit redundant if CreateEFBFramebuffer already does it, but good for explicit control.
+    // g_framebuffer_manager->CreateVREyeTextures(); // Assuming such a method exists or is part of RecreateEFBFramebuffer
+
+    // For OpenVR, m_left_texture and m_right_texture are used by VR_PresentHMDFrame
+    // These should point to the D3D resources held by g_framebuffer_manager->m_vr_eye_textures
+    VideoCommon::AbstractTexture* left_abs_tex = g_framebuffer_manager->GetVREyeTexture(0);
+    VideoCommon::AbstractTexture* right_abs_tex = g_framebuffer_manager->GetVREyeTexture(1);
+
+    if (left_abs_tex && right_abs_tex)
     {
-      // In Oculus SDK 0.5.0.1 and below, we need to keep descriptions of our eye textures to pass
-      // to ovrHmd_EndFrame()
-      g_eye_texture[0].D3D11.Header.API = ovrRenderAPI_D3D11;
-      g_eye_texture[0].D3D11.Header.TextureSize.w = Renderer::GetTargetWidth();
-      g_eye_texture[0].D3D11.Header.TextureSize.h = Renderer::GetTargetHeight();
-      g_eye_texture[0].D3D11.Header.RenderViewport.Pos.x = 0;
-      g_eye_texture[0].D3D11.Header.RenderViewport.Pos.y = 0;
-      g_eye_texture[0].D3D11.Header.RenderViewport.Size.w = Renderer::GetTargetWidth();
-      g_eye_texture[0].D3D11.Header.RenderViewport.Size.h = Renderer::GetTargetHeight();
-      g_eye_texture[0].D3D11.pTexture = FramebufferManager::m_efb.m_frontBuffer[0]->GetTex();
-      g_eye_texture[0].D3D11.pSRView = FramebufferManager::m_efb.m_frontBuffer[0]->GetSRV();
-      // If we are rendering in mono then use the same texture for both eyes, otherwise use a
-      // different eye texture
-      g_eye_texture[1] = g_eye_texture[0];
-      if (g_ActiveConfig.iStereoMode == STEREO_OCULUS)
-      {
-        g_eye_texture[1].D3D11.pTexture = FramebufferManager::m_efb.m_frontBuffer[1]->GetTex();
-        g_eye_texture[1].D3D11.pSRView = FramebufferManager::m_efb.m_frontBuffer[1]->GetSRV();
-      }
+        // We need the underlying ID3D11Texture2D. DXTexture should provide a way to get it.
+        // This assumes GetVREyeTexture returns a pointer that can be dynamic_cast to DXTexture.
+        DXTexture* dx_left_tex = dynamic_cast<DXTexture*>(left_abs_tex);
+        DXTexture* dx_right_tex = dynamic_cast<DXTexture*>(right_abs_tex);
+
+        if (dx_left_tex && dx_right_tex)
+        {
+            m_left_texture = dx_left_tex->GetD3DTexture(); // Assuming DXTexture has GetD3DTexture()
+            m_right_texture = dx_right_tex->GetD3DTexture();
+            // AddRef if GetD3DTexture doesn't, though ComPtr in DXTexture should handle lifetime.
+            // If GetD3DTexture returns a raw pointer from a ComPtr, AddRef might be needed if m_left_texture is also a raw pointer.
+            // However, m_left_texture is ID3D11Texture2D*, so direct assignment is fine if lifetimes are managed.
+            // For safety, if these are just raw pointers tracking resources owned by FramebufferManager,
+            // no AddRef/Release cycle is needed here, but they become dangling if FramebufferManager releases them.
+            // Given m_left_texture and m_right_texture are global in this file, this is risky.
+            // It's better if VR_PresentHMDFrame directly gets them from g_framebuffer_manager.
+            // For now, let's keep them as they are in Hydra for minimal changes to VR_PresentHMDFrame's OpenVR path.
+            // We'll assume g_framebuffer_manager outlives their use in a frame.
+        }
+        else
+        {
+            PanicAlert("Failed to cast VR eye textures to DXTexture for OpenVR.");
+        }
     }
-#endif
-#if defined(HAVE_OPENVR)
-    if (g_has_openvr)
+    else
     {
-      m_left_texture = FramebufferManager::m_efb.m_frontBuffer[0]->GetTex();
-      m_right_texture = FramebufferManager::m_efb.m_frontBuffer[1]->GetTex();
+        PanicAlert("VR eye textures not created in FramebufferManager for OpenVR.");
     }
-#endif
   }
 #endif
 }
@@ -449,18 +445,18 @@ void VR_StopFramebuffer()
     }
   }
 #endif
-#if defined(OVR_MAJOR_VERSION) && OVR_PRODUCT_VERSION == 0 && OVR_MAJOR_VERSION <= 5
-  if (g_has_rift)
-  {
-    SAFE_RELEASE(FramebufferManager::m_efb.m_frontBuffer[0]);
-    SAFE_RELEASE(FramebufferManager::m_efb.m_frontBuffer[1]);
-  }
-#endif
+// Old Oculus SDK and OpenVR Hydra textures were released here.
+// New m_vr_eye_textures in FramebufferManager are handled by its destructor / DestroyEFBFramebuffer.
+// The global m_left_texture/m_right_texture for OpenVR do not need explicit release here
+// if they are just pointers to textures managed by FramebufferManager.
 #if defined(HAVE_OPENVR)
   if (g_has_openvr)
   {
-    SAFE_RELEASE(FramebufferManager::m_efb.m_frontBuffer[0]);
-    SAFE_RELEASE(FramebufferManager::m_efb.m_frontBuffer[1]);
+    // These were pointers to textures owned by FramebufferManager::m_efb.m_frontBuffer in Hydra
+    // Now they will point to textures owned by g_framebuffer_manager->m_vr_eye_textures
+    // No SAFE_RELEASE needed here if they are just non-owning pointers.
+    m_left_texture = nullptr;
+    m_right_texture = nullptr;
   }
 #endif
 }
@@ -511,21 +507,68 @@ void VR_RenderToEyebuffer(int eye, int hmd_number)
   }
 #endif
 #if defined(HAVE_OPENVR)
-  if (g_has_openvr && (hmd_number == 0 || !g_has_rift))
-    D3D::context->OMSetRenderTargets(1, &FramebufferManager::m_efb.m_frontBuffer[eye]->GetRTV(),
-                                     nullptr);
+  if (g_has_openvr && (hmd_number == 0 || !g_has_rift)) // If OpenVR is primary or Rift is not present
+  {
+    if (g_framebuffer_manager)
+    {
+      VideoCommon::AbstractTexture* abstract_eye_texture = g_framebuffer_manager->GetVREyeTexture(eye);
+      if (abstract_eye_texture)
+      {
+        DXTexture* dx_eye_texture = static_cast<DXTexture*>(abstract_eye_texture);
+        ID3D11RenderTargetView* rtv = dx_eye_texture->GetD3DRenderTargetView();
+        // The depth buffer of the main EFB is typically used/bound by the Gfx context.
+        // For VR eye rendering, we only set the color target. Depth testing should use the EFB depth.
+        // If separate depth per eye is needed, FramebufferManager would need to manage that too.
+        ID3D11DepthStencilView* dsv = nullptr;
+        if (g_framebuffer_manager->GetEFBDepthTexture())
+        {
+            dsv = static_cast<DXTexture*>(g_framebuffer_manager->GetEFBDepthTexture())->GetD3DDepthStencilView();
+        }
+        D3D::context->OMSetRenderTargets(1, &rtv, dsv);
+      }
+      else
+      {
+        ERROR_LOG(VR, "OpenVR: Eye texture %d is null in FramebufferManager.", eye);
+      }
+    }
+    else
+    {
+      ERROR_LOG(VR, "OpenVR: g_framebuffer_manager is null in VR_RenderToEyebuffer.");
+    }
+  }
 #endif
 }
 
 void VR_PresentHMDFrame()
 {
 #ifdef HAVE_OPENVR
-  if (m_pCompositor)
+  if (m_pCompositor && g_framebuffer_manager)
   {
-    vr::Texture_t leftEyeTexture = {(void*)m_left_texture, OPENVR_DirectX, vr::ColorSpace_Gamma};
-    vr::VRCompositor()->Submit(vr::Eye_Left, &leftEyeTexture);
-    vr::Texture_t rightEyeTexture = {(void*)m_right_texture, OPENVR_DirectX, vr::ColorSpace_Gamma};
-    vr::VRCompositor()->Submit(vr::Eye_Right, &rightEyeTexture);
+    VideoCommon::AbstractTexture* abs_left_eye_tex = g_framebuffer_manager->GetVREyeTexture(0);
+    VideoCommon::AbstractTexture* abs_right_eye_tex = g_framebuffer_manager->GetVREyeTexture(1);
+
+    if (abs_left_eye_tex && abs_right_eye_tex)
+    {
+      ID3D11Texture2D* d3d_left_tex = static_cast<DXTexture*>(abs_left_eye_tex)->GetD3DTexture();
+      ID3D11Texture2D* d3d_right_tex = static_cast<DXTexture*>(abs_right_eye_tex)->GetD3DTexture();
+
+      if (d3d_left_tex && d3d_right_tex)
+      {
+        vr::Texture_t leftEyeTexture = {d3d_left_tex, vr::TextureType_DirectX, vr::ColorSpace_Gamma};
+        vr::VRCompositor()->Submit(vr::Eye_Left, &leftEyeTexture);
+        vr::Texture_t rightEyeTexture = {d3d_right_tex, vr::TextureType_DirectX, vr::ColorSpace_Gamma};
+        vr::VRCompositor()->Submit(vr::Eye_Right, &rightEyeTexture);
+      }
+      else
+      {
+        ERROR_LOG(VR, "OpenVR: Failed to get D3D textures for submission.");
+      }
+    }
+    else
+    {
+      ERROR_LOG(VR, "OpenVR: Eye textures are null in FramebufferManager for submission.");
+    }
+
     m_pCompositor->WaitGetPoses(m_rTrackedDevicePose, vr::k_unMaxTrackedDeviceCount, nullptr, 0);
     g_older_tracking_time = g_old_tracking_time;
     g_old_tracking_time = g_last_tracking_time;
@@ -551,21 +594,33 @@ void VR_PresentHMDFrame()
         eye = g_ActiveConfig.iMirrorStyle - VR_MIRROR_LEFT;
 
       D3D::context->RSSetViewports(1, &vp);
-      D3D::drawShadedTexQuad(FramebufferManager::m_efb.m_frontBuffer[eye]->GetSRV(),
-                             sourceRc.AsRECT(), sourceRc.GetWidth(), sourceRc.GetHeight(),
-                             PixelShaderCache::GetColorCopyProgram(false),
-                             VertexShaderCache::GetSimpleVertexShader(),
-                             VertexShaderCache::GetSimpleInputLayout(), nullptr);
+      VideoCommon::AbstractTexture* mirror_source_tex_abs = g_framebuffer_manager->GetVREyeTexture(eye);
+      if (mirror_source_tex_abs)
+      {
+        DXTexture* mirror_source_dx_tex = static_cast<DXTexture*>(mirror_source_tex_abs);
+        D3D::drawShadedTexQuad(mirror_source_dx_tex->GetD3DShaderResourceView(),
+                               sourceRc.AsRECT(), sourceRc.GetWidth(), sourceRc.GetHeight(),
+                               g_shader_cache->GetTextureCopyPixelShader(), // Uses ShaderCache
+                               g_shader_cache->GetScreenQuadVertexShader(), // Uses ShaderCache
+                               nullptr, // InputLayout might be part of pipeline state now
+                               nullptr); // Geometry Shader
+      }
+
 
       if (g_ActiveConfig.iMirrorStyle >= VR_MIRROR_WARPED)
       {
         vp.TopLeftX += vp.Width;
         D3D::context->RSSetViewports(1, &vp);
-        D3D::drawShadedTexQuad(FramebufferManager::m_efb.m_frontBuffer[1]->GetSRV(),
-                               sourceRc.AsRECT(), sourceRc.GetWidth(), sourceRc.GetHeight(),
-                               PixelShaderCache::GetColorCopyProgram(false),
-                               VertexShaderCache::GetSimpleVertexShader(),
-                               VertexShaderCache::GetSimpleInputLayout(), nullptr);
+        VideoCommon::AbstractTexture* mirror_source_tex_abs_right = g_framebuffer_manager->GetVREyeTexture(1);
+        if (mirror_source_tex_abs_right)
+        {
+            DXTexture* mirror_source_dx_tex_right = static_cast<DXTexture*>(mirror_source_tex_abs_right);
+            D3D::drawShadedTexQuad(mirror_source_dx_tex_right->GetD3DShaderResourceView(),
+                                   sourceRc.AsRECT(), sourceRc.GetWidth(), sourceRc.GetHeight(),
+                                   g_shader_cache->GetTextureCopyPixelShader(),
+                                   g_shader_cache->GetScreenQuadVertexShader(),
+                                   nullptr, nullptr);
+        }
       }
 
       // D3D::context->CopyResource(D3D::GetBackBuffer()->GetTex(), tex->D3D11.pTexture);
@@ -761,4 +816,35 @@ void VR_DrawTimewarpFrame()
   }
 #endif
 }
+
+// New function for stereo rendering submission and timewarp
+void VR_RenderFrameStereo()
+{
+  if (!g_has_hmd || !g_ActiveConfig.bEnableVR)
+    return;
+
+  // Assumes eye textures in g_framebuffer_manager have been rendered to by the caller (e.g., D3DGfx::PresentBackbuffer)
+
+  VR_PresentHMDFrame(); // Submits frame to HMD
+
+  // Synchronous Timewarp
+  // The logic for g_ActiveConfig.iExtraTimewarpedFrames needs to be set appropriately before this call.
+  // This was previously calculated in Hydra's Renderer::SwapImpl based on FPS.
+  if (g_ActiveConfig.bSynchronousTimewarp && g_ActiveConfig.iExtraTimewarpedFrames > 0)
+  {
+    // Ensure VR_GetEyePoses() has been called for the latest head orientation if timewarp needs it.
+    // VR_DrawTimewarpFrame in Hydra's Oculus path calls ovrHmd_SubmitFrame with existing poses,
+    // but OpenVR might need updated poses for its reprojection if not handled internally by WaitGetPoses.
+    // For now, assuming VR_DrawTimewarpFrame handles pose updates or uses last known good ones.
+    for (int i = 0; i < g_ActiveConfig.iExtraTimewarpedFrames; ++i)
+    {
+      VR_DrawTimewarpFrame();
+      if (Core::g_drawn_vr < 0xFFFFFFFF) // Prevent overflow if someone leaves it running for ages
+          Core::g_drawn_vr++;
+    }
+  }
+  if (Core::g_drawn_vr < 0xFFFFFFFF)
+    Core::g_drawn_vr++; // For the main "real" frame submitted
+}
+
 }

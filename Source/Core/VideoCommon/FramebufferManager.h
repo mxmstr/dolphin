@@ -70,6 +70,14 @@ public:
   bool IsEFBStereo() const { return m_efb_color_texture->GetLayers() > 1; }
   FramebufferState GetEFBFramebufferState() const;
 
+  // VR members
+  bool IsStereo3D() const { return m_stereo3d; }
+  int GetEyeCount() const { return m_eye_count; }
+  AbstractTexture* GetVREyeTexture(int eye) const
+  {
+    return (eye < 2 && m_vr_eye_textures[eye]) ? m_vr_eye_textures[eye].get() : nullptr;
+  }
+
   // EFB coordinate conversion functions
   // Use this to convert a whole native EFB rect to backbuffer coordinates
   MathUtil::Rectangle<int> ConvertEFBRectangle(const MathUtil::Rectangle<int>& rc) const;
@@ -239,6 +247,11 @@ protected:
   std::vector<EFBPokeVertex> m_depth_poke_vertices;
 
   Common::EventHook m_end_of_frame_event;
+
+  // VR-specific members
+  bool m_stereo3d = false;
+  int m_eye_count = 1;
+  std::unique_ptr<AbstractTexture> m_vr_eye_textures[2];
 };
 
 extern std::unique_ptr<FramebufferManager> g_framebuffer_manager;

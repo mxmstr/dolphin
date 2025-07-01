@@ -184,6 +184,13 @@ extern const Info<bool> GFX_HACK_NO_MIPMAPPING;
 
 extern const Info<bool> GFX_PERF_QUERIES_ENABLE;
 
+extern const Info<int> GFX_PROJECTION_HACK;
+extern const Info<int> GFX_PROJECTION_HACK_SZNEAR;
+extern const Info<int> GFX_PROJECTION_HACK_SZFAR;
+extern const Info<std::string> GFX_PROJECTION_HACK_ZNEAR;
+extern const Info<std::string> GFX_PROJECTION_HACK_ZFAR;
+extern const Info<bool> GFX_PERF_QUERIES_ENABLE;
+
 // Android custom GPU drivers
 
 extern const Info<std::string> GFX_DRIVER_LIB_NAME;
@@ -191,5 +198,116 @@ extern const Info<std::string> GFX_DRIVER_LIB_NAME;
 // Vertex loader
 
 extern const Info<VertexLoaderType> GFX_VERTEX_LOADER_TYPE;
+
+// Graphics.Game Specific VR Settings
+extern const Info<bool> GFX_VR_DISABLE_3D;
+extern const Info<bool> GFX_VR_HUD_FULLSCREEN;
+extern const Info<bool> GFX_VR_HUD_ON_TOP;
+extern const Info<bool> GFX_VR_DONT_CLEAR_SCREEN;
+extern const Info<bool> GFX_VR_CAN_READ_CAMERA_ANGLES;
+extern const Info<bool> GFX_VR_DETECT_SKYBOX;
+extern const Info<float> GFX_VR_UNITS_PER_METRE;
+extern const Info<float> GFX_VR_HUD_THICKNESS;
+extern const Info<float> GFX_VR_HUD_DISTANCE;
+extern const Info<float> GFX_VR_HUD_3D_CLOSER;
+extern const Info<float> GFX_VR_CAMERA_FORWARD;
+extern const Info<float> GFX_VR_CAMERA_PITCH;
+extern const Info<float> GFX_VR_AIM_DISTANCE;
+extern const Info<float> GFX_VR_MIN_FOV;
+extern const Info<float> GFX_VR_N64_FOV;
+extern const Info<float> GFX_VR_SCREEN_HEIGHT;
+extern const Info<float> GFX_VR_SCREEN_THICKNESS;
+extern const Info<float> GFX_VR_SCREEN_DISTANCE;
+extern const Info<float> GFX_VR_SCREEN_RIGHT;
+extern const Info<float> GFX_VR_SCREEN_UP;
+extern const Info<float> GFX_VR_SCREEN_PITCH;
+extern const Info<int> GFX_VR_METROID_PRIME;
+extern const Info<int> GFX_VR_TELESCOPE_EYE;
+extern const Info<float> GFX_VR_TELESCOPE_MAX_FOV;
+extern const Info<float> GFX_VR_READ_PITCH;
+extern const Info<u32> GFX_VR_CAMERA_MIN_POLY;
+extern const Info<float> GFX_VR_HUD_DESP_POSITION_0;
+extern const Info<float> GFX_VR_HUD_DESP_POSITION_1;
+extern const Info<float> GFX_VR_HUD_DESP_POSITION_2;
+
+// Global VR Settings
+extern const Info<float> GLOBAL_VR_SCALE;
+extern const Info<float> GLOBAL_VR_FREE_LOOK_SENSITIVITY;
+extern const Info<float> GLOBAL_VR_LEAN_BACK_ANGLE;
+extern const Info<bool> GLOBAL_VR_ENABLE_VR;
+extern const Info<bool> GLOBAL_VR_LOW_PERSISTENCE;
+extern const Info<bool> GLOBAL_VR_DYNAMIC_PREDICTION;
+extern const Info<bool> GLOBAL_VR_NO_MIRROR_TO_WINDOW;
+extern const Info<bool> GLOBAL_VR_ORIENTATION_TRACKING;
+extern const Info<bool> GLOBAL_VR_MAG_YAW_CORRECTION;
+extern const Info<bool> GLOBAL_VR_POSITION_TRACKING;
+extern const Info<bool> GLOBAL_VR_CHROMATIC;
+extern const Info<bool> GLOBAL_VR_TIMEWARP;
+extern const Info<bool> GLOBAL_VR_VIGNETTE;
+extern const Info<bool> GLOBAL_VR_NO_RESTORE;
+extern const Info<bool> GLOBAL_VR_FLIP_VERTICAL;
+extern const Info<bool> GLOBAL_VR_SRGB;
+extern const Info<bool> GLOBAL_VR_OVERDRIVE;
+extern const Info<bool> GLOBAL_VR_HQ_DISTORTION;
+extern const Info<bool> GLOBAL_VR_DISABLE_NEAR_CLIPPING;
+extern const Info<bool> GLOBAL_VR_AUTO_PAIR_VIVE_CONTROLLERS;
+extern const Info<bool> GLOBAL_VR_SHOW_HANDS;
+extern const Info<bool> GLOBAL_VR_SHOW_FEET;
+extern const Info<bool> GLOBAL_VR_SHOW_CONTROLLER;
+extern const Info<bool> GLOBAL_VR_SHOW_LASER_POINTER;
+extern const Info<bool> GLOBAL_VR_SHOW_AIM_RECTANGLE;
+extern const Info<bool> GLOBAL_VR_SHOW_HUD_BOX;
+extern const Info<bool> GLOBAL_VR_SHOW_2D_SCREEN_BOX;
+extern const Info<bool> GLOBAL_VR_SHOW_SENSOR_BAR;
+extern const Info<bool> GLOBAL_VR_SHOW_GAME_CAMERA;
+extern const Info<bool> GLOBAL_VR_SHOW_GAME_FRUSTUM;
+extern const Info<bool> GLOBAL_VR_SHOW_TRACKING_CAMERA;
+extern const Info<bool> GLOBAL_VR_SHOW_TRACKING_VOLUME;
+extern const Info<bool> GLOBAL_VR_SHOW_BASE_STATION;
+extern const Info<bool> GLOBAL_VR_MOTION_SICKNESS_ALWAYS;
+extern const Info<bool> GLOBAL_VR_MOTION_SICKNESS_FREELOOK;
+extern const Info<bool> GLOBAL_VR_MOTION_SICKNESS_2D;
+extern const Info<bool> GLOBAL_VR_MOTION_SICKNESS_LEFT_STICK;
+extern const Info<bool> GLOBAL_VR_MOTION_SICKNESS_RIGHT_STICK;
+extern const Info<bool> GLOBAL_VR_MOTION_SICKNESS_DPAD;
+extern const Info<bool> GLOBAL_VR_MOTION_SICKNESS_IR;
+extern const Info<int> GLOBAL_VR_MOTION_SICKNESS_METHOD;
+extern const Info<int> GLOBAL_VR_MOTION_SICKNESS_SKYBOX;
+extern const Info<float> GLOBAL_VR_MOTION_SICKNESS_FOV;
+extern const Info<int> GLOBAL_VR_PLAYER;
+extern const Info<int> GLOBAL_VR_PLAYER_2;
+extern const Info<int> GLOBAL_VR_MIRROR_PLAYER;
+extern const Info<int> GLOBAL_VR_MIRROR_STYLE;
+extern const Info<float> GLOBAL_VR_TIMEWARP_TWEAK;
+extern const Info<u32> GLOBAL_VR_NUM_EXTRA_FRAMES;
+extern const Info<u32> GLOBAL_VR_NUM_EXTRA_VIDEO_LOOPS;
+extern const Info<u32> GLOBAL_VR_NUM_EXTRA_VIDEO_LOOPS_DIVIDER;
+extern const Info<bool> GLOBAL_VR_STABILIZE_ROLL;
+extern const Info<bool> GLOBAL_VR_STABILIZE_PITCH;
+extern const Info<bool> GLOBAL_VR_STABILIZE_YAW;
+extern const Info<bool> GLOBAL_VR_STABILIZE_X;
+extern const Info<bool> GLOBAL_VR_STABILIZE_Y;
+extern const Info<bool> GLOBAL_VR_STABILIZE_Z;
+extern const Info<bool> GLOBAL_VR_KEYHOLE;
+extern const Info<float> GLOBAL_VR_KEYHOLE_WIDTH;
+extern const Info<bool> GLOBAL_VR_KEYHOLE_SNAP;
+extern const Info<float> GLOBAL_VR_KEYHOLE_SIZE;
+extern const Info<bool> GLOBAL_VR_PULL_UP_20_FPS;
+extern const Info<bool> GLOBAL_VR_PULL_UP_30_FPS;
+extern const Info<bool> GLOBAL_VR_PULL_UP_60_FPS;
+extern const Info<bool> GLOBAL_VR_PULL_UP_AUTO;
+extern const Info<bool> GLOBAL_VR_OPCODE_REPLAY;
+extern const Info<bool> GLOBAL_VR_OPCODE_WARNING_DISABLE;
+extern const Info<bool> GLOBAL_VR_REPLAY_VERTEX_DATA;
+extern const Info<bool> GLOBAL_VR_REPLAY_OTHER_DATA;
+extern const Info<bool> GLOBAL_VR_PULL_UP_20_FPS_TIMEWARP;
+extern const Info<bool> GLOBAL_VR_PULL_UP_30_FPS_TIMEWARP;
+extern const Info<bool> GLOBAL_VR_PULL_UP_60_FPS_TIMEWARP;
+extern const Info<bool> GLOBAL_VR_PULL_UP_AUTO_TIMEWARP;
+extern const Info<bool> GLOBAL_VR_SYNCHRONOUS_TIMEWARP;
+extern const Info<std::string> GLOBAL_VR_LEFT_TEXTURE;
+extern const Info<std::string> GLOBAL_VR_RIGHT_TEXTURE;
+extern const Info<std::string> GLOBAL_VR_GC_LEFT_TEXTURE;
+extern const Info<std::string> GLOBAL_VR_GC_RIGHT_TEXTURE;
 
 }  // namespace Config
