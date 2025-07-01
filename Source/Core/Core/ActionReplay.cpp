@@ -38,6 +38,7 @@
 #include "Common/Logging/Log.h"
 #include "Common/MsgHandler.h"
 
+#include "Core/ARBruteForcer.h" // Added for VR brute-forcer
 #include "Core/ARDecrypt.h"
 #include "Core/AchievementManager.h"
 #include "Core/CheatCodes.h"
@@ -995,19 +996,101 @@ static bool RunCodeLocked(const Core::CPUThreadGuard& guard, const ARCode& arcod
 
 void RunAllActive(const Core::CPUThreadGuard& cpu_guard)
 {
-  if (!Config::AreCheatsEnabled())
+  // Check if any codes (normal cheats or brute-forcer) need to be run.
+  // Brute-forcer can run even if general cheats are disabled.
+  bool should_run_bruteforcer = ARBruteForcer::ch_bruteforce && ARBruteForcer::ch_begun &&
+                                ARBruteForcer::ch_current_position > -1 &&
+                                static_cast<size_t>(ARBruteForcer::ch_current_position) < ARBruteForcer::ch_map.size();
+
+  if (!Config::AreCheatsEnabled() && !should_run_bruteforcer)
     return;
 
-  // If the mutex is idle then acquiring it should be cheap, fast mutexes
-  // are only atomic ops unless contested. It should be rare for this to
-  // be contested.
-  std::lock_guard guard(s_lock);
-  std::erase_if(s_active_codes, [&cpu_guard](const ARCode& code) {
-    const bool success = RunCodeLocked(cpu_guard, code);
-    LogInfo("\n");
-    return !success;
-  });
-  s_disable_logging = true;
+  std::lock_guard guard(s_lock); // Lock for the entire duration of AR operations
+
+  // penkamaster's Action Replay culling code brute-forcing (VR-Hydra addition)
+  if (should_run_bruteforcer)
+  {
+    WARN_LOG_FMT(ACTIONREPLAY, "Applying brute-forcer temporary culling code");
+    ARCode ch_currentCode;
+
+    ch_currentCode.enabled = true;
+    ch_currentCode.name = "temporary_culling_code";
+    ch_currentCode.user_defined = true;
+
+    AREntry op1, op2;
+    bool success_addr1, success_val1, success_addr2, success_val2;
+
+    std::string addr_str_op1 = ARBruteForcer::ch_map[ARBruteForcer::ch_current_position];
+    std::string val_str1 = "3860000" + ARBruteForcer::ch_code;
+    success_addr1 = TryParse(addr_str_op1, &op1.cmd_addr, 16);
+    success_val1 = TryParse(val_str1, &op1.value, 16);
+
+    if (success_addr1 && success_val1)
+    {
+      ch_currentCode.ops.push_back(op1);
+    }
+    else
+    {
+      ERROR_LOG_FMT(ACTIONREPLAY, "Failed to parse brute-forcer AR code (op1): addr_str='{}', val_str='{}'",
+                    addr_str_op1, val_str1);
+    }
+
+    u32 original_addr_op2_val;
+    if (TryParse(addr_str_op1, &original_addr_op2_val, 16))
+    {
+      u32 new_addr_op2_val = original_addr_op2_val + 4;
+      std::stringstream temp_stream_hex_addr;
+      temp_stream_hex_addr << std::hex << new_addr_op2_val;
+      std::string new_addr_op2_str = temp_stream_hex_addr.str();
+
+      success_addr2 = TryParse(new_addr_op2_str, &op2.cmd_addr, 16);
+      success_val2 = TryParse("4E800020", &op2.value, 16);
+
+      if (success_addr2 && success_val2)
+      {
+        ch_currentCode.ops.push_back(op2);
+      }
+      else
+      {
+        ERROR_LOG_FMT(ACTIONREPLAY, "Failed to parse brute-forcer AR code (op2): addr_str='{}', val_str='4E800020'",
+                      new_addr_op2_str);
+      }
+    }
+    else
+    {
+      ERROR_LOG_FMT(ACTIONREPLAY, "Failed to parse original address for brute-forcer op2: '{}'",
+                    addr_str_op1);
+    }
+
+    if (ch_currentCode.ops.size() == 2) // Expecting two operations
+    {
+      const bool success = RunCodeLocked(cpu_guard, ch_currentCode);
+      if (success)
+      {
+        INFO_LOG_FMT(ACTIONREPLAY, "Brute-forcer temporary code applied successfully.");
+      }
+      else
+      {
+        ERROR_LOG_FMT(ACTIONREPLAY, "Brute-forcer temporary code failed to apply.");
+      }
+    }
+    else
+    {
+      WARN_LOG_FMT(ACTIONREPLAY, "Brute-forcer code ops vector size was {}, expected 2. Code not applied.", ch_currentCode.ops.size());
+    }
+  }
+
+  // Apply regular active cheat codes if cheats are enabled
+  if (Config::AreCheatsEnabled())
+  {
+    std::erase_if(s_active_codes, [&cpu_guard](const ARCode& code) {
+      const bool success = RunCodeLocked(cpu_guard, code);
+      LogInfo("\n"); // Log a newline after each code's output
+      return !success; // Remove if not successful
+    });
+  }
+
+  s_disable_logging = true; // Disable logging after all codes for the frame are processed
 }
 
 }  // namespace ActionReplay

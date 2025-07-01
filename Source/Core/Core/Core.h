@@ -121,6 +121,7 @@ private:
 bool Init(Core::System& system, std::unique_ptr<BootParameters> boot, const WindowSystemInfo& wsi);
 void Stop(Core::System& system);
 void Shutdown(Core::System& system);
+void KillDolphinAndRestart(); // Added for ARBruteForcer recovery
 
 void DeclareAsCPUThread();
 void UndeclareAsCPUThread();

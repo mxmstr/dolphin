@@ -93,13 +93,41 @@ SConfig::~SConfig()
 void SConfig::SaveSettings()
 {
   NOTICE_LOG_FMT(BOOT, "Saving settings to {}", File::GetUserPath(F_DOLPHINCONFIG_IDX));
-  Config::Save();
+  Config::Save(); // Saves settings managed by the Common::Config system
+
+  // Manually save VR-specific settings directly to Dolphin.ini
+  // This is a simplified approach due to uncertainty about the new Config registration.
+  Common::IniFile ini_file;
+  ini_file.Load(File::GetUserPath(F_DOLPHINCONFIG_IDX));
+
+  Common::IniFile::Section* vr_section = ini_file.GetOrCreateSection("VR");
+  vr_section->Set("AsynchronousTimewarp", bAsynchronousTimewarp);
+  vr_section->Set("BruteforceScreenshotAll", m_BruteforceScreenshotAll);
+  vr_section->Set("OriginalPrimitiveCount", m_OriginalPrimitiveCount);
+
+  // ShowVRStateColumn was in GameList section in Hydra, let's try to keep it there.
+  Common::IniFile::Section* gamelist_section = ini_file.GetOrCreateSection("GameList");
+  gamelist_section->Set("ColumnVRState", m_showVRStateColumn);
+
+  ini_file.Save(File::GetUserPath(F_DOLPHINCONFIG_IDX));
 }
 
 void SConfig::LoadSettings()
 {
   INFO_LOG_FMT(BOOT, "Loading Settings from {}", File::GetUserPath(F_DOLPHINCONFIG_IDX));
-  Config::Load();
+  Config::Load(); // Loads settings managed by the Common::Config system
+
+  // Manually load VR-specific settings directly from Dolphin.ini
+  Common::IniFile ini_file;
+  ini_file.Load(File::GetUserPath(F_DOLPHINCONFIG_IDX));
+
+  Common::IniFile::Section* vr_section = ini_file.GetOrCreateSection("VR");
+  vr_section->Get("AsynchronousTimewarp", &bAsynchronousTimewarp, false);
+  vr_section->Get("BruteforceScreenshotAll", &m_BruteforceScreenshotAll, false);
+  vr_section->Get("OriginalPrimitiveCount", &m_OriginalPrimitiveCount, -1);
+
+  Common::IniFile::Section* gamelist_section = ini_file.GetOrCreateSection("GameList");
+  gamelist_section->Get("ColumnVRState", &m_showVRStateColumn, true);
 }
 
 const std::string SConfig::GetGameID() const
@@ -308,6 +336,12 @@ void SConfig::LoadDefaults()
   auto& system = Core::System::GetInstance();
   system.SetIsWii(false);
   system.SetIsTriforce(false);
+
+  // Initialize VR settings to defaults
+  bAsynchronousTimewarp = false;
+  m_BruteforceScreenshotAll = false;
+  m_OriginalPrimitiveCount = -1;
+  m_showVRStateColumn = true;
 
   ResetRunningGameMetadata();
 }

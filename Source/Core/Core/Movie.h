@@ -224,7 +224,10 @@ public:
   std::string GetRTCDisplay() const;
   std::string GetRerecords() const;
 
+  void SetFrameSkipping(unsigned int frames_to_skip);
+
 private:
+  void PerformFrameSkippingLogic(); // Helper for frame skipping
   void GetSettings();
   void CheckInputEnd();
 
@@ -272,6 +275,11 @@ private:
   // m_input_display is used by both CPU and GPU (is mutable).
   std::mutex m_input_display_lock;
   std::array<std::string, 8> m_input_display;
+
+  // Frame skipping members
+  std::mutex m_frame_skip_mutex;
+  unsigned int m_frames_to_skip = 0;
+  unsigned int m_frame_skip_counter = 0;
 
   Core::System& m_system;
 };

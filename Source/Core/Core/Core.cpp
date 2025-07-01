@@ -41,9 +41,11 @@
 #include "Core/BootManager.h"
 #include "Core/CPUThreadConfigCallback.h"
 #include "Core/Config/MainSettings.h"
+#include "Core/ARBruteForcer.h" // For KillDolphinAndRestart
 #include "Core/ConfigManager.h"
 #include "Core/CoreTiming.h"
 #include "Core/DSPEmulator.h"
+#include "VideoCommon/VR.h" // For VR::Init
 #include "Core/DolphinAnalytics.h"
 #include "Core/FifoPlayer/FifoPlayer.h"
 #include "Core/FreeLookManager.h"
@@ -253,6 +255,7 @@ bool Init(Core::System& system, std::unique_ptr<BootParameters> boot, const Wind
   // Start the emu thread
   s_state.store(State::Starting);
   s_emu_thread = std::thread(EmuThread, std::ref(system), std::move(boot), prepared_wsi);
+
   return true;
 }
 
@@ -561,6 +564,17 @@ static void EmuThread(Core::System& system, std::unique_ptr<BootParameters> boot
     PanicAlertFmt("Failed to initialize video backend!");
     return;
   }
+
+  // Initialize VR system now that the video backend is ready.
+  if (!VR::Init(system, wsi)) // Assuming VR::Init(Core::System& system, const WindowSystemInfo& wsi) signature
+  {
+    // Decide if VR initialization failure is fatal or just disables VR features.
+    // For now, treating as fatal to match typical hardware init failures.
+    PanicAlertFmt("Failed to initialize VR system!");
+    // Ensure video_guard and other guards run by returning.
+    return;
+  }
+
   Common::ScopeGuard video_guard{[] {
     // Clear on screen messages that haven't expired
     OSD::ClearMessages();
@@ -1062,6 +1076,69 @@ CPUThreadGuard::~CPUThreadGuard()
 {
   if (!m_was_cpu_thread)
     PauseAndLock(m_system, false, m_was_unpaused);
+}
+
+void KillDolphinAndRestart()
+{
+  // If it's the first time through and it crashes on the first function, we must advance the
+  // position.
+  if (ARBruteForcer::ch_bruteforce &&
+      (ARBruteForcer::ch_begin_search || ARBruteForcer::ch_first_search))
+    ARBruteForcer::IncrementPositionTxt();
+
+#if defined _WIN32
+  // Restart Dolphin automatically after fatal crash.
+  PROCESS_INFORMATION ProcessInfo;
+  STARTUPINFO StartupInfo;
+
+  ZeroMemory(&StartupInfo, sizeof(StartupInfo));
+  StartupInfo.cb = sizeof StartupInfo;  // Only compulsory field
+  ZeroMemory(&ProcessInfo, sizeof(ProcessInfo));
+
+  // Get current executable path
+  char current_exe_path[MAX_PATH];
+  GetModuleFileNameA(nullptr, current_exe_path, MAX_PATH);
+
+  std::string command_line = "\"" + std::string(current_exe_path) + "\"";
+
+  if (ARBruteForcer::ch_bruteforce)
+  {
+    if (ARBruteForcer::ch_code == "0")
+    {
+      command_line += " -bruteforce 0";
+    }
+    else if (ARBruteForcer::ch_code == "1")
+    {
+      command_line += " -bruteforce 1";
+    }
+    else
+    {
+      // This case was a PanicAlert in Hydra, which isn't ideal for an agent.
+      // Log an error and proceed with termination. The user will see the error.
+      ERROR_LOG_FMT(CORE, "Bruteforcer restart with ch_code '{}' not automatically handled. Terminating.", ARBruteForcer::ch_code);
+      TerminateProcess(GetCurrentProcess(), 1); // Indicate error
+      return; // Should not be reached
+    }
+  }
+
+  // Need to convert std::string to LPSTR (non-const char*)
+  // CreateProcess modifies the string.
+  std::vector<char> cmd_line_vec(command_line.begin(), command_line.end());
+  cmd_line_vec.push_back('\0'); // Null-terminate
+
+  if (!CreateProcessA(nullptr, cmd_line_vec.data(), nullptr, nullptr, false, NORMAL_PRIORITY_CLASS, nullptr,
+                     nullptr, &StartupInfo, &ProcessInfo))
+  {
+    DWORD error = GetLastError();
+    ERROR_LOG_FMT(CORE, "Failed to restart Dolphin.exe. CreateProcess error: {}. Terminating.", error);
+  }
+
+  TerminateProcess(GetCurrentProcess(), 0); // 0 for success as restart was attempted
+#else
+  // Non-Windows: Log and exit. Automatic restart is more complex.
+  ERROR_LOG_FMT(CORE, "KillDolphinAndRestart: Automatic restart is not implemented for this platform. Terminating.");
+  std::exit(1); // Exit with an error code
+#endif
 }
 
 }  // namespace Core
