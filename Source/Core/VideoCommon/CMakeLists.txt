@@ -206,6 +206,21 @@ add_library(videocommon
   XFStateManager.h
   XFStructs.cpp
   XFStructs.h
+  VR.cpp
+  VR.h
+  VROpenVR.h
+  VRGameMatrices.cpp
+  VRGameMatrices.h
+  D3D/VRD3D.cpp
+  D3D/VRD3D.h
+  D3D/AvatarDrawer.cpp
+  D3D/AvatarDrawer.h
+  tiny_obj_loader.cpp
+  tiny_obj_loader.h
+  ARBruteForcer.cpp
+  ARBruteForcer.h
+  HideObjectEngine.cpp
+  HideObjectEngine.h
 )
 
 target_link_libraries(videocommon
