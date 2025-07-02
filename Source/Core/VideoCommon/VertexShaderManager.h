@@ -12,12 +12,33 @@
 #include "Common/Matrix.h"
 #include "VideoCommon/ConstantManager.h"
 #include "VideoCommon/NativeVertexFormat.h"
+#include "VideoCommon/VideoCommon.h" // For EFBRectangle
 
 class PointerWrap;
 struct PortableVertexDeclaration;
 class XFStateManager;
 
 // The non-API dependent parts.
+// From VR-Hydra
+enum ViewportType
+{
+  VIEW_FULLSCREEN = 0,
+  VIEW_LETTERBOXED,
+  VIEW_HUD_ELEMENT,
+  VIEW_SKYBOX,
+  VIEW_PLAYER_1,
+  VIEW_PLAYER_2,
+  VIEW_PLAYER_3,
+  VIEW_PLAYER_4,
+  VIEW_OFFSCREEN,
+  VIEW_RENDER_TO_TEXTURE,
+};
+
+// These will be defined in VertexShaderManager.cpp
+extern ViewportType g_viewport_type;
+extern bool g_is_skybox;
+extern EFBRectangle g_final_screen_region; // Used by some VR logic
+
 class alignas(16) VertexShaderManager
 {
 public:
@@ -35,6 +56,23 @@ public:
   void TransformToClipSpace(const float* data, float* out, u32 mtxIdx);
 
   static bool UseVertexDepthRange();
+
+  // VR Free look camera controls (adapted from Hydra)
+  // These are static as they modify global view parameters or interact with FreeLookCamera
+  static void TranslateView(float left_metres, float forward_metres, float down_metres = 0.0f);
+  static void RotateView(float x_degrees, float y_degrees);
+  static void ScaleView(float scale); // May not be needed if g_ActiveConfig.fScale is primary
+  static void ResetView();
+
+  // VR-Hydra had these as static members.
+  // constants_eye_projection will store the final per-eye matrices.
+  // The main 'constants.projection' can store the mono/left-eye for shared VS paths.
+  static Common::Matrix44 constants_eye_projection[2];
+  static float s_locked_skybox[12]; // 3x4 matrix
+  static bool s_had_skybox;
+  static Common::Matrix44 g_game_camera_rotmat;
+  static float g_game_camera_pos[3];
+
 
   VertexShaderConstants constants{};
   bool dirty = false;

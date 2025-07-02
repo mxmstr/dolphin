@@ -2169,8 +2169,11 @@ bool TextureCacheBase::CopyFilterCanOverflow(const std::array<u32, 3>& coefficie
 }
 
 void TextureCacheBase::CopyRenderTargetToTexture(
-    u32 dstAddr, EFBCopyFormat dstFormat, u32 width, u32 height, u32 dstStride, bool is_depth_copy,
-    const MathUtil::Rectangle<int>& srcRect, bool isIntensity, bool scaleByHalf, float y_scale,
+    u32 dstAddr, EFBCopyFormat dstFormat,
+    u32 dstStride, bool is_depth_copy,
+    const MathUtil::Rectangle<int>& gameSrcRect, // Renamed from srcRect
+    const EFBRectangle& ourSrcRect,          // Added from Hydra
+    bool isIntensity, bool scaleByHalf, float y_scale,
     float gamma, bool clamp_top, bool clamp_bottom,
     const CopyFilterCoefficients::Values& filter_coefficients)
 {
@@ -2238,14 +2241,22 @@ void TextureCacheBase::CopyRenderTargetToTexture(
       !(is_xfb_copy ? g_ActiveConfig.bSkipXFBCopyToRam : g_ActiveConfig.bSkipEFBCopyToRam) ||
       !copy_to_vram;
 
-  // tex_w and tex_h are the native size of the texture in the GC memory.
+  // tex_w and tex_h are the native size of the texture in the GC memory, from game's perspective.
   // The size scaled_* represents the emulated texture. Those differ
   // because of upscaling and because of yscaling of XFB copies.
   // For the latter, we keep the EFB resolution for the virtual XFB blit.
-  u32 tex_w = width;
-  u32 tex_h = height;
-  u32 scaled_tex_w = g_framebuffer_manager->EFBToScaledX(width);
-  u32 scaled_tex_h = g_framebuffer_manager->EFBToScaledY(height);
+  u32 game_width = gameSrcRect.GetWidth();
+  u32 game_height = gameSrcRect.GetHeight();
+
+  // ourSrcRect is available if specific VR source dimensions are needed by the caller or subsequent logic.
+  // For now, its direct usage within this function is minimal, matching Hydra's pattern.
+  // const u32 our_width = ourSrcRect.GetWidth(); // Example if needed
+  // const u32 our_height = ourSrcRect.GetHeight(); // Example if needed
+
+  u32 tex_w = game_width;
+  u32 tex_h = game_height;
+  u32 scaled_tex_w = g_framebuffer_manager->EFBToScaledX(game_width);
+  u32 scaled_tex_h = g_framebuffer_manager->EFBToScaledY(game_height);
 
   if (scaleByHalf)
   {
@@ -2367,7 +2378,7 @@ void TextureCacheBase::CopyRenderTargetToTexture(
       entry->may_have_overlapping_textures = false;
       entry->is_custom_tex = false;
 
-      CopyEFBToCacheEntry(entry, is_depth_copy, srcRect, scaleByHalf, linear_filter, dstFormat,
+      CopyEFBToCacheEntry(entry, is_depth_copy, gameSrcRect, scaleByHalf, linear_filter, dstFormat, // Replaced srcRect with gameSrcRect
                           isIntensity, gamma, clamp_top, clamp_bottom,
                           GetVRAMCopyFilterCoefficients(filter_coefficients));
 
@@ -2418,7 +2429,7 @@ void TextureCacheBase::CopyRenderTargetToTexture(
     std::unique_ptr<AbstractStagingTexture> staging_texture = GetEFBCopyStagingTexture();
     if (staging_texture)
     {
-      CopyEFB(staging_texture.get(), format, tex_w, bytes_per_row, num_blocks_y, dstStride, srcRect,
+      CopyEFB(staging_texture.get(), format, tex_w, bytes_per_row, num_blocks_y, dstStride, gameSrcRect, // Replaced srcRect with gameSrcRect
               scaleByHalf, linear_filter, y_scale, gamma, clamp_top, clamp_bottom, coefficients);
 
       // We can't defer if there is no VRAM copy (since we need to update the hash).

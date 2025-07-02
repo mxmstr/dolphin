@@ -207,7 +207,7 @@ extern bool g_vr_has_dynamic_predict, g_vr_has_configure_rendering, g_vr_has_hq_
 extern bool g_vr_has_configure_tracking, g_vr_has_timewarp_tweak, g_vr_has_asynchronous_timewarp;
 extern bool g_vr_should_swap_buffers, g_vr_dont_vsync;
 extern bool g_new_tracking_frame;
-extern bool g_new_frame_tracker_for_efb_skip;
+// extern bool g_new_frame_tracker_for_efb_skip; // Already present
 extern u32 skip_objects_count;
 extern Matrix44 g_head_tracking_matrix;
 extern float g_head_tracking_position[3];

@@ -12,6 +12,7 @@
 
 #include "Common/MathUtil.h"
 #include "VideoCommon/BPMemory.h"
+#include "VideoCommon/VideoCommon.h" // Added for EFBRectangle
 struct XFMemory;
 
 namespace BPFunctions
@@ -160,7 +161,7 @@ void SetGenerationMode();
 void SetScissorAndViewport();
 void SetDepthMode();
 void SetBlendMode();
-void ClearScreen(const MathUtil::Rectangle<int>& rc);
+void ClearScreen(const EFBRectangle& rc, bool new_frame_just_rendered); // Modified signature
 void OnPixelFormatChange();
 void SetInterlacingMode(const BPCmd& bp);
 }  // namespace BPFunctions

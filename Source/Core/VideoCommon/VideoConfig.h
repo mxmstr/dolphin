@@ -191,6 +191,10 @@ struct VideoConfig final
   void Refresh();
   void VerifyValidity();
   static void Shutdown();
+  void GameIniSave();    // Added from Hydra
+  void GameIniReset();   // Added from Hydra
+  bool VRSettingsModified(); // Added from Hydra (declaration)
+
 
   // General
   bool bVSync = false;
@@ -348,6 +352,142 @@ struct VideoConfig final
   // Vertex loader
   VertexLoaderType vertex_loader_type;
 
+  // --- VR Settings (Ported from VR-Hydra) ---
+  // VR global behavior
+  bool bEnableVR;
+  float fScale; // World scale
+  float fLeanBackAngle;
+  bool bOrientationTracking;
+  bool bMagYawCorrection; // Magnetometer usage for yaw correction
+  bool bPositionTracking;
+  bool bLowPersistence;    // For HMD display
+  bool bDynamicPrediction; // For HMD pose prediction
+  bool bChromatic;         // Chromatic aberration correction
+  bool bTimewarp;          // Asynchronous Timewarp
+  bool bAsynchronousTimewarp; // (Redundant with bTimewarp? Hydra had both)
+  bool bVignette;
+  bool bNoRestore;      // HMD state restore behavior
+  bool bFlipVertical;   // For some HMDs
+  bool bSRGB;           // sRGB framebuffer for HMD
+  bool bOverdrive;      // Display overdrive
+  bool bHqDistortion;   // High-quality distortion rendering
+  bool bDisableNearClipping;
+  bool bAutoPairViveControllers;
+
+  // VR visual aids & debugging
+  bool bShowHands;
+  bool bShowFeet;
+  bool bShowController;
+  bool bShowLaserPointer;
+  bool bShowAimRectangle;
+  bool bShowHudBox;
+  bool bShow2DBox; // 2D Screen box
+  bool bShowSensorBar;
+  bool bShowGameCamera;
+  bool bShowGameFrustum;
+  bool bShowTrackingCamera;
+  bool bShowTrackingVolume;
+  bool bShowBaseStation;
+
+  // VR motion sickness reduction
+  bool bMotionSicknessAlways;
+  bool bMotionSicknessFreelook;
+  bool bMotionSickness2D;
+  bool bMotionSicknessLeftStick;
+  bool bMotionSicknessRightStick;
+  bool bMotionSicknessDPad;
+  bool bMotionSicknessIR;
+  int iMotionSicknessMethod; // 0 = none, 1 = tunnel, 2 = fade
+  int iMotionSicknessSkybox; // 0 = normal, 1 = hide, 2 = static
+  float fMotionSicknessFOV;
+
+  // VR multi-player & mirroring
+  int iVRPlayer;  // Which player's view is used for VR (0-3 for P1-P4)
+  int iVRPlayer2; // Second player for certain 3-player split screen modes with VR
+  int iMirrorPlayer; // Which player's view to mirror to screen (or default, all)
+  int iMirrorStyle;  // Left, Right, Disabled, Warped, Both
+
+  // VR performance & timing
+  float fTimeWarpTweak;
+  u32 iExtraTimewarpedFrames; // Forcing extra frames for timewarp smoothness
+  u32 iExtraVideoLoops;       // Forcing extra video processing loops
+  u32 iExtraVideoLoopsDivider;
+
+  // VR controller textures
+  std::string sLeftTexture;
+  std::string sRightTexture;
+  std::string sGCLeftTexture;
+  std::string sGCRightTexture;
+
+  // VR game-specific settings (can be overridden by game INIs)
+  float fUnitsPerMetre;
+  float fFreeLookSensitivity; // Hydra had this global, but it fits as a config
+  float fHudThickness;
+  float fHudDistance;
+  float fHud3DCloser;     // How much closer 3D HUD elements appear relative to HUD plane
+  float fCameraForward;   // Move game camera forward/backward
+  float fCameraPitch;     // Tilt game camera up/down
+  float fAimDistance;     // Distance at which aiming reticles should converge / appear correct
+  float fMinFOV;          // Minimum FOV to enforce if game's FOV is too narrow
+  float fN64FOV;          // Default FOV for N64 games
+  float fScreenHeight;    // Virtual 2D screen height in meters
+  float fScreenThickness;
+  float fScreenDistance;
+  float fScreenRight; // Offset for virtual 2D screen
+  float fScreenUp;
+  float fScreenPitch;
+  float fTelescopeMaxFOV; // Games with zoom/telescope: FOV at which to trigger special mono rendering
+  float fReadPitch;       // Manual override for game's camera pitch reading
+  u32 iCameraMinPoly;     // Minimum polygons for camera heuristic
+  bool bDisable3D;        // Force mono rendering for this game
+  bool bHudFullscreen;    // Treat HUD elements as fullscreen overlays
+  bool bHudOnTop;         // Always render HUD on top of 3D scene
+  bool bDontClearScreen;  // For games that rely on uncleared EFB for effects
+  bool bCanReadCameraAngles; // If camera angle heuristics are reliable
+  bool bDetectSkybox;
+  int iTelescopeEye; // 0 = none, 1 = left, 2 = right, 3 = both (for mono rendering in telescope)
+  int iMetroidPrime; // Specific hacks for Metroid Prime series (0 = none)
+
+  // VR camera stabilization toggles (were global in Hydra, better as config)
+  bool bStabilizeRoll;
+  bool bStabilizePitch;
+  bool bStabilizeYaw;
+  bool bStabilizeX;
+  bool bStabilizeY;
+  bool bStabilizeZ;
+
+  // VR Keyhole settings (were global in Hydra)
+  bool bKeyhole;
+  float fKeyholeWidth;
+  bool bKeyholeSnap;
+  float fKeyholeSnapSize;
+
+  // VR Opcode Replay / Timewarp settings (were global in Hydra)
+  bool bPullUp20fps; // Framerate pull-up techniques
+  bool bPullUp30fps;
+  bool bPullUp60fps;
+  bool bPullUpAuto;
+  bool bOpcodeReplay; // Master switch for opcode replay
+  bool bOpcodeWarningDisable;
+  bool bReplayVertexData; // What to include in replay
+  bool bReplayOtherData;
+  bool bPullUp20fpsTimewarp;
+  bool bPullUp30fpsTimewarp;
+  bool bPullUp60fpsTimewarp;
+  bool bPullUpAutoTimewarp;
+  bool bSynchronousTimewarp; // Alternative timewarp timing
+
+  // VR HUD Displacement and Rotation (were global in Hydra)
+  float fHudDespPosition0; // X
+  float fHudDespPosition1; // Y
+  float fHudDespPosition2; // Z
+  float matrixHudrot[3][3]; // Using float array for easier config/INI handling than Matrix33
+
+  // VR layer debugging (were global in Hydra)
+  int iSelectedLayer;
+  int iFlashState;
+  // --- End VR Settings ---
+
   // Utility
   bool UseVSForLinePointExpand() const
   {
@@ -396,6 +536,7 @@ struct VideoConfig final
 
 extern VideoConfig g_Config;
 extern VideoConfig g_ActiveConfig;
+extern VideoConfig g_SavedConfig; // Added from Hydra
 
 // Called every frame.
 void UpdateActiveConfig();

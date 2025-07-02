@@ -277,6 +277,9 @@ DOLPHIN_FORCE_INLINE u32 Run(const u8* data, u32 available, T& callback)
 template <bool is_preprocess = false>
 u8* RunFifo(DataReader src, u32* cycles);
 
+void Init();     // Added from Hydra
+void Shutdown(); // Added from Hydra
+
 }  // namespace OpcodeDecoder
 
 template <>

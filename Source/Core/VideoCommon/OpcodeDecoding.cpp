@@ -30,10 +30,42 @@
 #include "VideoCommon/XFMemory.h"
 #include "VideoCommon/XFStateManager.h"
 #include "VideoCommon/XFStructs.h"
+#include "VideoCommon/VR.h"          // Added for VR globals
+#include "VideoCommon/VideoConfig.h" // Added for g_ActiveConfig
+
+// VR Opcode Replay Globals (ported from Hydra)
+// These should ideally be declared in VR.h and defined here, or be static within this file.
+// For now, defining them here directly.
+bool g_opcode_replay_enabled = false;
+bool g_opcode_replay_frame = false;     // True if this is a replay frame from the timewarp buffer
+bool g_opcode_replay_log_frame = false; // True if we should log opcodes to the timewarp buffer this frame
+int skipped_opcode_replay_count = 0; // Counter for iExtraVideoLoopsDivider
+std::vector<TimewarpLogEntry> timewarp_logentries; // Log buffer
 
 namespace OpcodeDecoder
 {
 bool g_record_fifo_data = false;
+static bool s_bFifoErrorSeen = false; // Ported from Hydra
+
+void Init() // Added from Hydra
+{
+  // Use g_has_hmd from VideoCommon/VR.h
+  g_opcode_replay_enabled = g_ActiveConfig.bOpcodeReplay &&
+                            g_has_hmd; // Using the existing global from VR.h
+  g_opcode_replay_frame = false;
+  g_opcode_replay_log_frame = false;
+  skipped_opcode_replay_count = 0; // Reset or set to meet initial condition for logging
+  s_bFifoErrorSeen = false;
+}
+
+void Shutdown() // Added from Hydra
+{
+  g_opcode_replay_frame = false;
+  g_opcode_replay_log_frame = false;
+  timewarp_logentries.clear();
+  // timewarp_logentries.shrink_to_fit(); // Optional: if memory is critical
+}
+
 
 template <bool is_preprocess>
 class RunCallback final : public Callback
@@ -220,7 +252,15 @@ public:
     else
     {
       auto& system = Core::System::GetInstance();
-      system.GetCommandProcessor().HandleUnknownOpcode(opcode, data, is_preprocess);
+      // In Hydra: CommandProcessor::HandleUnknownOpcode(cmd_byte, opcodeStart, is_preprocess, g_opcode_replay_frame, in_display_list, recursive_call);
+      // Reloaded: system.GetCommandProcessor().HandleUnknownOpcode(opcode, data, is_preprocess);
+      // Adding the extra VR parameters to HandleUnknownOpcode would be a change in CommandProcessor.h/cpp
+      // For now, call the existing one. The VR parameters were for more detailed error reporting.
+      if (!s_bFifoErrorSeen && !g_ActiveConfig.bOpcodeWarningDisable) // from Hydra
+          system.GetCommandProcessor().HandleUnknownOpcode(opcode, data, is_preprocess);
+
+      ERROR_LOG_FMT(VIDEO, "FIFO: Unknown Opcode(0x{:02x} @ {}, preprocessing = {})", opcode, fmt::ptr(data), is_preprocess); // from Hydra
+      s_bFifoErrorSeen = true; // from Hydra
       m_cycles += 1;
     }
   }
@@ -262,6 +302,36 @@ u8* RunFifo(DataReader src, u32* cycles)
 {
   using CallbackT = RunCallback<is_preprocess>;
   auto callback = CallbackT{};
+
+  // VR Opcode Replay Logging (ported from Hydra)
+  // Log the DataReader src if conditions are met.
+  // The 'recursive_call' equivalent is !callback.m_in_display_list for top-level calls to RunFifo.
+  // However, RunFifo itself is usually the top-level entry point for a FIFO stream segment.
+  // The check !in_display_list in Hydra's Run was to ensure it's not logging segments of an already-called Display List.
+  // Since RunFifo is processing a segment, we assume it's a "top-level" segment for logging purposes here.
+  // The m_in_display_list in the callback will be false for the first command in this src,
+  // unless this entire src is itself a Display List's content being processed.
+  if (g_opcode_replay_log_frame && !g_opcode_replay_frame &&
+      (skipped_opcode_replay_count >= static_cast<int>(g_ActiveConfig.iExtraVideoLoopsDivider)))
+  {
+    // Check if this segment is part of a display list being executed.
+    // This requires knowing the context from which RunFifo is called.
+    // If CommandProcessor::ProcessCommands calls RunFifo, m_in_display_list would be false for direct FIFO data.
+    // If OpcodeDecoder::Run (for a GX_CMD_CALL_DL) calls RunFifo, then m_in_display_list might be true.
+    // Hydra's check was: !recursive_call. Here, recursive_call is implicit.
+    // Let's assume for now that if RunFifo is called, it's a loggable block unless it's inside a DL *handled by the callback*.
+    // The callback's m_in_display_list is set *during* DL processing.
+    // A simple check: if the callback starts as not in a DL, this whole block is a candidate.
+    bool is_top_level_segment = !callback.m_in_display_list; // Check initial state
+
+    if (is_top_level_segment) // Only log top-level FIFO segments, not the content of called DLs already captured.
+    {
+      timewarp_logentries.push_back(TimewarpLogEntry{src, is_preprocess});
+      // The PanicAlert for DL in replay buffer would be more complex to replicate here,
+      // as 'src' could *start* with a DL call. The original check was on the specific cmd_byte.
+    }
+  }
+
   u32 size = Run(src.GetPointer(), static_cast<u32>(src.size()), callback);
 
   if (cycles != nullptr)

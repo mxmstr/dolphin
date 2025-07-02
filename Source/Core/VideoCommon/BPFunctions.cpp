@@ -23,6 +23,7 @@
 #include "VideoCommon/VideoCommon.h"
 #include "VideoCommon/VideoConfig.h"
 #include "VideoCommon/XFMemory.h"
+#include "VideoCommon/VR.h" // Added from Hydra
 
 namespace BPFunctions
 {
@@ -296,16 +297,68 @@ void SetBlendMode()
     - convert the RGBA8 color to RGBA6/RGB8/RGB565 and convert it to RGBA8 again
     - convert the Z24 depth value to Z16 and back to Z24
 */
-void ClearScreen(const MathUtil::Rectangle<int>& rc)
+void ClearScreen(const EFBRectangle& rc, bool frame_just_rendered)
 {
+  static bool colorEnable_replay[2] = {(bpmem.blendmode.colorupdate != 0),
+                                       (bpmem.blendmode.colorupdate != 0)};
+  static bool alphaEnable_replay[2] = {(bpmem.blendmode.alphaupdate != 0),
+                                       (bpmem.blendmode.alphaupdate != 0)};
+  static bool zEnable_replay[2] = {(bpmem.zmode.updateenable != 0),
+                                   (bpmem.zmode.updateenable != 0)};
+  static u32 pixel_format_replay[2] = {bpmem.zcontrol.pixel_format, bpmem.zcontrol.pixel_format};
+  static u32 color_replay[2] = {(bpmem.clearcolorAR << 16) | bpmem.clearcolorGB,
+                                (bpmem.clearcolorAR << 16) | bpmem.clearcolorGB};
+  static u32 z_replay[2] = {bpmem.clearZValue, bpmem.clearZValue};
+
   bool colorEnable = (bpmem.blendmode.colorupdate != 0);
   bool alphaEnable = (bpmem.blendmode.alphaupdate != 0);
   bool zEnable = (bpmem.zmode.updateenable != 0);
-  auto pixel_format = bpmem.zcontrol.pixel_format;
+  u32 current_pixel_format = bpmem.zcontrol.pixel_format; // Renamed from pixel_format to avoid conflict
+
+  // Log and Replay Clear Calls, because they are not properly captured/played by the replay buffer.
+  // The "Clear Frame" for the beginning of each frame actually happens at the end of the
+  // real/opcode replay frame.
+  // This causes the call meant for the next real frame to be used for the replay frame.
+
+  // To Do: Optimize this better.  Do some games use more than 2 clear calls that might need to also
+  // be unwound?
+  // Is the second unwind just a workaround for a bigger bug somewhere else in the replay buffer?
+  if (g_opcode_replay_enabled)
+  {
+    if (g_opcode_replay_frame && frame_just_rendered)
+    {
+      colorEnable_replay[0] = colorEnable;
+      alphaEnable_replay[0] = alphaEnable;
+      zEnable_replay[0] = zEnable;
+      pixel_format_replay[0] = current_pixel_format;
+    }
+    else if (!g_opcode_replay_frame && !frame_just_rendered)
+    {
+      colorEnable_replay[1] = colorEnable;
+      alphaEnable_replay[1] = alphaEnable;
+      zEnable_replay[1] = zEnable;
+      pixel_format_replay[1] = current_pixel_format;
+    }
+    else if (!g_opcode_replay_frame && frame_just_rendered)
+    {
+      colorEnable = colorEnable_replay[0];
+      alphaEnable = alphaEnable_replay[0];
+      zEnable = zEnable_replay[0];
+      current_pixel_format = pixel_format_replay[0];
+    }
+    else  // g_opcode_replay_frame && !frame_just_rendered
+    {
+      colorEnable = colorEnable_replay[1];
+      alphaEnable = alphaEnable_replay[1];
+      zEnable = zEnable_replay[1];
+      current_pixel_format = pixel_format_replay[1];
+    }
+  }
 
   // (1): Disable unused color channels
-  if (pixel_format == PixelFormat::RGB8_Z24 || pixel_format == PixelFormat::RGB565_Z16 ||
-      pixel_format == PixelFormat::Z24)
+  // Use PixelFormat:: enum from VR-Reloaded
+  if (current_pixel_format == PixelFormat::RGB8_Z24 || current_pixel_format == PixelFormat::RGB565_Z16 ||
+      current_pixel_format == PixelFormat::Z24)
   {
     alphaEnable = false;
   }
@@ -315,17 +368,70 @@ void ClearScreen(const MathUtil::Rectangle<int>& rc)
     u32 color = (bpmem.clearcolorAR << 16) | bpmem.clearcolorGB;
     u32 z = bpmem.clearZValue;
 
+    if (g_opcode_replay_enabled)
+    {
+      if (g_opcode_replay_frame && frame_just_rendered)
+      {
+        color_replay[0] = color;
+        z_replay[0] = z;
+      }
+      else if (!g_opcode_replay_frame && !frame_just_rendered)
+      {
+        color_replay[1] = color;
+        z_replay[1] = z;
+      }
+      else if (!g_opcode_replay_frame && frame_just_rendered)
+      {
+        color = color_replay[0];
+        z = z_replay[0];
+      }
+      else  // g_opcode_replay_frame && !frame_just_rendered
+      {
+        color = color_replay[1];
+        z = z_replay[1];
+      }
+    }
+
     // (2) drop additional accuracy
-    if (pixel_format == PixelFormat::RGBA6_Z24)
+    // Use PixelFormat:: enum from VR-Reloaded
+    if (current_pixel_format == PixelFormat::RGBA6_Z24)
     {
       color = RGBA8ToRGBA6ToRGBA8(color);
     }
-    else if (pixel_format == PixelFormat::RGB565_Z16)
+    else if (current_pixel_format == PixelFormat::RGB565_Z16)
     {
       color = RGBA8ToRGB565ToRGBA8(color);
       z = Z24ToZ16ToZ24(z);
     }
-    g_framebuffer_manager->ClearEFB(rc, colorEnable, alphaEnable, zEnable, color, z);
+
+    // Allow the first ClearScreen to go through, but block the rest if EFBCopyClearDisable is
+    // checked.
+    // NOTE: g_new_frame_tracker_for_efb_skip is not present in VR-Reloaded's VideoCommon.h or VideoConfig.h
+    // It might be a global defined elsewhere or needs to be added. For now, assuming it exists or will be added.
+    // If g_ActiveConfig.bEFBCopyEnable is the equivalent of !g_ActiveConfig.bEFBCopyClearDisable,
+    // this logic might need adjustment. The Hydra logic is:
+    // if (!g_ActiveConfig.bEFBCopyEnable && g_ActiveConfig.bEFBCopyClearDisable && !g_new_frame_tracker_for_efb_skip)
+    // This implies bEFBCopyEnable and bEFBCopyClearDisable are separate flags.
+    // VR-Reloaded has g_ActiveConfig.bSkipEFBCopyToRam. This might be related.
+    // For now, directly porting the logic.
+    // Also, g_renderer->SkipClearScreen needs to be mapped.
+    // Assuming that if we don't call ClearEFB, it's skipped.
+    // The VR-Hydra g_new_frame_tracker_for_efb_skip seems to be related to VR.h `extern bool g_new_frame_tracker_for_efb_skip;`
+    // This variable will need to be declared in VR-Reloaded's VR.h or equivalent.
+    if (g_ActiveConfig.IsEFBCopySkipped() && g_ActiveConfig.bEFBCopyClearDisable && !g_new_frame_tracker_for_efb_skip)
+    {
+      // g_renderer->SkipClearScreen(colorEnable, alphaEnable, zEnable); // Old call
+      // How to skip with g_framebuffer_manager?
+      // For now, we can simply not call ClearEFB. The original SkipClearScreen likely just set flags.
+      // This part may need further refinement based on how SkipClearScreen was implemented.
+      // Let's assume not calling ClearEFB is the correct way to "skip" for now.
+    }
+    else
+    {
+      // g_renderer->ClearScreen(rc, colorEnable, alphaEnable, zEnable, color, z); // Old call
+      g_framebuffer_manager->ClearEFB(rc, colorEnable, alphaEnable, zEnable, color, z);
+      g_new_frame_tracker_for_efb_skip = false;
+    }
   }
 }
 

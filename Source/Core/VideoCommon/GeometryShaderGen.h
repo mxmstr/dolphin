@@ -10,6 +10,7 @@
 
 #include "VideoCommon/RenderState.h"
 #include "VideoCommon/ShaderGenCommon.h"
+#include "VideoCommon/VertexManagerBase.h" // Added for PrimitiveType
 
 enum class APIType;
 
@@ -28,6 +29,7 @@ using GeometryShaderUid = ShaderUid<geometry_shader_uid_data>;
 
 ShaderCode GenerateGeometryShaderCode(APIType api_type, const ShaderHostConfig& host_config,
                                       const geometry_shader_uid_data* uid_data);
+ShaderCode GenerateAvatarGeometryShaderCode(PrimitiveType primitive_type, APIType ApiType, const ShaderHostConfig& host_config); // Added from Hydra
 GeometryShaderUid GetGeometryShaderUid(PrimitiveType primitive_type);
 void EnumerateGeometryShaderUids(const std::function<void(const GeometryShaderUid&)>& callback);
 
