@@ -81,7 +81,6 @@
     <Text Include="$(BuildInfoTemplate)" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="VideoBackends\D3D\AvatarDrawer.h" />
     <ClInclude Include="VideoBackends\D3D\OculusSystemLibraryHeaderD3D11.h" />
     <ClInclude Include="VideoBackends\D3D\tiny_obj_loader.h" />
     <ClInclude Include="VideoBackends\D3D\VRD3D.h" />
@@ -92,7 +91,6 @@
     <ClInclude Include="VideoCommon\VROpenVR.h" />
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="VideoBackends\D3D\AvatarDrawer.cpp" />
     <ClCompile Include="VideoBackends\D3D\tiny_obj_loader.cpp" />
     <ClCompile Include="VideoBackends\D3D\VRD3D.cpp" />
     <ClCompile Include="VideoCommon\OculusSystemLibraryHeader.cpp" />

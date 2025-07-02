@@ -6,14 +6,15 @@
 #include "Common/FileUtil.h"
 #include "Common/MathUtil.h"
 #include "Common/MsgHandler.h"
+#include "Common/Matrix.h"
 #include "VideoBackends/D3D/AvatarDrawer.h"
 #include "VideoBackends/D3D/D3DBase.h"
-#include "VideoBackends/D3D/D3DBlob.h"
-#include "VideoBackends/D3D/D3DShader.h"
+//#include "VideoBackends/D3D/D3DBlob.h"
+//#include "VideoBackends/D3D/D3DShader.h"
 #include "VideoBackends/D3D/D3DState.h"
-#include "VideoBackends/D3D/FramebufferManager.h"
-#include "VideoBackends/D3D/GeometryShaderCache.h"
-#include "VideoBackends/D3D/Render.h"
+//#include "VideoBackends/D3D/FramebufferManager.h"
+//#include "VideoBackends/D3D/GeometryShaderCache.h"
+//#include "VideoBackends/D3D/Render.h"
 #include "VideoBackends/D3D/tiny_obj_loader.h"
 #include "VideoCommon/GeometryShaderGen.h"
 #include "VideoCommon/GeometryShaderManager.h"
@@ -21,10 +22,10 @@
 #include "VideoCommon/VideoConfig.h"
 #include "VideoCommon/XFMemory.h"
 
-#include "InputCommon/ControllerInterface/Sixense/SixenseHack.h"
+//#include "InputCommon/ControllerInterface/Sixense/SixenseHack.h"
 
 extern float s_fViewTranslationVector[3];
-extern EFBRectangle g_final_screen_region;
+extern MathUtil::Rectangle<int> g_final_screen_region;
 
 bool CalculateViewMatrix(int kind, Matrix44& look_matrix)
 {

@@ -8,7 +8,7 @@
 
 #include <windows.h>
 #include "VideoCommon/VR.h"
-#include "VideoCommon/VR920.h"
+//#include "VideoCommon/VR920.h"
 
 #include "d3d11.h"
 

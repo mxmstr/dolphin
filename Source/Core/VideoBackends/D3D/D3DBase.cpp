@@ -24,7 +24,7 @@
 #if !defined(G_HMD_LUID) && !defined(g_hmd_luid)
 // This is a temporary shim. Ideally, VR.h provides these.
 static LUID* g_hmd_luid = nullptr;
-static char g_hmd_device_name[256] = "";
+//static char g_hmd_device_name[256] = "";
 static bool g_has_hmd = false;
 static int g_hmd_window_width = 0;
 static int g_hmd_window_height = 0;
