@@ -36,8 +36,16 @@ public:
 
   static bool UseVertexDepthRange();
 
-  VertexShaderConstants constants{};
-  bool dirty = false;
+  static VertexShaderConstants constants; // Made static for VR port access
+  static float4 constants_eye_projection[2][4]; // For VR per-eye projection
+  static bool m_layer_on_top; // For VR HUD handling
+  static bool dirty; // Made static
+
+  // VR FreeLook/View manipulation functions (will operate on g_freelook_camera)
+  static void ScaleView(float scale);
+  static void TranslateView(float left_metres, float forward_metres, float down_metres = 0.0f);
+  static void RotateView(float x, float y);
+  static void ResetView();
 
   static DOLPHIN_FORCE_INLINE void UpdateValue(bool* dirty, u32* old_value, u32 new_value)
   {

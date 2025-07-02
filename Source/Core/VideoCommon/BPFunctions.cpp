@@ -4,6 +4,7 @@
 #include "VideoCommon/BPFunctions.h"
 
 #include <algorithm>
+#include "VideoCommon/VR.h" // For g_opcode_replay_enabled etc. (will be created later)
 #include <cmath>
 #include <string_view>
 
@@ -296,12 +297,57 @@ void SetBlendMode()
     - convert the RGBA8 color to RGBA6/RGB8/RGB565 and convert it to RGBA8 again
     - convert the Z24 depth value to Z16 and back to Z24
 */
-void ClearScreen(const MathUtil::Rectangle<int>& rc)
+void ClearScreen(const MathUtil::Rectangle<int>& rc, bool frame_just_rendered)
 {
+  // Opcode replay logic from VR-Hydra
+  static bool colorEnable_replay[2] = {(bpmem.blendmode.colorupdate != 0),
+                                       (bpmem.blendmode.colorupdate != 0)};
+  static bool alphaEnable_replay[2] = {(bpmem.blendmode.alphaupdate != 0),
+                                       (bpmem.blendmode.alphaupdate != 0)};
+  static bool zEnable_replay[2] = {(bpmem.zmode.updateenable != 0),
+                                   (bpmem.zmode.updateenable != 0)};
+  static PixelFormat pixel_format_replay[2] = {bpmem.zcontrol.pixel_format, bpmem.zcontrol.pixel_format};
+  static u32 color_replay[2] = {(bpmem.clearcolorAR << 16) | bpmem.clearcolorGB,
+                                (bpmem.clearcolorAR << 16) | bpmem.clearcolorGB};
+  static u32 z_replay[2] = {bpmem.clearZValue, bpmem.clearZValue};
+
   bool colorEnable = (bpmem.blendmode.colorupdate != 0);
   bool alphaEnable = (bpmem.blendmode.alphaupdate != 0);
   bool zEnable = (bpmem.zmode.updateenable != 0);
-  auto pixel_format = bpmem.zcontrol.pixel_format;
+  PixelFormat pixel_format = bpmem.zcontrol.pixel_format;
+
+  // Log and Replay Clear Calls for opcode replay
+  if (g_opcode_replay_enabled)
+  {
+    if (g_opcode_replay_frame && frame_just_rendered)
+    {
+      colorEnable_replay[0] = colorEnable;
+      alphaEnable_replay[0] = alphaEnable;
+      zEnable_replay[0] = zEnable;
+      pixel_format_replay[0] = pixel_format;
+    }
+    else if (!g_opcode_replay_frame && !frame_just_rendered)
+    {
+      colorEnable_replay[1] = colorEnable;
+      alphaEnable_replay[1] = alphaEnable;
+      zEnable_replay[1] = zEnable;
+      pixel_format_replay[1] = pixel_format;
+    }
+    else if (!g_opcode_replay_frame && frame_just_rendered)
+    {
+      colorEnable = colorEnable_replay[0];
+      alphaEnable = alphaEnable_replay[0];
+      zEnable = zEnable_replay[0];
+      pixel_format = pixel_format_replay[0];
+    }
+    else  // g_opcode_replay_frame && !frame_just_rendered
+    {
+      colorEnable = colorEnable_replay[1];
+      alphaEnable = alphaEnable_replay[1];
+      zEnable = zEnable_replay[1];
+      pixel_format = pixel_format_replay[1];
+    }
+  }
 
   // (1): Disable unused color channels
   if (pixel_format == PixelFormat::RGB8_Z24 || pixel_format == PixelFormat::RGB565_Z16 ||
@@ -315,6 +361,30 @@ void ClearScreen(const MathUtil::Rectangle<int>& rc)
     u32 color = (bpmem.clearcolorAR << 16) | bpmem.clearcolorGB;
     u32 z = bpmem.clearZValue;
 
+    if (g_opcode_replay_enabled)
+    {
+      if (g_opcode_replay_frame && frame_just_rendered)
+      {
+        color_replay[0] = color;
+        z_replay[0] = z;
+      }
+      else if (!g_opcode_replay_frame && !frame_just_rendered)
+      {
+        color_replay[1] = color;
+        z_replay[1] = z;
+      }
+      else if (!g_opcode_replay_frame && frame_just_rendered)
+      {
+        color = color_replay[0];
+        z = z_replay[0];
+      }
+      else  // g_opcode_replay_frame && !frame_just_rendered
+      {
+        color = color_replay[1];
+        z = z_replay[1];
+      }
+    }
+
     // (2) drop additional accuracy
     if (pixel_format == PixelFormat::RGBA6_Z24)
     {
@@ -325,7 +395,22 @@ void ClearScreen(const MathUtil::Rectangle<int>& rc)
       color = RGBA8ToRGB565ToRGBA8(color);
       z = Z24ToZ16ToZ24(z);
     }
-    g_framebuffer_manager->ClearEFB(rc, colorEnable, alphaEnable, zEnable, color, z);
+
+    // Allow the first ClearScreen to go through, but block the rest if EFBCopyClearDisable is checked.
+    // (EFBCopyEnable is checked because EFBCopyClearDisable is only relevant if EFB copies are enabled)
+    // g_new_frame_tracker_for_efb_skip is a global that should be set to true at the beginning of a new frame.
+    if (!g_ActiveConfig.bEFBCopyEnable && g_ActiveConfig.bEFBCopyClearDisable && !g_new_frame_tracker_for_efb_skip)
+    {
+      // This part of the logic might need a g_renderer->SkipClearScreen equivalent if that's how it was handled.
+      // For now, we'll assume that not calling ClearEFB is sufficient.
+      // A more direct port might involve g_renderer->SkipClearScreen(colorEnable, alphaEnable, zEnable);
+    }
+    else
+    {
+      g_framebuffer_manager->ClearEFB(rc, colorEnable, alphaEnable, zEnable, color, z);
+      if (g_ActiveConfig.bEFBCopyClearDisable) // Only modify if the hack is active
+        g_new_frame_tracker_for_efb_skip = false;
+    }
   }
 }
 

@@ -30,6 +30,7 @@ ShaderCode GenerateGeometryShaderCode(APIType api_type, const ShaderHostConfig& 
                                       const geometry_shader_uid_data* uid_data);
 GeometryShaderUid GetGeometryShaderUid(PrimitiveType primitive_type);
 void EnumerateGeometryShaderUids(const std::function<void(const GeometryShaderUid&)>& callback);
+ShaderCode GenerateAvatarGeometryShaderCode(PrimitiveType primitive_type, APIType ApiType, const ShaderHostConfig& host_config);
 
 template <>
 struct fmt::formatter<geometry_shader_uid_data>
