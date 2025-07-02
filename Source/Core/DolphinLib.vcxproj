@@ -76,9 +76,13 @@
     <Text Include="$(BuildInfoTemplate)" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="VideoBackends\D3D\OculusSystemLibraryHeaderD3D11.h" />
+    <ClInclude Include="VideoCommon\OculusSystemLibraryHeader.h" />
+    <ClInclude Include="VideoCommon\VROculus.h" />
     <ClInclude Include="VideoCommon\VROpenVR.h" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="VideoCommon\OculusSystemLibraryHeader.cpp" />
     <ClCompile Include="VideoCommon\VROpenVR.cpp" />
   </ItemGroup>
   <UsingTask TaskName="GetProductVersion" TaskFactory="CodeTaskFactory" AssemblyFile="$(MSBuildToolsPath)\Microsoft.Build.Tasks.Core.dll">

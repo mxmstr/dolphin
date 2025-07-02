@@ -55,13 +55,6 @@ static VertexLoaderMap s_vertex_loader_map;
 
 Common::EnumMap<u8*, CPArray::TexCoord7> cached_arraybases;
 
-BitSet8 g_main_vat_dirty;
-BitSet8 g_preprocess_vat_dirty;
-bool g_bases_dirty;  // Main only
-std::array<VertexLoaderBase*, CP_NUM_VAT_REG> g_main_vertex_loaders;
-std::array<VertexLoaderBase*, CP_NUM_VAT_REG> g_preprocess_vertex_loaders;
-bool g_needs_cp_xf_consistency_check;
-
 void Init()
 {
   MarkAllDirty();

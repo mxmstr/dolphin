@@ -141,7 +141,7 @@ void VideoBackend::FillBackendInfo()
 
 bool VideoBackend::Initialize(const WindowSystemInfo& wsi)
 {
-  if (!D3D::Create(g_Config.iAdapter, g_Config.bEnableValidationLayer))
+  if (!D3D::Create(wsi, g_Config.iAdapter, g_Config.bEnableValidationLayer))
     return false;
 
   FillBackendInfo();

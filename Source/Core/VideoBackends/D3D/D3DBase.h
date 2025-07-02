@@ -12,6 +12,7 @@
 
 #include "Common/CommonTypes.h"
 #include "Common/HRWrap.h"
+#include "Common/WindowSystemInfo.h"
 
 namespace DX11
 {
@@ -26,7 +27,7 @@ extern ComPtr<ID3D11Device1> device1;
 extern ComPtr<ID3D11DeviceContext> context;
 extern D3D_FEATURE_LEVEL feature_level;
 
-bool Create(u32 adapter_index, bool enable_debug_layer);
+bool Create(const WindowSystemInfo& wsi, u32 adapter_index, bool enable_debug_layer);
 void Destroy();
 
 // Returns a list of supported AA modes for the current device.
