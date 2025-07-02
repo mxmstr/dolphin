@@ -22,7 +22,9 @@
 #include "VideoCommon/OpcodeDecoding.h"
 #include "VideoCommon/VideoConfig.h"
 #include "VideoCommon/VR.h"
-//#include "VideoCommon/VROculus.h"
+#include "VideoCommon/VROculus.h"
+#include "Common/Matrix.h"
+#include "OculusSystemLibraryHeader.h"
 
 //const char* scm_vr_sdk_str = SCM_OCULUS_STR;
 
@@ -118,7 +120,7 @@ bool g_is_direct_mode = false, g_is_nes = false;
 bool g_new_tracking_frame = true;
 bool g_new_frame_tracker_for_efb_skip = true;
 u32 skip_objects_count = 0;
-Common::Matrix44 g_head_tracking_matrix;
+Matrix44 g_head_tracking_matrix;
 float g_head_tracking_position[3];
 float g_left_hand_tracking_position[3], g_right_hand_tracking_position[3];
 int g_hmd_window_width = 0, g_hmd_window_height = 0, g_hmd_window_x = 0, g_hmd_window_y = 0,
@@ -133,7 +135,7 @@ float vr_widest_3d_VFOV = 0;
 float vr_widest_3d_zNear = 0;
 float vr_widest_3d_zFar = 0;
 float g_game_camera_pos[3];
-Common::Matrix44 g_game_camera_rotmat;
+Matrix44 g_game_camera_rotmat;
 
 // used for calculating acceleration of vive controllers
 double g_older_tracking_time = 0, g_old_tracking_time = 0, g_last_tracking_time = 0;
@@ -179,7 +181,7 @@ void VR_NewVRFrame()
   g_new_frame_tracker_for_efb_skip = true;
   if (!g_vr_had_3D_already)
   {
-    g_game_camera_rotmat = Common::Matrix44::Identity();
+    g_game_camera_rotmat = Matrix44::Identity();
   }
   g_vr_had_3D_already = false;
   skip_objects_count = 0;
@@ -187,7 +189,7 @@ void VR_NewVRFrame()
 
   // Prevent motion sickness: estimate how fast we are moving, and reduce the FOV if we are moving
   // fast
-  g_vr_speed = 0;
+//  g_vr_speed = 0;
 //  if (g_ActiveConfig.bMotionSicknessAlways)
 //  {
 //    g_vr_speed = 1.0f;
@@ -361,7 +363,7 @@ bool InitOpenVR()
         m_pHMD = nullptr;
         vr::VR_Shutdown();
 
-        ERROR_LOG_FMT(VR, "Unable to get render model interface: %s: %s",
+        ERROR_LOG_FMT(VR, "Unable to get render model interface: {}: {}",
           vr::VR_GetVRInitErrorAsSymbol(eError),
           vr::VR_GetVRInitErrorAsEnglishDescription(eError));
         g_has_openvr = false;
@@ -602,29 +604,29 @@ bool InitOculusVR()
 
 bool InitVR920VR()
 {
-#ifdef _WIN32
-  //LoadVR920();
-  //if (g_has_vr920)
-  //{
-  //  g_has_hmd = true;
-  //  g_hmd_window_width = 800;
-  //  g_hmd_window_height = 600;
-  //  // Todo: find vr920
-  //  g_hmd_window_x = 0;
-  //  g_hmd_window_y = 0;
-  //  g_hmd_refresh_rate = 60;  // or 30, depending on how we implement it
-  //  g_vr_must_motion_blur = true;
-  //  g_vr_has_dynamic_predict = false;
-  //  g_vr_has_configure_rendering = false;
-  //  g_vr_has_configure_tracking = false;
-  //  g_vr_has_hq_distortion = false;
-  //  g_vr_should_swap_buffers = true;
-  //  g_vr_has_timewarp_tweak = false;
-  //  g_vr_has_asynchronous_timewarp =
-  //      false;  // but it doesn't need it either, so maybe this should be true?
-  //  return true;
-  //}
-#endif
+//#ifdef _WIN32
+//  LoadVR920();
+//  if (g_has_vr920)
+//  {
+//    g_has_hmd = true;
+//    g_hmd_window_width = 800;
+//    g_hmd_window_height = 600;
+//    // Todo: find vr920
+//    g_hmd_window_x = 0;
+//    g_hmd_window_y = 0;
+//    g_hmd_refresh_rate = 60;  // or 30, depending on how we implement it
+//    g_vr_must_motion_blur = true;
+//    g_vr_has_dynamic_predict = false;
+//    g_vr_has_configure_rendering = false;
+//    g_vr_has_configure_tracking = false;
+//    g_vr_has_hq_distortion = false;
+//    g_vr_should_swap_buffers = true;
+//    g_vr_has_timewarp_tweak = false;
+//    g_vr_has_asynchronous_timewarp =
+//        false;  // but it doesn't need it either, so maybe this should be true?
+//    return true;
+//  }
+//#endif
   return false;
 }
 
@@ -639,7 +641,7 @@ void VR_Init()
   g_hmd_luid = nullptr;
 #endif
 
-  if (g_prefer_openvr)
+  if (true)//g_prefer_openvr)
   {
     InitOpenVR();
     if (!(g_has_openvr && g_one_hmd))
@@ -690,10 +692,10 @@ void VR_Init()
 void VR_StopRendering()
 {
 #ifdef _WIN32
-  if (g_has_vr920)
+  /*if (g_has_vr920)
   {
     VR920_StopStereo3D();
-  }
+  }*/
 #endif
 #ifdef OVR_MAJOR_VERSION
   // Shut down rendering and release resources (by passing NULL)
@@ -743,7 +745,7 @@ void VR_RecenterHMD()
 #ifdef HAVE_OPENVR
   if (g_has_openvr && m_pHMD)
   {
-    m_pHMD->ResetSeatedZeroPose();
+    //m_pHMD->ResetSeatedZeroPose();
   }
 #endif
 #ifdef OVR_MAJOR_VERSION
@@ -960,12 +962,12 @@ void UpdateOculusHeadTracking()
     g_head_tracking_position[2] = -z;
 #endif
     Matrix33 m, yp, ya, p, r;
-    Common::Matrix33::RotateY(ya, DEGREES_TO_RADIANS(yaw));
-    Common::Matrix33::RotateX(p, DEGREES_TO_RADIANS(pitch));
-    Common::Matrix33::Multiply(p, ya, yp);
-    Common::Matrix33::RotateZ(r, DEGREES_TO_RADIANS(roll));
-    Common::Matrix33::Multiply(r, yp, m);
-    Common::Matrix44::LoadMatrix33(g_head_tracking_matrix, m);
+    Matrix33::RotateY(ya, DEGREES_TO_RADIANS(yaw));
+    Matrix33::RotateX(p, DEGREES_TO_RADIANS(pitch));
+    Matrix33::Multiply(p, ya, yp);
+    Matrix33::RotateZ(r, DEGREES_TO_RADIANS(roll));
+    Matrix33::Multiply(r, yp, m);
+    Matrix44::LoadMatrix33(g_head_tracking_matrix, m);
   }
 }
 #endif
@@ -1009,7 +1011,7 @@ void UpdateOpenVRHeadTracking()
       for (int c = 0; c < 3; c++)
         m.data[r * 3 + c] =
             m_rTrackedDevicePose[vr::k_unTrackedDeviceIndex_Hmd].mDeviceToAbsoluteTracking.m[c][r];
-    Common::Matrix44::LoadMatrix33(g_head_tracking_matrix, m);
+    Matrix44::LoadMatrix33(g_head_tracking_matrix, m);
   }
 }
 #endif
@@ -1018,26 +1020,26 @@ void UpdateOpenVRHeadTracking()
 void UpdateVuzixHeadTracking()
 {
   LONG ya = 0, p = 0, r = 0;
-  //if (Vuzix_GetTracking(&ya, &p, &r) == ERROR_SUCCESS)
-  //{
-  //  float yaw = -ya * 180.0f / 32767.0f;
-  //  float pitch = p * -180.0f / 32767.0f;
-  //  float roll = r * 180.0f / 32767.0f;
-  //  // todo: use head and neck model
-  //  float x = 0;
-  //  float y = 0;
-  //  float z = 0;
-  //  Matrix33 m, yp, yawm, pitchm, rollm;
-  //  Common::Matrix33::RotateY(yawm, DEGREES_TO_RADIANS(yaw));
-  //  Common::Matrix33::RotateX(pitchm, DEGREES_TO_RADIANS(pitch));
-  //  Common::Matrix33::Multiply(pitchm, yawm, yp);
-  //  Common::Matrix33::RotateZ(rollm, DEGREES_TO_RADIANS(roll));
-  //  Common::Matrix33::Multiply(rollm, yp, m);
-  //  Common::Matrix44::LoadMatrix33(g_head_tracking_matrix, m);
-  //  g_head_tracking_position[0] = -x;
-  //  g_head_tracking_position[1] = -y;
-  //  g_head_tracking_position[2] = -z;
-  //}
+  if (Vuzix_GetTracking(&ya, &p, &r) == ERROR_SUCCESS)
+  {
+    float yaw = -ya * 180.0f / 32767.0f;
+    float pitch = p * -180.0f / 32767.0f;
+    float roll = r * 180.0f / 32767.0f;
+    // todo: use head and neck model
+    float x = 0;
+    float y = 0;
+    float z = 0;
+    Matrix33 m, yp, yawm, pitchm, rollm;
+    Matrix33::RotateY(yawm, DEGREES_TO_RADIANS(yaw));
+    Matrix33::RotateX(pitchm, DEGREES_TO_RADIANS(pitch));
+    Matrix33::Multiply(pitchm, yawm, yp);
+    Matrix33::RotateZ(rollm, DEGREES_TO_RADIANS(roll));
+    Matrix33::Multiply(rollm, yp, m);
+    Matrix44::LoadMatrix33(g_head_tracking_matrix, m);
+    g_head_tracking_position[0] = -x;
+    g_head_tracking_position[1] = -y;
+    g_head_tracking_position[2] = -z;
+  }
 }
 #endif
 
@@ -1047,8 +1049,8 @@ void VR_UpdateHeadTrackingIfNeeded()
   {
     g_new_tracking_frame = false;
 #ifdef _WIN32
-    if (g_has_vr920 && Vuzix_GetTracking)
-      UpdateVuzixHeadTracking();
+    /*if (g_has_vr920 && Vuzix_GetTracking)
+      UpdateVuzixHeadTracking();*/
 #endif
 #ifdef HAVE_OPENVR
     if (g_has_openvr)
@@ -1089,7 +1091,7 @@ void VR_GetProjectionHalfTan(float& hmd_halftan)
   }
 }
 
-void VR_GetProjectionMatrices(Common::Matrix44& left_eye, Common::Matrix44& right_eye, float znear, float zfar)
+void VR_GetProjectionMatrices(Matrix44& left_eye, Matrix44& right_eye, float znear, float zfar)
 {
 #ifdef OVR_MAJOR_VERSION
   if (g_has_rift && !g_has_two_hmds)
@@ -1101,8 +1103,8 @@ void VR_GetProjectionMatrices(Common::Matrix44& left_eye, Common::Matrix44& righ
     ovrMatrix4f rift_left = ovrMatrix4f_Projection(g_eye_fov[0], znear, zfar, true);
     ovrMatrix4f rift_right = ovrMatrix4f_Projection(g_eye_fov[1], znear, zfar, true);
 #endif
-    Common::Matrix44::Set(left_eye, rift_left.M[0]);
-    Common::Matrix44::Set(right_eye, rift_right.M[0]);
+    Matrix44::Set(left_eye, rift_left.M[0]);
+    Matrix44::Set(right_eye, rift_right.M[0]);
   }
   else
 #endif
@@ -1133,7 +1135,7 @@ void VR_GetProjectionMatrices(Common::Matrix44& left_eye, Common::Matrix44& righ
   else
 #endif
   {
-    left_eye = Common::Matrix44::Identity();
+    left_eye = Matrix44::Identity();
     left_eye.data[10] = -znear / (zfar - znear);
     left_eye.data[11] = -zfar * znear / (zfar - znear);
     left_eye.data[14] = -1.0f;
@@ -1141,7 +1143,7 @@ void VR_GetProjectionMatrices(Common::Matrix44& left_eye, Common::Matrix44& righ
     // 32 degrees HFOV, 4:3 aspect ratio
     left_eye.data[0 * 4 + 0] = 1.0f / tan(32.0f / 2.0f * 3.1415926535f / 180.0f);
     left_eye.data[1 * 4 + 1] = 4.0f / 3.0f * left_eye.data[0 * 4 + 0];
-    right_eye = Common::Matrix44::FromArray(left_eye.data);
+    Matrix44::Set(right_eye, left_eye.data);
   }
 }
 
@@ -1673,7 +1675,7 @@ bool VR_GetAccel(int index, bool sideways, bool has_extension, float* gx, float*
     float rx = m_rTrackedDevicePose[right_hand].mDeviceToAbsoluteTracking.m[0][3];
     float ry = m_rTrackedDevicePose[right_hand].mDeviceToAbsoluteTracking.m[1][3];
     float rz = m_rTrackedDevicePose[right_hand].mDeviceToAbsoluteTracking.m[2][3];
-    Common::Matrix33 m;
+    Matrix33 m;
     for (int r = 0; r < 3; r++)
       for (int c = 0; c < 3; c++)
         m.data[r * 3 + c] = m_rTrackedDevicePose[right_hand].mDeviceToAbsoluteTracking.m[c][r];
@@ -1813,7 +1815,7 @@ bool VR_GetNunchuckAccel(int index, float* gx, float* gy, float* gz)
     // float lx = m_rTrackedDevicePose[left_hand].mDeviceToAbsoluteTracking.m[0][3];
     // float ly = m_rTrackedDevicePose[left_hand].mDeviceToAbsoluteTracking.m[1][3];
     // float lz = m_rTrackedDevicePose[left_hand].mDeviceToAbsoluteTracking.m[2][3];
-    Common::Matrix33 m;
+    Matrix33 m;
     for (int r = 0; r < 3; r++)
       for (int c = 0; c < 3; c++)
         m.data[r * 3 + c] = m_rTrackedDevicePose[left_hand].mDeviceToAbsoluteTracking.m[c][r];
@@ -1928,7 +1930,7 @@ void VR_UpdateWiimoteReportingMode(int index, u8 accel, u8 ir, u8 ext)
   g_vr_reading_wiimote_ext[index] = ext;
 }
 
-bool VR_GetLeftControllerPos(float* pos, float* thumbpos, Common::Matrix33* m)
+bool VR_GetLeftControllerPos(float* pos, float* thumbpos, Matrix33* m)
 {
 #if defined(HAVE_OPENVR)
   if (g_has_openvr)
@@ -2013,7 +2015,7 @@ bool VR_GetLeftControllerPos(float* pos, float* thumbpos, Common::Matrix33* m)
   }
 }
 
-bool VR_GetRightControllerPos(float* pos, float* thumbpos, Common::Matrix33* m)
+bool VR_GetRightControllerPos(float* pos, float* thumbpos, Matrix33* m)
 {
 #if defined(HAVE_OPENVR)
   if (g_has_openvr)

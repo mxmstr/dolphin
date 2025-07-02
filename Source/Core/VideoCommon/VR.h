@@ -105,12 +105,8 @@ extern const char* scm_vr_sdk_str;
 #include <atomic>
 #include <mutex>
 
-
 #include "Common/MathUtil.h"
 #include "VideoCommon/DataReader.h"
-#include <Common/Matrix.h>
-
-#include <openvr.h>
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -120,14 +116,6 @@ extern const char* scm_vr_sdk_str;
 //#define RECURSIVE_OPCODE
 #define INLINE_OPCODE
 
-//#define OVR_PRODUCT_VERSION 0
-//#define OVR_MAJOR_VERSION 5
-//#define OVR_MINOR_VERSION 4
-//#define OVR_BUILD_VERSION 0
-//#define OVR_PATCH_VERSION 1
-//#define OVR_BUILD_NUMBER 0
-//#define OVR_VERSION_STRING "0.5.0.1"
-//
 #define HAVE_OPENVR
 
 typedef enum {
@@ -181,7 +169,7 @@ void VR_GetEyePoses();
 void ReadHmdOrientation(float* roll, float* pitch, float* yaw, float* x, float* y, float* z);
 void VR_UpdateHeadTrackingIfNeeded();
 void VR_GetProjectionHalfTan(float& hmd_halftan);
-void VR_GetProjectionMatrices(Common::Matrix44& left_eye, Common::Matrix44& right_eye, float znear, float zfar);
+void VR_GetProjectionMatrices(Matrix44& left_eye, Matrix44& right_eye, float znear, float zfar);
 void VR_GetEyePos(float* posLeft, float* posRight);
 void VR_GetFovTextureSize(int* width, int* height);
 
@@ -201,8 +189,8 @@ void VR_UpdateWiimoteReportingMode(int index, u8 accel, u8 ir, u8 ext);
 
 bool VR_PairViveControllers();
 
-bool VR_GetLeftControllerPos(float* pos, float* thumbpos, Common::Matrix33* m);
-bool VR_GetRightControllerPos(float* pos, float* thumbpos, Common::Matrix33* m);
+bool VR_GetLeftControllerPos(float* pos, float* thumbpos, Matrix33* m);
+bool VR_GetRightControllerPos(float* pos, float* thumbpos, Matrix33* m);
 ControllerStyle VR_GetHydraStyle(int hand);
 
 void OpcodeReplayBuffer();
@@ -221,7 +209,7 @@ extern bool g_vr_should_swap_buffers, g_vr_dont_vsync;
 extern bool g_new_tracking_frame;
 extern bool g_new_frame_tracker_for_efb_skip;
 extern u32 skip_objects_count;
-extern Common::Matrix44 g_head_tracking_matrix;
+extern Matrix44 g_head_tracking_matrix;
 extern float g_head_tracking_position[3];
 extern float g_left_hand_tracking_position[3], g_right_hand_tracking_position[3];
 extern int g_hmd_window_width, g_hmd_window_height, g_hmd_window_x, g_hmd_window_y,
@@ -235,7 +223,7 @@ extern float vr_widest_3d_VFOV;
 extern float vr_widest_3d_zNear;
 extern float vr_widest_3d_zFar;
 extern float g_game_camera_pos[3];
-extern Common::Matrix44 g_game_camera_rotmat;
+extern Matrix44 g_game_camera_rotmat;
 
 extern double g_older_tracking_time, g_old_tracking_time, g_last_tracking_time;
 
@@ -284,3 +272,4 @@ extern std::atomic<u32> g_drawn_vr;
 extern bool debug_nextScene;
 
 extern int g_ovr_frameindex;
+

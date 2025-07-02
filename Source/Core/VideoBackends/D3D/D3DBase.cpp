@@ -31,34 +31,15 @@ D3D_FEATURE_LEVEL feature_level;
 
 static ComPtr<ID3D11Debug> s_debug;
 
-static PFN_D3D11_CREATE_DEVICE d3d11_create_device;
-
 constexpr std::array<D3D_FEATURE_LEVEL, 3> s_supported_feature_levels{
     D3D_FEATURE_LEVEL_11_0,
     D3D_FEATURE_LEVEL_10_1,
     D3D_FEATURE_LEVEL_10_0,
 };
 
-// START VR MERGE - Typedef for D3D11CreateDeviceAndSwapChain
-typedef HRESULT(WINAPI* PFN_D3D11_CREATE_DEVICE_AND_SWAP_CHAIN)(
-    IDXGIAdapter*, D3D_DRIVER_TYPE, HMODULE, UINT, CONST D3D_FEATURE_LEVEL*, UINT, UINT,
-    CONST DXGI_SWAP_CHAIN_DESC*, IDXGISwapChain**, ID3D11Device**, D3D_FEATURE_LEVEL*,
-    ID3D11DeviceContext**);
-// END VR MERGE
-
-bool Create(const WindowSystemInfo& wsi, u32 adapter_index, bool enable_debug_layer)
+bool Create(u32 adapter_index, bool enable_debug_layer)
 {
-  // START VR MERGE - Get HWND
-  HWND hwnd = (HWND)wsi.render_window;
-  if (!hwnd)
-  {
-    PanicAlertFmtT("Failed to get main window handle for D3D initialization.");
-    return false;
-  }
-  // END VR MERGE
-
-  PFN_D3D11_CREATE_DEVICE_AND_SWAP_CHAIN d3d11_create_device_and_swap_chain_ptr = nullptr;
-
+  PFN_D3D11_CREATE_DEVICE d3d11_create_device;
   if (!s_d3d11_library.Open("d3d11.dll") ||
       !s_d3d11_library.GetSymbol("D3D11CreateDevice", &d3d11_create_device))
   {

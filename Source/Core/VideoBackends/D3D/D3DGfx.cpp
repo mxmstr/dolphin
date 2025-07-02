@@ -34,11 +34,6 @@
 #include "VideoCommon/RenderState.h"
 #include "VideoCommon/VideoConfig.h"
 #include "VideoCommon/XFMemory.h"
-#include "VideoCommon/VR.h"                 // For VR state (g_has_hmd, etc.)
-#include "VideoBackends/D3D/VRD3D.h"        // For DX11::VR_... functions
-#include "VideoCommon/ShaderCache.h"        // For g_shader_cache
-#include "VideoCommon/OnScreenDisplay.h"    // For OSD::DrawMessages
-//#include "VideoCommon/Renderer.h"           // For g_renderer (though access might be AbstractGfx)
 
 namespace DX11
 {
@@ -171,135 +166,7 @@ bool Gfx::BindBackbuffer(const ClearColor& clear_color)
 
 void Gfx::PresentBackbuffer()
 {
-  if (g_has_hmd && g_ActiveConfig.bEnableVR && g_framebuffer_manager && g_shader_cache && m_swap_chain)
-  {
-    // VR Rendering Path
-    // TODO: Manage g_first_rift_frame state or equivalent for VR_BeginFrame/VR_GetEyePoses calls
-    // This might need to be tied to the game's frame presentation rather than every PresentBackbuffer call,
-    // especially with timewarp. For now, call it once.
-    // A proper solution would involve a "new real frame" flag.
-    static bool vr_frame_initialized = false;
-    if (!vr_frame_initialized) {
-        DX11::VR_BeginFrame(); // Specific to some VR SDKs, might need abstraction or conditional call
-        vr_frame_initialized = true; // Simplistic, needs better handling for ongoing frames
-    }
-    VR_GetEyePoses();
-
-
-    const int eye_count = g_framebuffer_manager->GetEyeCount();
-    const u32 target_width = g_framebuffer_manager->GetEFBWidth();
-    const u32 target_height = g_framebuffer_manager->GetEFBHeight();
-    MathUtil::Rectangle<int> efb_region(0, 0, target_width, target_height);
-
-    // Resolve EFB once before looping for eyes
-    // The region for ResolveEFBColorTexture should be the full EFB if we're copying the whole thing.
-    AbstractTexture* resolved_efb_color_texture =
-        g_framebuffer_manager->ResolveEFBColorTexture(efb_region);
-
-    if (!resolved_efb_color_texture)
-    {
-      ERROR_LOG_FMT(VR, "Failed to resolve EFB color texture for VR presentation.");
-      m_swap_chain->Present(); // Fallback to normal presentation
-      return;
-    }
-    DXTexture* dx_resolved_efb_texture = static_cast<DXTexture*>(resolved_efb_color_texture);
-
-    for (int eye = 0; eye < eye_count; ++eye)
-    {
-      DX11::VR_RenderToEyebuffer(eye); // Sets render target to g_framebuffer_manager->m_vr_eye_textures[eye]
-
-      // Set viewport for the current eye
-      SetViewport(0.0f, 0.0f, static_cast<float>(target_width), static_cast<float>(target_height), 0.0f, 1.0f);
-      // Scissor default matches viewport, or set explicitly if needed
-      SetScissorRect(MathUtil::Rectangle<int>(0, 0, target_width, target_height));
-
-      // Blit from resolved_efb_color_texture to the current eye's render target
-      const AbstractShader* abstract_vs = g_shader_cache->GetTextureCopyVertexShader();
-      const AbstractShader* abstract_ps = nullptr;
-      const AbstractShader* abstract_gs = nullptr;
-
-      if (g_ActiveConfig.stereo_mode == StereoMode::OSVR) // Assuming STEREO_OSVR is defined in StereoMode enum
-      {
-        abstract_ps = g_shader_cache->GetOSVRPixelShader();
-        // OSVR shader might need geometry shader if uv0.z (eye index) is passed via instance ID
-        if (g_shader_cache->GetTexcoordGeometryShader()) // Check if GS is available/needed
-             abstract_gs = g_shader_cache->GetTexcoordGeometryShader();
-      }
-      else
-      {
-        abstract_ps = g_shader_cache->GetTextureCopyPixelShader();
-        // If rendering to texture array slices, GS would be used.
-        // But we render to separate eye textures, so GS for layering might not be needed here.
-        // If GetVREyeTexture(eye) returns a slice of an array, then GS is needed.
-        // Based on FramebufferManager changes, m_vr_eye_textures are individual Texture_2D.
-      }
-
-      if (abstract_vs && abstract_ps)
-      {
-        // Simplified pipeline setup for blit
-        // A full AbstractPipeline would be better
-        D3D::stateman->SetVertexShader(static_cast<const DXShader*>(abstract_vs)->GetD3DVertexShader());
-        D3D::stateman->SetPixelShader(static_cast<const DXShader*>(abstract_ps)->GetD3DPixelShader());
-        if (abstract_gs)
-            D3D::stateman->SetGeometryShader(static_cast<const DXShader*>(abstract_gs)->GetD3DGeometryShader());
-        else
-            D3D::stateman->SetGeometryShader(nullptr);
-
-        // Input Assembler (IA)
-        D3D::stateman->SetInputLayout(nullptr); // For screen-quad shaders, often no specific IA needed or handled by VS
-        D3D::context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-
-        // Rasterizer State (RS) - default should be fine for fullscreen quad
-        // DepthStencil State (DS) - typically no depth test/write for this blit
-        D3D::stateman->SetDepthState(RenderState::GetNoDepthTestingDepthState());
-        // Blend State (BS) - no blending
-        D3D::stateman->SetBlendState(D3D::RenderState::GetNoBlendingBlendState());
-
-        SetTexture(0, dx_resolved_efb_texture);
-        SetSamplerState(0, D3D::RenderState::GetLinearSamplerState());
-
-        D3D::stateman->Apply();
-        Draw(0, 3); // Draw a single triangle that covers the screen (requires specific VS)
-                      // Or use a utility to draw a screen quad.
-                      // g_vertex_manager->DrawScreenQuad(); // This would be ideal
-      }
-      else
-      {
-        ERROR_LOG_FMT(VR, "Failed to get shaders for VR eye blit for eye %d.", eye);
-      }
-
-      // TODO: Render OSD/Debug text per eye if necessary
-      // OSD::DrawMessages(); // This would draw to the current RT (eye texture)
-    }
-
-    // After both eyes are rendered:
-    OSD::DrawMessages(); // Draw OSD to the EFB (if it's not per-eye) or to a specific layer if needed.
-                         // If OSD should be in VR, it needs to be rendered to each eye texture or EFB before resolve.
-                         // For now, assuming OSD is part of the EFB content passed in.
-
-    DX11::VR_RenderFrameStereo(); // Handles HMD submission and sync timewarp
-
-    // Desktop mirror presentation (if not handled by VR_PresentHMDFrame already)
-    // Some VR SDKs (like Oculus) might handle mirror via their submission.
-    // OpenVR in Hydra handled its own mirror in VR_PresentHMDFrame.
-    // If m_swap_chain is the main window, this presents to it.
-    // Check if VR_PresentHMDFrame already presented to the screen.
-    // For now, assume VR_PresentHMDFrame handles mirror if needed, or this presents a non-VR view.
-    if(g_ActiveConfig.iMirrorPlayer != VR_PLAYER_NONE && g_ActiveConfig.iMirrorStyle != VR_MIRROR_DISABLED) {
-        // If VR_PresentHMDFrame in VRD3D.cpp handles its own mirror (like Hydra's OpenVR path did),
-        // then this m_swap_chain->Present() might be redundant or show something else.
-        // If VR_PresentHMDFrame *doesn't* handle the mirror, this is where it would happen,
-        // potentially blitting one of the eye textures or a composite to m_swap_chain.
-        // For now, let's assume the mirror is handled by VR_PresentHMDFrame.
-        // If not, the following Present() will just show whatever was last in the backbuffer.
-    }
-     m_swap_chain->Present(); // This ensures the main window updates, could be a black screen or game view depending on VR SDK
-  }
-  else
-  {
-    // Original non-VR presentation logic
-    m_swap_chain->Present();
-  }
+  m_swap_chain->Present();
 }
 
 void Gfx::OnConfigChanged(u32 bits)

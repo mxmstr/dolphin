@@ -81,16 +81,23 @@
     <Text Include="$(BuildInfoTemplate)" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="VideoBackends\D3D\AvatarDrawer.h" />
     <ClInclude Include="VideoBackends\D3D\OculusSystemLibraryHeaderD3D11.h" />
+    <ClInclude Include="VideoBackends\D3D\tiny_obj_loader.h" />
+    <ClInclude Include="VideoBackends\D3D\VRD3D.h" />
     <ClInclude Include="VideoCommon\OculusSystemLibraryHeader.h" />
     <ClInclude Include="VideoCommon\VR.h" />
+    <ClInclude Include="VideoCommon\VRGameMatrices.h" />
     <ClInclude Include="VideoCommon\VROculus.h" />
     <ClInclude Include="VideoCommon\VROpenVR.h" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="VideoBackends\D3D\AvatarDrawer.cpp" />
+    <ClCompile Include="VideoBackends\D3D\tiny_obj_loader.cpp" />
+    <ClCompile Include="VideoBackends\D3D\VRD3D.cpp" />
     <ClCompile Include="VideoCommon\OculusSystemLibraryHeader.cpp" />
     <ClCompile Include="VideoCommon\VR.cpp" />
-    <ClCompile Include="VideoCommon\VROpenVR.cpp" />
+    <ClCompile Include="VideoCommon\VRGameMatrices.cpp" />
   </ItemGroup>
   <UsingTask TaskName="GetProductVersion" TaskFactory="CodeTaskFactory" AssemblyFile="$(MSBuildToolsPath)\Microsoft.Build.Tasks.Core.dll">
     <ParameterGroup>

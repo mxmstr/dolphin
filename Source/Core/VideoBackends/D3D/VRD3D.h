@@ -8,11 +8,9 @@
 
 #include <windows.h>
 #include "VideoCommon/VR.h"
-//#include "VideoCommon/VR920.h"
-#include "VideoCommon/AbstractTexture.h" // Added for AbstractTexture
+#include "VideoCommon/VR920.h"
 
 #include "d3d11.h"
-#include "DXTexture.h"
 
 #ifdef HAVE_OCULUSSDK
 #include "OVR_CAPI_D3D.h"
@@ -29,7 +27,4 @@ void VR_RenderToEyebuffer(int eye, int hmd_number = 0);
 void VR_BeginFrame();
 void VR_PresentHMDFrame();
 void VR_DrawTimewarpFrame();
-
-// New function for stereo rendering
-void VR_RenderFrameStereo();
 }
