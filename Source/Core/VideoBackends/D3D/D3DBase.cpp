@@ -112,14 +112,14 @@ bool Create(const WindowSystemInfo& wsi, u32 adapter_index, bool enable_debug_la
         // TODO: Make this configurable as in VR-Hydra if needed
         if (FAILED(adapter->EnumOutputs(0, output.ReleaseAndGetAddressOf())))
         {
-            WARN_LOG(VIDEO, "Failed to enumerate outputs for HMD LUID matched adapter.");
+            WARN_LOG_FMT(VIDEO, "Failed to enumerate outputs for HMD LUID matched adapter.");
             // Fallback or error handling needed if specific output is critical
         }
         break;
       }
     }
      if (!adapter) {
-        WARN_LOG(VIDEO, "HMD LUID provided but no matching adapter found.");
+        WARN_LOG_FMT(VIDEO, "HMD LUID provided but no matching adapter found.");
      }
   }
 
@@ -148,7 +148,7 @@ bool Create(const WindowSystemInfo& wsi, u32 adapter_index, bool enable_debug_la
       if (adapter) break;
     }
     if (!adapter) {
-        WARN_LOG(VIDEO, "HMD Device Name provided but no matching adapter/output found.");
+        WARN_LOG_FMT(VIDEO, "HMD Device Name provided but no matching adapter/output found.");
     }
   }
 
@@ -171,7 +171,7 @@ bool Create(const WindowSystemInfo& wsi, u32 adapter_index, bool enable_debug_la
     // Get default output for non-VR or fallback
     if (adapter && FAILED(adapter->EnumOutputs(0, output.ReleaseAndGetAddressOf())))
     {
-        WARN_LOG(VIDEO, "Failed to get default output for selected adapter.");
+        WARN_LOG_FMT(VIDEO, "Failed to get default output for selected adapter.");
         // Output may not be strictly necessary for D3D11CreateDevice, but is for CreateDeviceAndSwapChain
     }
   }
@@ -184,7 +184,7 @@ bool Create(const WindowSystemInfo& wsi, u32 adapter_index, bool enable_debug_la
     DXGI_SWAP_CHAIN_DESC swap_chain_desc = {};
     swap_chain_desc.BufferCount = 1; // Typically 1 for VR, SDK handles frame buffering
     swap_chain_desc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
-    swap_chain_desc.OutputWindow = wsi.render_surface_handle;
+    swap_chain_desc.OutputWindow = (HWND)wsi.render_surface;
     swap_chain_desc.SampleDesc.Count = 1; // No MSAA on the swapchain itself for VR
     swap_chain_desc.SampleDesc.Quality = 0;
     swap_chain_desc.Windowed = TRUE; // VR typically uses windowed mode for direct mode
@@ -216,7 +216,7 @@ bool Create(const WindowSystemInfo& wsi, u32 adapter_index, bool enable_debug_la
     else // If not direct mode, use window client rect (though this path less common for VR)
     {
        RECT client_rect;
-       GetClientRect(wsi.render_surface_handle, &client_rect);
+       GetClientRect((HWND)wsi.render_surface, &client_rect);
        swap_chain_desc.BufferDesc.Width = client_rect.right - client_rect.left;
        swap_chain_desc.BufferDesc.Height = client_rect.bottom - client_rect.top;
     }
@@ -318,12 +318,12 @@ bool Create(const WindowSystemInfo& wsi, u32 adapter_index, bool enable_debug_la
 
   // Prevent DXGI from responding to Alt+Enter (from VR-Hydra)
   // This might be better placed in SwapChain creation or main window setup
-  if (wsi.render_surface_handle)
+  if (wsi.render_surface)
   {
     ComPtr<IDXGIFactory1> factory1;
     if (SUCCEEDED(dxgi_factory.As(&factory1))) // MakeWindowAssociation is on IDXGIFactory1+
     {
-        hr = factory1->MakeWindowAssociation(wsi.render_surface_handle, DXGI_MWA_NO_WINDOW_CHANGES | DXGI_MWA_NO_ALT_ENTER);
+        hr = factory1->MakeWindowAssociation((HWND)wsi.render_surface, DXGI_MWA_NO_WINDOW_CHANGES | DXGI_MWA_NO_ALT_ENTER);
         if (FAILED(hr))
             WARN_LOG_FMT(VIDEO, "Failed to set MakeWindowAssociation: {}", DX11HRWrap(hr));
     }
