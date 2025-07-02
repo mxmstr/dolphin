@@ -11,10 +11,36 @@
 #include "Common/Inline.h"
 #include "Common/Swap.h"
 #include "VideoCommon/CPMemory.h"
+#include "VideoCommon/DataReader.h" // Added for TimewarpLogEntry
 #include "VideoCommon/VertexLoaderBase.h"
+#include <vector> // Added for timewarp_logentries
 
 struct CPState;
-class DataReader;
+// class DataReader; // Already included via DataReader.h
+
+// For Opcode Replay / Synchronous Timewarp
+struct TimewarpLogEntry
+{
+  std::vector<u8> command_buffer; // Store a copy of the command data
+  bool is_preprocess;
+  // Add other necessary states if any, e.g., XF/BP memory snapshots if they aren't replayed implicitly
+
+  // Constructor to copy data from DataReader
+  TimewarpLogEntry(const DataReader& src, bool preprocess) : is_preprocess(preprocess)
+  {
+    command_buffer.resize(src.size());
+    if (src.size() > 0)
+    {
+      memcpy(command_buffer.data(), src.GetPointer(), src.size());
+    }
+  }
+};
+
+extern bool g_opcode_replay_enabled;
+extern bool g_opcode_replay_frame;     // True if the current frame being rendered is a replayed one
+extern bool g_opcode_replay_log_frame; // True if commands should be logged
+extern int skipped_opcode_replay_count; // Counter for NumExtraVideoLoopsDivider
+extern std::vector<TimewarpLogEntry> timewarp_logentries;
 
 namespace OpcodeDecoder
 {

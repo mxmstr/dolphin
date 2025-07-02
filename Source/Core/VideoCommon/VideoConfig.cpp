@@ -31,11 +31,16 @@
 #include "VideoCommon/TextureCacheBase.h"
 #include "VideoCommon/VertexManagerBase.h"
 
+#include "VideoCommon/VR.h" // For DEFAULT_VR_... constants
+
 VideoConfig g_Config;
 VideoConfig g_ActiveConfig;
 BackendInfo g_backend_info;
 static std::optional<CPUThreadConfigCallback::ConfigChangedCallbackID>
     s_config_changed_callback_id = std::nullopt;
+
+// VR settings save tracking
+static VideoConfig g_SavedConfig; // Ported from VR-Hydra
 
 static bool IsVSyncActive(bool enabled)
 {
@@ -48,7 +53,131 @@ void UpdateActiveConfig()
 {
   g_ActiveConfig = g_Config;
   g_ActiveConfig.bVSyncActive = IsVSyncActive(g_ActiveConfig.bVSync);
+  if (g_has_hmd && g_ActiveConfig.bEnableVR) // Ported from VR-Hydra
+    g_ActiveConfig.bUseRealXFB = false; // RealXFB is generally not compatible with VR rendering paths
 }
+
+
+VideoConfig::VideoConfig() // Constructor to initialize defaults
+{
+  // Default existing non-VR settings (most are default-constructed by their types or set in Refresh)
+  fAspectRatioHackW = 1.0f; // From VR-Hydra's constructor
+  fAspectRatioHackH = 1.0f; // From VR-Hydra's constructor
+
+  // Initialize VR settings to their defaults (ported from VR-Hydra VideoConfig constructor)
+  fScale = 1.0f;
+  fLeanBackAngle = 0.0f;
+  bStabilizePitch = true;
+  bStabilizeRoll = true;
+  bStabilizeYaw = false;
+  bStabilizeX = false;
+  bStabilizeY = false;
+  bStabilizeZ = false;
+  bKeyhole = false;
+  fKeyholeWidth = 45.0f;
+  bKeyholeSnap = false;
+  fKeyholeSnapSize = 30.0f;
+  bPullUp20fps = false;
+  bPullUp30fps = false;
+  bPullUp60fps = false;
+  bPullUpAuto = false;
+  bSynchronousTimewarp = false;
+  bOpcodeWarningDisable = false;
+  bReplayVertexData = false;
+  bReplayOtherData = false;
+  bPullUp20fpsTimewarp = false;
+  bPullUp30fpsTimewarp = false;
+  bPullUp60fpsTimewarp = false;
+  bPullUpAutoTimewarp = false;
+  bOpcodeReplay = false;
+  bEnableVR = true;
+  // bAsynchronousTimewarp = false; // This was in Hydra's ctor but not in its .h, likely Oculus SDK specific, omitting for now
+  bLowPersistence = true;
+  bDynamicPrediction = true;
+  bOrientationTracking = true;
+  bMagYawCorrection = true;
+  bPositionTracking = true;
+  bChromatic = true;
+  bTimewarp = true;
+  bVignette = false;
+  bNoRestore = false;
+  bFlipVertical = false;
+  bSRGB = false;
+  bOverdrive = true;
+  bHqDistortion = false;
+  bDisableNearClipping = true;
+  bAutoPairViveControllers = false;
+  bShowHands = false;
+  bShowFeet = false;
+  bShowController = true; // Defaulted to true in Hydra
+  bShowLaserPointer = false;
+  bShowAimRectangle = false;
+  bShowHudBox = false;
+  bShow2DBox = false;
+  bShowSensorBar = false;
+  bShowGameCamera = false;
+  bShowGameFrustum = false;
+  bShowTrackingCamera = false;
+  bShowTrackingVolume = false;
+  bShowBaseStation = false;
+
+  bMotionSicknessAlways = false;
+  bMotionSicknessFreelook = false;
+  bMotionSickness2D = false;
+  bMotionSicknessLeftStick = false;
+  bMotionSicknessRightStick = false;
+  bMotionSicknessDPad = false;
+  bMotionSicknessIR = false; // Added this, was missing in Hydra constructor but present in header/logic
+  iMotionSicknessMethod = 0;
+  iMotionSicknessSkybox = 0;
+  fMotionSicknessFOV = 45.0f; // Default from Hydra
+
+  iVRPlayer = VR_PLAYER1; // VR_PLAYER1 will be defined in VR.h
+  iVRPlayer2 = VR_PLAYER2; // VR_PLAYER2 will be defined in VR.h
+  iMirrorPlayer = VR_PLAYER_DEFAULT; // VR_PLAYER_DEFAULT will be defined in VR.h
+  iMirrorStyle = VR_MIRROR_LEFT;   // VR_MIRROR_LEFT will be defined in VR.h
+  fTimeWarpTweak = DEFAULT_VR_TIMEWARP_TWEAK;
+  iExtraTimewarpedFrames = DEFAULT_VR_EXTRA_FRAMES;
+  iExtraVideoLoops = DEFAULT_VR_EXTRA_VIDEO_LOOPS;
+  iExtraVideoLoopsDivider = DEFAULT_VR_EXTRA_VIDEO_LOOPS_DIVIDER;
+
+  sLeftTexture = "";
+  sRightTexture = "";
+  sGCLeftTexture = "";
+  sGCRightTexture = "";
+
+  // VR per-game defaults
+  fUnitsPerMetre = DEFAULT_VR_UNITS_PER_METRE;
+  fFreeLookSensitivity = DEFAULT_VR_FREE_LOOK_SENSITIVITY;
+  fHudThickness = DEFAULT_VR_HUD_THICKNESS;
+  fHudDistance = DEFAULT_VR_HUD_DISTANCE;
+  fHud3DCloser = DEFAULT_VR_HUD_3D_CLOSER;
+  fCameraForward = DEFAULT_VR_CAMERA_FORWARD;
+  fCameraPitch = DEFAULT_VR_CAMERA_PITCH;
+  fAimDistance = DEFAULT_VR_AIM_DISTANCE;
+  fMinFOV = DEFAULT_VR_MIN_FOV;
+  fN64FOV = DEFAULT_VR_N64_FOV;
+  fScreenHeight = DEFAULT_VR_SCREEN_HEIGHT;
+  fScreenThickness = DEFAULT_VR_HUD_THICKNESS; // Uses HUD thickness default
+  fScreenDistance = DEFAULT_VR_SCREEN_DISTANCE;
+  fScreenRight = DEFAULT_VR_SCREEN_RIGHT;
+  fScreenUp = DEFAULT_VR_SCREEN_UP;
+  fScreenPitch = DEFAULT_VR_SCREEN_PITCH;
+  iMetroidPrime = 0;
+  iTelescopeEye = 0;
+  fTelescopeMaxFOV = 0.0f;
+  fReadPitch = 0.0f;
+  iCameraMinPoly = 0;
+  fHudDespPosition0 = 0.0f;
+  fHudDespPosition1 = 0.0f;
+  fHudDespPosition2 = 0.0f;
+  // matrixHudrot is skipped as it's complex for config
+
+  // VR layer debugging
+  iSelectedLayer = -2; // Default from Hydra
+  iFlashState = 0;     // Default from Hydra
+}
+
 
 void VideoConfig::Refresh()
 {
@@ -193,7 +322,258 @@ void VideoConfig::Refresh()
   customDriverLibraryName = Config::Get(Config::GFX_DRIVER_LIB_NAME);
 
   vertex_loader_type = Config::Get(Config::GFX_VERTEX_LOADER_TYPE);
+
+  // Load VR Per-Game Settings
+  bDisable3D = Config::Get(Config::GFX_VR_DISABLE_3D);
+  bHudFullscreen = Config::Get(Config::GFX_VR_HUD_FULLSCREEN);
+  bHudOnTop = Config::Get(Config::GFX_VR_HUD_ON_TOP);
+  bDontClearScreen = Config::Get(Config::GFX_VR_DONT_CLEAR_SCREEN);
+  bCanReadCameraAngles = Config::Get(Config::GFX_VR_CAN_READ_CAMERA_ANGLES);
+  bDetectSkybox = Config::Get(Config::GFX_VR_DETECT_SKYBOX);
+  fUnitsPerMetre = Config::Get(Config::GFX_VR_UNITS_PER_METRE);
+  fHudThickness = Config::Get(Config::GFX_VR_HUD_THICKNESS);
+  fHudDistance = Config::Get(Config::GFX_VR_HUD_DISTANCE);
+  fHud3DCloser = Config::Get(Config::GFX_VR_HUD_3D_CLOSER);
+  fCameraForward = Config::Get(Config::GFX_VR_CAMERA_FORWARD);
+  fCameraPitch = Config::Get(Config::GFX_VR_CAMERA_PITCH);
+  fAimDistance = Config::Get(Config::GFX_VR_AIM_DISTANCE);
+  fMinFOV = Config::Get(Config::GFX_VR_MIN_FOV);
+  fN64FOV = Config::Get(Config::GFX_VR_N64_FOV);
+  fScreenHeight = Config::Get(Config::GFX_VR_SCREEN_HEIGHT);
+  fScreenThickness = Config::Get(Config::GFX_VR_SCREEN_THICKNESS);
+  fScreenDistance = Config::Get(Config::GFX_VR_SCREEN_DISTANCE);
+  fScreenRight = Config::Get(Config::GFX_VR_SCREEN_RIGHT);
+  fScreenUp = Config::Get(Config::GFX_VR_SCREEN_UP);
+  fScreenPitch = Config::Get(Config::GFX_VR_SCREEN_PITCH);
+  iMetroidPrime = Config::Get(Config::GFX_VR_METROID_PRIME);
+  iTelescopeEye = Config::Get(Config::GFX_VR_TELESCOPE_EYE);
+  fTelescopeMaxFOV = Config::Get(Config::GFX_VR_TELESCOPE_MAX_FOV);
+  fReadPitch = Config::Get(Config::GFX_VR_READ_PITCH);
+  iCameraMinPoly = Config::Get(Config::GFX_VR_CAMERA_MIN_POLY);
+  fHudDespPosition0 = Config::Get(Config::GFX_VR_HUD_DESP_POSITION_0);
+  fHudDespPosition1 = Config::Get(Config::GFX_VR_HUD_DESP_POSITION_1);
+  fHudDespPosition2 = Config::Get(Config::GFX_VR_HUD_DESP_POSITION_2);
+
+  // Load Global VR Settings
+  fScale = Config::Get(Config::GLOBAL_VR_SCALE);
+  fFreeLookSensitivity = Config::Get(Config::GLOBAL_VR_FREE_LOOK_SENSITIVITY);
+  fLeanBackAngle = Config::Get(Config::GLOBAL_VR_LEAN_BACK_ANGLE);
+  bEnableVR = Config::Get(Config::GLOBAL_VR_ENABLE_VR);
+  bLowPersistence = Config::Get(Config::GLOBAL_VR_LOW_PERSISTENCE);
+  bDynamicPrediction = Config::Get(Config::GLOBAL_VR_DYNAMIC_PREDICTION);
+  bool bNoMirrorToWindow = Config::Get(Config::GLOBAL_VR_NO_MIRROR_TO_WINDOW); // Temp variable for logic below
+  bOrientationTracking = Config::Get(Config::GLOBAL_VR_ORIENTATION_TRACKING);
+  bMagYawCorrection = Config::Get(Config::GLOBAL_VR_MAG_YAW_CORRECTION);
+  bPositionTracking = Config::Get(Config::GLOBAL_VR_POSITION_TRACKING);
+  bChromatic = Config::Get(Config::GLOBAL_VR_CHROMATIC);
+  bTimewarp = Config::Get(Config::GLOBAL_VR_TIMEWARP);
+  bVignette = Config::Get(Config::GLOBAL_VR_VIGNETTE);
+  bNoRestore = Config::Get(Config::GLOBAL_VR_NO_RESTORE);
+  bFlipVertical = Config::Get(Config::GLOBAL_VR_FLIP_VERTICAL);
+  bSRGB = Config::Get(Config::GLOBAL_VR_SRGB);
+  bOverdrive = Config::Get(Config::GLOBAL_VR_OVERDRIVE);
+  bHqDistortion = Config::Get(Config::GLOBAL_VR_HQ_DISTORTION);
+  bDisableNearClipping = Config::Get(Config::GLOBAL_VR_DISABLE_NEAR_CLIPPING);
+  bAutoPairViveControllers = Config::Get(Config::GLOBAL_VR_AUTO_PAIR_VIVE_CONTROLLERS);
+  bShowHands = Config::Get(Config::GLOBAL_VR_SHOW_HANDS);
+  bShowFeet = Config::Get(Config::GLOBAL_VR_SHOW_FEET);
+  bShowController = Config::Get(Config::GLOBAL_VR_SHOW_CONTROLLER);
+  bShowLaserPointer = Config::Get(Config::GLOBAL_VR_SHOW_LASER_POINTER);
+  bShowAimRectangle = Config::Get(Config::GLOBAL_VR_SHOW_AIM_RECTANGLE);
+  bShowHudBox = Config::Get(Config::GLOBAL_VR_SHOW_HUD_BOX);
+  bShow2DBox = Config::Get(Config::GLOBAL_VR_SHOW_2D_SCREEN_BOX);
+  bShowSensorBar = Config::Get(Config::GLOBAL_VR_SHOW_SENSOR_BAR);
+  bShowGameCamera = Config::Get(Config::GLOBAL_VR_SHOW_GAME_CAMERA);
+  bShowGameFrustum = Config::Get(Config::GLOBAL_VR_SHOW_GAME_FRUSTUM);
+  bShowTrackingCamera = Config::Get(Config::GLOBAL_VR_SHOW_TRACKING_CAMERA);
+  bShowTrackingVolume = Config::Get(Config::GLOBAL_VR_SHOW_TRACKING_VOLUME);
+  bShowBaseStation = Config::Get(Config::GLOBAL_VR_SHOW_BASE_STATION);
+  bMotionSicknessAlways = Config::Get(Config::GLOBAL_VR_MOTION_SICKNESS_ALWAYS);
+  bMotionSicknessFreelook = Config::Get(Config::GLOBAL_VR_MOTION_SICKNESS_FREELOOK);
+  bMotionSickness2D = Config::Get(Config::GLOBAL_VR_MOTION_SICKNESS_2D);
+  bMotionSicknessLeftStick = Config::Get(Config::GLOBAL_VR_MOTION_SICKNESS_LEFT_STICK);
+  bMotionSicknessRightStick = Config::Get(Config::GLOBAL_VR_MOTION_SICKNESS_RIGHT_STICK);
+  bMotionSicknessDPad = Config::Get(Config::GLOBAL_VR_MOTION_SICKNESS_DPAD);
+  bMotionSicknessIR = Config::Get(Config::GLOBAL_VR_MOTION_SICKNESS_IR);
+  iMotionSicknessMethod = Config::Get(Config::GLOBAL_VR_MOTION_SICKNESS_METHOD);
+  iMotionSicknessSkybox = Config::Get(Config::GLOBAL_VR_MOTION_SICKNESS_SKYBOX);
+  fMotionSicknessFOV = Config::Get(Config::GLOBAL_VR_MOTION_SICKNESS_FOV);
+  iVRPlayer = Config::Get(Config::GLOBAL_VR_PLAYER);
+  iVRPlayer2 = Config::Get(Config::GLOBAL_VR_PLAYER_2);
+  iMirrorPlayer = Config::Get(Config::GLOBAL_VR_MIRROR_PLAYER);
+  iMirrorStyle = Config::Get(Config::GLOBAL_VR_MIRROR_STYLE);
+  if (bNoMirrorToWindow && iMirrorStyle != VR_MIRROR_DISABLED_POWER_SAVING) // VR-Hydra logic for default
+      iMirrorStyle = VR_MIRROR_DISABLED;
+
+  fTimeWarpTweak = Config::Get(Config::GLOBAL_VR_TIMEWARP_TWEAK);
+  iExtraTimewarpedFrames = Config::Get(Config::GLOBAL_VR_NUM_EXTRA_FRAMES);
+  iExtraVideoLoops = Config::Get(Config::GLOBAL_VR_NUM_EXTRA_VIDEO_LOOPS);
+  iExtraVideoLoopsDivider = Config::Get(Config::GLOBAL_VR_NUM_EXTRA_VIDEO_LOOPS_DIVIDER);
+  bStabilizeRoll = Config::Get(Config::GLOBAL_VR_STABILIZE_ROLL);
+  bStabilizePitch = Config::Get(Config::GLOBAL_VR_STABILIZE_PITCH);
+  bStabilizeYaw = Config::Get(Config::GLOBAL_VR_STABILIZE_YAW);
+  bStabilizeX = Config::Get(Config::GLOBAL_VR_STABILIZE_X);
+  bStabilizeY = Config::Get(Config::GLOBAL_VR_STABILIZE_Y);
+  bStabilizeZ = Config::Get(Config::GLOBAL_VR_STABILIZE_Z);
+  bKeyhole = Config::Get(Config::GLOBAL_VR_KEYHOLE);
+  fKeyholeWidth = Config::Get(Config::GLOBAL_VR_KEYHOLE_WIDTH);
+  bKeyholeSnap = Config::Get(Config::GLOBAL_VR_KEYHOLE_SNAP);
+  fKeyholeSnapSize = Config::Get(Config::GLOBAL_VR_KEYHOLE_SIZE);
+  bPullUp20fps = Config::Get(Config::GLOBAL_VR_PULL_UP_20_FPS);
+  bPullUp30fps = Config::Get(Config::GLOBAL_VR_PULL_UP_30_FPS);
+  bPullUp60fps = Config::Get(Config::GLOBAL_VR_PULL_UP_60_FPS);
+  bPullUpAuto = Config::Get(Config::GLOBAL_VR_PULL_UP_AUTO);
+  bOpcodeReplay = Config::Get(Config::GLOBAL_VR_OPCODE_REPLAY);
+  bOpcodeWarningDisable = Config::Get(Config::GLOBAL_VR_OPCODE_WARNING_DISABLE);
+  bReplayVertexData = Config::Get(Config::GLOBAL_VR_REPLAY_VERTEX_DATA);
+  bReplayOtherData = Config::Get(Config::GLOBAL_VR_REPLAY_OTHER_DATA);
+  bPullUp20fpsTimewarp = Config::Get(Config::GLOBAL_VR_PULL_UP_20_FPS_TIMEWARP);
+  bPullUp30fpsTimewarp = Config::Get(Config::GLOBAL_VR_PULL_UP_30_FPS_TIMEWARP);
+  bPullUp60fpsTimewarp = Config::Get(Config::GLOBAL_VR_PULL_UP_60_FPS_TIMEWARP);
+  bPullUpAutoTimewarp = Config::Get(Config::GLOBAL_VR_PULL_UP_AUTO_TIMEWARP);
+  bSynchronousTimewarp = Config::Get(Config::GLOBAL_VR_SYNCHRONOUS_TIMEWARP);
+  sLeftTexture = Config::Get(Config::GLOBAL_VR_LEFT_TEXTURE);
+  sRightTexture = Config::Get(Config::GLOBAL_VR_RIGHT_TEXTURE);
+  sGCLeftTexture = Config::Get(Config::GLOBAL_VR_GC_LEFT_TEXTURE);
+  sGCRightTexture = Config::Get(Config::GLOBAL_VR_GC_RIGHT_TEXTURE);
+
+  // EFB Scale handling from VR-Hydra (iInternalResolution was GFX_INTERNAL_RESOLUTION)
+  // This needs to be coordinated with how GFX_INTERNAL_RESOLUTION is handled in GraphicsSettings.
+  // For now, this specific logic is commented out as VR-Reloaded-4 uses iEFBScale directly.
+  // if (Config::Get(Config::GFX_INTERNAL_RESOLUTION) > -2) // Placeholder for actual GFX_INTERNAL_RESOLUTION access
+  // {
+  //    int internalResolution = Config::Get(Config::GFX_INTERNAL_RESOLUTION); // Placeholder
+  //    iEFBScale = internalResolution + (internalResolution >= 0) + (internalResolution > 1) + (internalResolution > 2);
+  // }
+  // if (iEFBScale == SCALE_FORCE_INTEGRAL) // SCALE_FORCE_INTEGRAL needs to be defined
+  // {
+  //     // Round down to multiple of native IR (logic from VR-Hydra)
+  //     const auto base_efb_scale = Config::GetBase(Config::GFX_EFB_SCALE); // This function needs to exist or be adapted
+  //     if (base_efb_scale == EFBScale::SCALE_AUTO) iEFBScale = EFB_SCALE_AUTO_INTEGRAL; // Needs EFBScale enum
+  //     else if (base_efb_scale == EFBScale::SCALE_1_5X) iEFBScale = 1; // Assuming iEFBScale is int factor
+  //     else if (base_efb_scale == EFBScale::SCALE_2_5X) iEFBScale = 2;
+  //     else iEFBScale = base_efb_scale; // Needs mapping if EFBScale enum values are not direct int factors
+  // }
 }
+
+void VideoConfig::GameIniSave()
+{
+  // Save game ini for VR settings
+  // OSD::AddMessage("Saving VR GameINI", 5000); // For debugging
+  if (!Config::LayerExists(Config::LayerType::LocalGame))
+    return;
+
+  Config::SaveIfNotDefault(Config::GFX_VR_DISABLE_3D);
+  Config::SaveIfNotDefault(Config::GFX_VR_UNITS_PER_METRE);
+  Config::SaveIfNotDefault(Config::GFX_VR_HUD_FULLSCREEN);
+  Config::SaveIfNotDefault(Config::GFX_VR_HUD_ON_TOP);
+  Config::SaveIfNotDefault(Config::GFX_VR_DONT_CLEAR_SCREEN);
+  Config::SaveIfNotDefault(Config::GFX_VR_CAN_READ_CAMERA_ANGLES);
+  Config::SaveIfNotDefault(Config::GFX_VR_DETECT_SKYBOX);
+  Config::SaveIfNotDefault(Config::GFX_VR_HUD_DISTANCE);
+  Config::SaveIfNotDefault(Config::GFX_VR_HUD_THICKNESS);
+  Config::SaveIfNotDefault(Config::GFX_VR_HUD_3D_CLOSER);
+  Config::SaveIfNotDefault(Config::GFX_VR_CAMERA_FORWARD);
+  Config::SaveIfNotDefault(Config::GFX_VR_CAMERA_PITCH);
+  Config::SaveIfNotDefault(Config::GFX_VR_AIM_DISTANCE);
+  Config::SaveIfNotDefault(Config::GFX_VR_MIN_FOV);
+  Config::SaveIfNotDefault(Config::GFX_VR_N64_FOV);
+  Config::SaveIfNotDefault(Config::GFX_VR_SCREEN_HEIGHT);
+  Config::SaveIfNotDefault(Config::GFX_VR_SCREEN_DISTANCE);
+  Config::SaveIfNotDefault(Config::GFX_VR_SCREEN_THICKNESS);
+  Config::SaveIfNotDefault(Config::GFX_VR_SCREEN_UP);
+  Config::SaveIfNotDefault(Config::GFX_VR_SCREEN_RIGHT);
+  Config::SaveIfNotDefault(Config::GFX_VR_SCREEN_PITCH);
+  Config::SaveIfNotDefault(Config::GFX_VR_READ_PITCH);
+  Config::SaveIfNotDefault(Config::GFX_VR_HUD_DESP_POSITION_0);
+  Config::SaveIfNotDefault(Config::GFX_VR_HUD_DESP_POSITION_1);
+  Config::SaveIfNotDefault(Config::GFX_VR_HUD_DESP_POSITION_2);
+  Config::SaveIfNotDefault(Config::GFX_VR_CAMERA_MIN_POLY);
+  Config::SaveIfNotDefault(Config::GFX_VR_METROID_PRIME); // Save game specific type
+  Config::SaveIfNotDefault(Config::GFX_VR_TELESCOPE_EYE);
+  Config::SaveIfNotDefault(Config::GFX_VR_TELESCOPE_MAX_FOV);
+
+  Config::Layer* local = Config::GetLayer(Config::LayerType::LocalGame);
+  if (local)
+    local->Save();
+  Refresh(); // Refresh g_Config
+  g_SavedConfig = g_Config; // Update g_SavedConfig with the newly saved values
+}
+
+void VideoConfig::GameIniReset()
+{
+  // OSD::AddMessage("Resetting VR GameINI", 5000); // For debugging
+  Config::ResetToGameDefault(Config::GFX_VR_DISABLE_3D);
+  Config::ResetToGameDefault(Config::GFX_VR_UNITS_PER_METRE);
+  Config::ResetToGameDefault(Config::GFX_VR_HUD_FULLSCREEN);
+  Config::ResetToGameDefault(Config::GFX_VR_HUD_ON_TOP);
+  Config::ResetToGameDefault(Config::GFX_VR_DONT_CLEAR_SCREEN);
+  Config::ResetToGameDefault(Config::GFX_VR_CAN_READ_CAMERA_ANGLES);
+  Config::ResetToGameDefault(Config::GFX_VR_DETECT_SKYBOX);
+  Config::ResetToGameDefault(Config::GFX_VR_HUD_DISTANCE);
+  Config::ResetToGameDefault(Config::GFX_VR_HUD_THICKNESS);
+  Config::ResetToGameDefault(Config::GFX_VR_HUD_3D_CLOSER);
+  Config::ResetToGameDefault(Config::GFX_VR_CAMERA_FORWARD);
+  Config::ResetToGameDefault(Config::GFX_VR_CAMERA_PITCH);
+  Config::ResetToGameDefault(Config::GFX_VR_AIM_DISTANCE);
+  Config::ResetToGameDefault(Config::GFX_VR_MIN_FOV);
+  Config::ResetToGameDefault(Config::GFX_VR_N64_FOV);
+  Config::ResetToGameDefault(Config::GFX_VR_SCREEN_HEIGHT);
+  Config::ResetToGameDefault(Config::GFX_VR_SCREEN_DISTANCE);
+  Config::ResetToGameDefault(Config::GFX_VR_SCREEN_THICKNESS);
+  Config::ResetToGameDefault(Config::GFX_VR_SCREEN_UP);
+  Config::ResetToGameDefault(Config::GFX_VR_SCREEN_RIGHT);
+  Config::ResetToGameDefault(Config::GFX_VR_SCREEN_PITCH);
+  Config::ResetToGameDefault(Config::GFX_VR_READ_PITCH);
+  Config::ResetToGameDefault(Config::GFX_VR_HUD_DESP_POSITION_0);
+  Config::ResetToGameDefault(Config::GFX_VR_HUD_DESP_POSITION_1);
+  Config::ResetToGameDefault(Config::GFX_VR_HUD_DESP_POSITION_2);
+  Config::ResetToGameDefault(Config::GFX_VR_CAMERA_MIN_POLY);
+  Config::ResetToGameDefault(Config::GFX_VR_METROID_PRIME);
+  Config::ResetToGameDefault(Config::GFX_VR_TELESCOPE_EYE);
+  Config::ResetToGameDefault(Config::GFX_VR_TELESCOPE_MAX_FOV);
+
+  Config::Save(); // Save the overall config after resetting game specific to their defaults
+  Refresh(); // Refresh g_Config
+  g_SavedConfig = g_Config; // Update g_SavedConfig
+}
+
+bool VideoConfig::VRSettingsModified()
+{
+    // Compare current g_Config (which reflects UI changes) with g_SavedConfig (last explicitly saved game ini state)
+    // This is slightly different from Hydra which compared g_ActiveConfig.
+    // Using g_Config here makes more sense if we want to prompt before game INI save.
+    return fUnitsPerMetre != g_SavedConfig.fUnitsPerMetre ||
+           fHudThickness != g_SavedConfig.fHudThickness ||
+           fHudDistance != g_SavedConfig.fHudDistance ||
+           fHud3DCloser != g_SavedConfig.fHud3DCloser ||
+           fCameraForward != g_SavedConfig.fCameraForward ||
+           fCameraPitch != g_SavedConfig.fCameraPitch ||
+           fAimDistance != g_SavedConfig.fAimDistance ||
+           fMinFOV != g_SavedConfig.fMinFOV ||
+           fScreenHeight != g_SavedConfig.fScreenHeight ||
+           fN64FOV != g_SavedConfig.fN64FOV ||
+           fScreenThickness != g_SavedConfig.fScreenThickness ||
+           fScreenDistance != g_SavedConfig.fScreenDistance ||
+           fScreenRight != g_SavedConfig.fScreenRight ||
+           fScreenUp != g_SavedConfig.fScreenUp ||
+           fScreenPitch != g_SavedConfig.fScreenPitch ||
+           fTelescopeMaxFOV != g_SavedConfig.fTelescopeMaxFOV ||
+           fReadPitch != g_SavedConfig.fReadPitch ||
+           iCameraMinPoly != g_SavedConfig.iCameraMinPoly ||
+           bDisable3D != g_SavedConfig.bDisable3D ||
+           bHudFullscreen != g_SavedConfig.bHudFullscreen ||
+           bHudOnTop != g_SavedConfig.bHudOnTop ||
+           fHudDespPosition0 != g_SavedConfig.fHudDespPosition0 ||
+           fHudDespPosition1 != g_SavedConfig.fHudDespPosition1 ||
+           fHudDespPosition2 != g_SavedConfig.fHudDespPosition2 ||
+           bDontClearScreen != g_SavedConfig.bDontClearScreen ||
+           bCanReadCameraAngles != g_SavedConfig.bCanReadCameraAngles ||
+           bDetectSkybox != g_SavedConfig.bDetectSkybox ||
+           iTelescopeEye != g_SavedConfig.iTelescopeEye ||
+           iMetroidPrime != g_SavedConfig.iMetroidPrime;
+}
+
 
 void VideoConfig::VerifyValidity()
 {
@@ -204,15 +584,35 @@ void VideoConfig::VerifyValidity()
   if (!Common::Contains(g_backend_info.AAModes, iMultisamples))
     iMultisamples = 1;
 
+  // VR-Hydra stereo mode logic
+  if (g_has_hmd && bEnableVR) // g_has_hmd will be from VR.h
+  {
+    // TODO: This assumes STEREO_OCULUS is the desired mode for all HMDs.
+    // VR-Hydra had specific checks for g_has_rift, g_has_openvr, g_has_vr920.
+    // For now, if any HMD is present and VR enabled, try to set a VR stereo mode.
+    // The actual stereo_mode used by the backend might depend on VR.cpp initialization.
+    stereo_mode = StereoMode::QuadBuffer; // Or another suitable default VR stereo mode, QuadBuffer is often used for OpenVR/OpenGL
+                                          // VR-Hydra used STEREO_OCULUS enum value.
+                                          // The actual active VR SDK might override this later in VR specific code.
+  }
+   else if (stereo_mode == StereoMode::QuadBuffer) // If VR disabled or no HMD, turn off VR stereo modes
+  {
+      stereo_mode = StereoMode::Off;
+  }
+
+
   if (stereo_mode != StereoMode::Off)
   {
-    if (!g_backend_info.bSupportsGeometryShaders)
+    if (!g_backend_info.bSupportsGeometryShaders && stereo_mode != StereoMode::Anaglyph) // Anaglyph might not need GS
     {
       OSD::AddMessage(
-          "Stereoscopic 3D isn't supported by your GPU, support for OpenGL 3.2 is required.",
+          "Stereoscopic 3D (excluding Anaglyph) isn't supported by your GPU, support for Geometry Shaders is required.",
           10000);
       stereo_mode = StereoMode::Off;
     }
+    // VR-Hydra check: if (bUseXFB && bUseRealXFB && !g_has_hmd)
+    // This needs to be adapted. RealXFB is generally incompatible with advanced rendering / VR.
+    // Current g_ActiveConfig.bUseRealXFB is already set to false if HMD is present.
   }
 }
 

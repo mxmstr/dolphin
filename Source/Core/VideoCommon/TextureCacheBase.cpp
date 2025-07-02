@@ -2170,10 +2170,18 @@ bool TextureCacheBase::CopyFilterCanOverflow(const std::array<u32, 3>& coefficie
 
 void TextureCacheBase::CopyRenderTargetToTexture(
     u32 dstAddr, EFBCopyFormat dstFormat, u32 width, u32 height, u32 dstStride, bool is_depth_copy,
-    const MathUtil::Rectangle<int>& srcRect, bool isIntensity, bool scaleByHalf, float y_scale,
-    float gamma, bool clamp_top, bool clamp_bottom,
-    const CopyFilterCoefficients::Values& filter_coefficients)
+    const MathUtil::Rectangle<int>& gameSrcRect, // Was srcRect
+    const MathUtil::Rectangle<int>& ourSrcRect,  // Added for VR
+    bool isIntensity, bool scaleByHalf, float y_scale, float gamma, bool clamp_top,
+    bool clamp_bottom, const CopyFilterCoefficients::Values& filter_coefficients)
 {
+  // Determine the actual EFB source rectangle to use.
+  // If VR is active and ourSrcRect is valid and different, it implies a potentially larger EFB.
+  // gameSrcRect is what the game requested. width/height params should match gameSrcRect.
+  const MathUtil::Rectangle<int>& effective_efb_source_rect =
+    (g_has_hmd && g_ActiveConfig.bEnableVR && ourSrcRect.GetWidth() > 0 && ourSrcRect.GetHeight() > 0) ?
+    ourSrcRect : gameSrcRect;
+
   // Emulation methods:
   //
   // - EFB to RAM:
@@ -2637,6 +2645,215 @@ void TextureCacheBase::UninitializeEFBMemory(u8* dst, u32 stride, u32 bytes_per_
     ptr += stride;
   }
 }
+
+void TextureCacheBase::CopyEFBToCacheEntry(RcTcacheEntry& entry, bool is_depth_copy,
+                                           const MathUtil::Rectangle<int>& actual_game_src_rect, // Renamed for clarity
+                                           bool scale_by_half, bool linear_filter,
+                                           EFBCopyFormat dst_format, bool is_intensity, float gamma,
+                                           bool clamp_top, bool clamp_bottom,
+                                           const std::array<u32, 3>& filter_coefficients)
+{
+  // Flush EFB pokes first, as they're expected to be included.
+  g_framebuffer_manager->FlushEFBPokes();
+
+  // Get the pipeline which we will be using. If the compilation failed, this will be null.
+  const AbstractPipeline* copy_pipeline = g_shader_cache->GetEFBCopyToVRAMPipeline(
+      TextureConversionShaderGen::GetShaderUid(dst_format, is_depth_copy, is_intensity,
+                                               scale_by_half, 1.0f / gamma, filter_coefficients));
+  if (!copy_pipeline)
+  {
+    WARN_LOG_FMT(VIDEO, "Skipping EFB copy to VRAM due to missing pipeline.");
+    return;
+  }
+
+  // This is the crucial change: Resolve the EFB based on effective_efb_source_rect (which might be ourSrcRect)
+  // but the actual_game_src_rect tells us what portion of that resolved EFB we care about.
+  const auto full_efb_rect_scaled = g_framebuffer_manager->ConvertEFBRectangle(effective_efb_source_rect);
+  const auto full_efb_framebuffer_rect = g_gfx->ConvertFramebufferRectangle(
+      full_efb_rect_scaled, g_framebuffer_manager->GetEFBFramebuffer());
+  AbstractTexture* src_texture =
+      is_depth_copy ? g_framebuffer_manager->ResolveEFBDepthTexture(full_efb_framebuffer_rect) :
+                      g_framebuffer_manager->ResolveEFBColorTexture(full_efb_framebuffer_rect);
+
+  src_texture->FinishedRendering();
+  g_gfx->BeginUtilityDrawing();
+
+  // Fill uniform buffer.
+  // Uniforms need to be relative to the resolved src_texture (which is based on effective_efb_source_rect)
+  // but scaled by gameSrcRect's relation to effective_efb_source_rect.
+  struct Uniforms
+  {
+    float src_uv_left, src_uv_top, src_uv_width, src_uv_height; // UVs within the resolved EFB texture
+    std::array<u32, 3> filter_coefficients;
+    float gamma_rcp;
+    float clamp_top_uv, clamp_bottom_uv; // Clamping UVs
+    float pixel_height_uv; // For y-scaling in shader, relative to gameSrcRect's height within resolved texture
+    u32 padding;
+  };
+  Uniforms uniforms;
+
+  // Calculate UVs for gameSrcRect within the (potentially larger) effective_efb_source_rect
+  // This assumes gameSrcRect is a sub-rectangle of or equal to effective_efb_source_rect
+  // and they share the same coordinate system origin for this calculation.
+  float resolved_efb_width = static_cast<float>(full_efb_framebuffer_rect.GetWidth());
+  float resolved_efb_height = static_cast<float>(full_efb_framebuffer_rect.GetHeight());
+
+  if (resolved_efb_width == 0.0f) resolved_efb_width = 1.0f; // Avoid div by zero
+  if (resolved_efb_height == 0.0f) resolved_efb_height = 1.0f;
+
+  // Map gameSrcRect coordinates to be relative to effective_efb_source_rect's origin
+  // This step is subtle: if effective_efb_source_rect is ourSrcRect and gameSrcRect is the game's original,
+  // we need to find where gameSrcRect sits *inside* ourSrcRect if ourSrcRect is larger.
+  // For now, assume gameSrcRect's coordinates are already relative to the EFB origin,
+  // and effective_efb_source_rect is also from EFB origin.
+  // The UVs should sample the portion of the resolved EFB texture that corresponds to gameSrcRect.
+
+  // Scaled gameSrcRect (the region we actually want to copy)
+  MathUtil::Rectangle<int> game_src_rect_scaled = g_framebuffer_manager->ConvertEFBRectangle(actual_game_src_rect);
+  // Convert gameSrcRect to be relative to the origin of effective_efb_source_rect, then normalize.
+  float relative_game_src_left = static_cast<float>(game_src_rect_scaled.left - full_efb_framebuffer_rect.left);
+  float relative_game_src_top = static_cast<float>(game_src_rect_scaled.top - full_efb_framebuffer_rect.top);
+
+  uniforms.src_uv_left = relative_game_src_left / resolved_efb_width;
+  uniforms.src_uv_top = relative_game_src_top / resolved_efb_height;
+  uniforms.src_uv_width = static_cast<float>(game_src_rect_scaled.GetWidth()) / resolved_efb_width;
+  uniforms.src_uv_height = static_cast<float>(game_src_rect_scaled.GetHeight()) / resolved_efb_height;
+
+  uniforms.filter_coefficients = filter_coefficients;
+  uniforms.gamma_rcp = 1.0f / gamma;
+
+  const u32 efb_height_for_clamp = g_framebuffer_manager->GetEFBHeight(); // Use full EFB height for clamping context
+  const float rcp_efb_height_for_clamp = 1.0f / static_cast<float>(efb_height_for_clamp);
+  const u32 top_coord_for_clamp = clamp_top ? full_efb_framebuffer_rect.top : 0; // Clamping relative to full EFB
+  uniforms.clamp_top_uv = (static_cast<float>(top_coord_for_clamp) + .5f) * rcp_efb_height_for_clamp;
+  const u32 bottom_coord_for_clamp = (clamp_bottom ? full_efb_framebuffer_rect.bottom : efb_height_for_clamp) - 1;
+  uniforms.clamp_bottom_uv = (static_cast<float>(bottom_coord_for_clamp) + .5f) * rcp_efb_height_for_clamp;
+
+  // pixel_height_uv is 1.0 / (height of the gameSrcRect portion in the resolved texture)
+  // This is used for y-scaling in the copy filter.
+  uniforms.pixel_height_uv = 1.0f / (static_cast<float>(game_src_rect_scaled.GetHeight()));
+  if (game_src_rect_scaled.GetHeight() == 0) uniforms.pixel_height_uv = 0.0f;
+
+
+  uniforms.padding = 0;
+  g_vertex_manager->UploadUtilityUniforms(&uniforms, sizeof(uniforms));
+
+  // Use the copy pipeline to render the VRAM copy.
+  g_gfx->SetAndDiscardFramebuffer(entry->framebuffer.get());
+  g_gfx->SetViewportAndScissor(entry->framebuffer->GetRect()); // Destination is the full entry texture
+  g_gfx->SetPipeline(copy_pipeline);
+  g_gfx->SetTexture(0, src_texture);
+  g_gfx->SetSamplerState(0, linear_filter ? RenderState::GetLinearSamplerState() :
+                                            RenderState::GetPointSamplerState());
+  g_gfx->Draw(0, 3);
+  g_gfx->EndUtilityDrawing();
+  entry->texture->FinishedRendering();
+}
+
+
+void TextureCacheBase::CopyEFB(AbstractStagingTexture* dst, const EFBCopyParams& params,
+                               u32 native_width, u32 bytes_per_row, u32 num_blocks_y,
+                               u32 memory_stride, const MathUtil::Rectangle<int>& actual_game_src_rect, // Renamed
+                               bool scale_by_half, bool linear_filter, float y_scale, float gamma,
+                               bool clamp_top, bool clamp_bottom,
+                               const std::array<u32, 3>& filter_coefficients)
+{
+  // Flush EFB pokes first, as they're expected to be included.
+  g_framebuffer_manager->FlushEFBPokes();
+
+  // Get the pipeline which we will be using. If the compilation failed, this will be null.
+  const AbstractPipeline* copy_pipeline = g_shader_cache->GetEFBCopyToRAMPipeline(params);
+  if (!copy_pipeline)
+  {
+    WARN_LOG_FMT(VIDEO, "Skipping EFB copy to VRAM due to missing pipeline.");
+    return;
+  }
+
+  // Resolve EFB based on effective_efb_source_rect (which is global here, or should be passed if different from gameSrcRect for this call)
+  // For CopyEFB (to RAM), the srcRect parameter has always been the game's intended source.
+  // If VR implies a different EFB layout, effective_efb_source_rect should be used for resolving.
+  const auto full_efb_rect_scaled = g_framebuffer_manager->ConvertEFBRectangle(effective_efb_source_rect);
+  const auto full_efb_framebuffer_rect = g_gfx->ConvertFramebufferRectangle(
+      full_efb_rect_scaled, g_framebuffer_manager->GetEFBFramebuffer());
+  AbstractTexture* src_texture =
+      params.depth ? g_framebuffer_manager->ResolveEFBDepthTexture(full_efb_framebuffer_rect) :
+                     g_framebuffer_manager->ResolveEFBColorTexture(full_efb_framebuffer_rect);
+
+
+  src_texture->FinishedRendering();
+  g_gfx->BeginUtilityDrawing();
+
+  // Fill uniform buffer.
+  struct Uniforms
+  {
+    std::array<s32, 4> position_uniform; // Based on actual_game_src_rect for output dimensions
+    float y_scale_for_shader; // Renamed from y_scale to avoid conflict
+    float gamma_rcp;
+    float clamp_top_uv; // UV space for clamping
+    float clamp_bottom_uv; // UV space for clamping
+    std::array<u32, 3> filter_coefficients;
+    u32 padding;
+    // UVs for sampling from the (potentially larger) resolved EFB texture
+    float src_uv_left, src_uv_top, src_uv_width, src_uv_height;
+  };
+  Uniforms encoder_params;
+
+  // position_uniform is based on the game's intended copy dimensions (actual_game_src_rect)
+  encoder_params.position_uniform[0] = actual_game_src_rect.left;
+  encoder_params.position_uniform[1] = actual_game_src_rect.top;
+  encoder_params.position_uniform[2] = static_cast<s32>(native_width); // native_width here is game's intended width
+  encoder_params.position_uniform[3] = scale_by_half ? 2 : 1;
+
+  encoder_params.y_scale_for_shader = y_scale;
+  encoder_params.gamma_rcp = 1.0f / gamma;
+
+  const u32 efb_height_for_clamp = g_framebuffer_manager->GetEFBHeight();
+  const float rcp_efb_height_for_clamp = 1.0f / static_cast<float>(efb_height_for_clamp);
+  const u32 top_coord_for_clamp = clamp_top ? full_efb_framebuffer_rect.top : 0;
+  encoder_params.clamp_top_uv = (static_cast<float>(top_coord_for_clamp) + .5f) * rcp_efb_height_for_clamp;
+  const u32 bottom_coord_for_clamp = (clamp_bottom ? full_efb_framebuffer_rect.bottom : efb_height_for_clamp) - 1;
+  encoder_params.clamp_bottom_uv = (static_cast<float>(bottom_coord_for_clamp) + .5f) * rcp_efb_height_for_clamp;
+
+  encoder_params.filter_coefficients = filter_coefficients;
+
+  // UVs for sampling from the resolved EFB texture (based on effective_efb_source_rect)
+  // These UVs should map the actual_game_src_rect onto the resolved texture.
+  float resolved_efb_width = static_cast<float>(full_efb_framebuffer_rect.GetWidth());
+  float resolved_efb_height = static_cast<float>(full_efb_framebuffer_rect.GetHeight());
+  if (resolved_efb_width == 0.0f) resolved_efb_width = 1.0f;
+  if (resolved_efb_height == 0.0f) resolved_efb_height = 1.0f;
+
+  MathUtil::Rectangle<int> game_src_rect_scaled = g_framebuffer_manager->ConvertEFBRectangle(actual_game_src_rect);
+  float relative_game_src_left = static_cast<float>(game_src_rect_scaled.left - full_efb_framebuffer_rect.left);
+  float relative_game_src_top = static_cast<float>(game_src_rect_scaled.top - full_efb_framebuffer_rect.top);
+
+  encoder_params.src_uv_left = relative_game_src_left / resolved_efb_width;
+  encoder_params.src_uv_top = relative_game_src_top / resolved_efb_height;
+  encoder_params.src_uv_width = static_cast<float>(game_src_rect_scaled.GetWidth()) / resolved_efb_width;
+  encoder_params.src_uv_height = static_cast<float>(game_src_rect_scaled.GetHeight()) / resolved_efb_height;
+
+  g_vertex_manager->UploadUtilityUniforms(&encoder_params, sizeof(encoder_params));
+
+  // Because the shader uses gl_FragCoord and we read it back, we must render to the lower-left.
+  const u32 render_width = bytes_per_row / sizeof(u32);
+  const u32 render_height = num_blocks_y;
+  const auto encode_rect = MathUtil::Rectangle<int>(0, 0, render_width, render_height);
+
+  // Render to GPU texture, and then copy to CPU-accessible texture.
+  g_gfx->SetAndDiscardFramebuffer(m_efb_encoding_framebuffer.get());
+  g_gfx->SetViewportAndScissor(encode_rect);
+  g_gfx->SetPipeline(copy_pipeline);
+  g_gfx->SetTexture(0, src_texture);
+  g_gfx->SetSamplerState(0, linear_filter ? RenderState::GetLinearSamplerState() :
+                                            RenderState::GetPointSamplerState());
+  g_gfx->Draw(0, 3);
+  dst->CopyFromTexture(m_efb_encoding_texture.get(), encode_rect, 0, 0, encode_rect);
+  g_gfx->EndUtilityDrawing();
+
+  // Flush if there's sufficient draws between this copy and the last.
+  g_vertex_manager->OnEFBCopyToRAM();
+}
+
 
 void TextureCacheBase::UninitializeXFBMemory(u8* dst, u32 stride, u32 bytes_per_row,
                                              u32 num_blocks_y)

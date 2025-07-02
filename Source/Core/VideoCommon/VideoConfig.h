@@ -348,6 +348,126 @@ struct VideoConfig final
   // Vertex loader
   VertexLoaderType vertex_loader_type;
 
+  // VR global settings (ported from VR-Hydra)
+  float fScale;
+  float fLeanBackAngle;
+  bool bStabilizeRoll;
+  bool bStabilizePitch;
+  bool bStabilizeYaw;
+  bool bStabilizeX;
+  bool bStabilizeY;
+  bool bStabilizeZ;
+  bool bKeyhole;
+  float fKeyholeWidth;
+  bool bKeyholeSnap;
+  float fKeyholeSnapSize;
+  bool bPullUp20fps;
+  bool bPullUp30fps;
+  bool bPullUp60fps;
+  bool bPullUpAuto;
+  bool bSynchronousTimewarp; // From GLOBAL_VR_SYNCHRONOUS_TIMEWARP
+  bool bOpcodeWarningDisable;
+  bool bReplayVertexData; // From GLOBAL_VR_REPLAY_VERTEX_DATA
+  bool bReplayOtherData;  // From GLOBAL_VR_REPLAY_OTHER_DATA
+  bool bPullUp20fpsTimewarp;
+  bool bPullUp30fpsTimewarp;
+  bool bPullUp60fpsTimewarp;
+  bool bPullUpAutoTimewarp;
+  bool bOpcodeReplay;      // From GLOBAL_VR_OPCODE_REPLAY
+  bool bEnableVR;          // From GLOBAL_VR_ENABLE_VR
+  bool bLowPersistence;
+  bool bDynamicPrediction;
+  bool bOrientationTracking;
+  bool bMagYawCorrection;
+  bool bPositionTracking;
+  bool bChromatic;
+  bool bTimewarp;
+  bool bVignette;
+  bool bNoRestore;
+  bool bFlipVertical;
+  bool bSRGB;
+  bool bOverdrive;
+  bool bHqDistortion;
+  bool bDisableNearClipping; // From GLOBAL_VR_DISABLE_NEAR_CLIPPING
+  bool bAutoPairViveControllers;
+  bool bShowHands;
+  bool bShowFeet;
+  bool bShowController;
+  bool bShowLaserPointer;
+  bool bShowAimRectangle;
+  bool bShowHudBox;
+  bool bShow2DBox; // Renamed from bShow2DScreenBox for brevity
+  bool bShowSensorBar;
+  bool bShowGameCamera;
+  bool bShowGameFrustum;
+  bool bShowTrackingCamera;
+  bool bShowTrackingVolume;
+  bool bShowBaseStation;
+  bool bMotionSicknessAlways;
+  bool bMotionSicknessFreelook;
+  bool bMotionSickness2D;
+  bool bMotionSicknessLeftStick;
+  bool bMotionSicknessRightStick;
+  bool bMotionSicknessDPad;
+  bool bMotionSicknessIR;
+  int iMotionSicknessMethod;
+  int iMotionSicknessSkybox;
+  float fMotionSicknessFOV;
+  int iVRPlayer; // Player index for VR view
+  int iVRPlayer2; // Second player index for VR (if applicable)
+  int iMirrorPlayer;
+  int iMirrorStyle;
+  float fTimeWarpTweak;
+  u32 iExtraTimewarpedFrames; // Was GLOBAL_VR_NUM_EXTRA_FRAMES
+  u32 iExtraVideoLoops;       // Was GLOBAL_VR_NUM_EXTRA_VIDEO_LOOPS
+  u32 iExtraVideoLoopsDivider; // Was GLOBAL_VR_NUM_EXTRA_VIDEO_LOOPS_DIVIDER
+  std::string sLeftTexture;
+  std::string sRightTexture;
+  std::string sGCLeftTexture;
+  std::string sGCRightTexture;
+
+  // VR per-game settings (ported from VR-Hydra)
+  float fUnitsPerMetre;
+  float fFreeLookSensitivity; // Note: FreeLookCamera also has its own sensitivity settings. This might be redundant or need careful integration.
+  float fHudThickness;
+  float fHudDistance;
+  float fHud3DCloser;
+  float fCameraForward;
+  float fCameraPitch;
+  float fAimDistance;
+  float fMinFOV;
+  float fN64FOV; // Specific for N64 games in VR
+  float fScreenHeight;
+  float fScreenThickness;
+  float fScreenDistance;
+  float fScreenRight;
+  float fScreenUp;
+  float fScreenPitch;
+  float fTelescopeMaxFOV;
+  float fReadPitch; // For games where camera pitch can be read from memory
+  float fHudDespPosition0; // Desperate HUD position tweaks
+  float fHudDespPosition1;
+  float fHudDespPosition2;
+  // Matrix33 matrixHudrot; // This was in Hydra, but matrix types in config are tricky. Store as floats or handle differently. For now, skip.
+  u32 iCameraMinPoly; // Minimum polygons to consider a view as main camera
+  bool bDisable3D;    // Game-specific disable 3D rendering
+  bool bHudFullscreen;
+  bool bHudOnTop;
+  bool bDontClearScreen;
+  bool bCanReadCameraAngles; // If game's camera angles can be read from memory
+  bool bDetectSkybox;
+  int iTelescopeEye;  // 0 = none, 1 = left, 2 = right, 3 = both
+  int iMetroidPrime;  // Game-specific hacks for Metroid Prime series (0 = none)
+  // VR layer debugging (from Hydra, might be removed or ifdef'd for final)
+  int iSelectedLayer;
+  int iFlashState;
+
+
+  // GameINI functions for VR settings
+  void GameIniSave();
+  void GameIniReset();
+  bool VRSettingsModified();
+
   // Utility
   bool UseVSForLinePointExpand() const
   {

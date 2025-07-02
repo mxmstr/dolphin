@@ -285,9 +285,10 @@ public:
   virtual void BindTextures(BitSet32 used_textures, const std::array<SamplerState, 8>& samplers);
   void CopyRenderTargetToTexture(u32 dstAddr, EFBCopyFormat dstFormat, u32 width, u32 height,
                                  u32 dstStride, bool is_depth_copy,
-                                 const MathUtil::Rectangle<int>& srcRect, bool isIntensity,
-                                 bool scaleByHalf, float y_scale, float gamma, bool clamp_top,
-                                 bool clamp_bottom,
+                                 const MathUtil::Rectangle<int>& gameSrcRect, // Was srcRect
+                                 const MathUtil::Rectangle<int>& ourSrcRect,  // Added for VR
+                                 bool isIntensity, bool scaleByHalf, float y_scale, float gamma,
+                                 bool clamp_top, bool clamp_bottom,
                                  const CopyFilterCoefficients::Values& filter_coefficients);
 
   void ScaleTextureCacheEntryTo(RcTcacheEntry& entry, u32 new_width, u32 new_height);
