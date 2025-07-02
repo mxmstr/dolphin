@@ -12,6 +12,7 @@
 #include "VideoCommon/AbstractTexture.h" // Added for AbstractTexture
 
 #include "d3d11.h"
+#include "DXTexture.h"
 
 //#ifdef HAVE_OCULUSSDK
 //#include "OVR_CAPI_D3D.h"
@@ -30,5 +31,5 @@ void VR_PresentHMDFrame();
 void VR_DrawTimewarpFrame();
 
 // New function for stereo rendering
-void VR_RenderFrameStereo(VideoCommon::AbstractTexture* resolved_efb_color_texture, float gamma);
+void VR_RenderFrameStereo(AbstractTexture* resolved_efb_color_texture, float gamma);
 }

@@ -23,6 +23,7 @@
 #include "VideoCommon/OpcodeDecoding.h"
 #include "VideoCommon/VideoConfig.h"
 #include "VideoCommon/VR.h"
+#include "VideoCommon/VROpenVR.h"
 //#include "VideoCommon/VROculus.h"
 
 // Forward declare RunCallback if it's not in OpcodeDecoding.h, or include the .cpp if necessary
@@ -689,7 +690,7 @@ void VR_Init()
 
     // Example: Request fullscreen if VR is active.
     // This assumes VR always wants to control the fullscreen state.
-    g_Config.bFullscreen = true; // From VideoConfig.h
+    // g_Config.bFullscreen = true; // From VideoConfig.h
     // g_Config.bBorderlessFullscreen = false; // Or true, depending on VR preference
 
     // The specific resolution g_hmd_window_width x g_hmd_window_height

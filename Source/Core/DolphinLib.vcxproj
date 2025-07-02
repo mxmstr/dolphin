@@ -87,6 +87,7 @@
     <ClInclude Include="VideoBackends\D3D\VRD3D.h" />
     <ClInclude Include="VideoCommon\ARBruteForcer.h" />
     <ClInclude Include="VideoCommon\HideObjectEngine.h" />
+    <ClInclude Include="VideoCommon\OculusSystemLibraryHeader.h" />
     <ClInclude Include="VideoCommon\VR.h" />
     <ClInclude Include="VideoCommon\VRGameMatrices.h" />
     <ClInclude Include="VideoCommon\VROpenVR.h" />

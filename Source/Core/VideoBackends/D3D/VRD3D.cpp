@@ -9,10 +9,10 @@
 #include "Common/Timer.h"
 #include "VideoBackends/D3D/D3DBase.h"
 #include "VideoBackends/D3D/D3DState.h" // For D3D::SetPointCopySampler, D3D::drawShadedTexQuad
-#include "VideoBackends/D3D/D3DTexture.h"
-#include "VideoBackends/D3D/D3DUtil.h"
+//#include "VideoBackends/D3D/D3DTexture.h"
+//#include "VideoBackends/D3D/D3DUtil.h"
 #include "VideoCommon/FramebufferManager.h" // Needs to be included before D3D/FramebufferManager.h
-#include "VideoBackends/D3D/FramebufferManager.h" // For D3D-specific FramebufferManager access if any (DEPRECATED)
+//#include "VideoBackends/D3D/FramebufferManager.h" // For D3D-specific FramebufferManager access if any (DEPRECATED)
 #include "VideoCommon/ShaderCache.h"         // For g_shader_cache
 #include "VideoCommon/AbstractGfx.h"       // For g_gfx
 #include "VideoCommon/TextureConfig.h"
@@ -20,11 +20,12 @@
 #include "VideoCommon/PixelShaderManager.h"  // For PixelShaderCache - though likely through g_shader_cache
 #include "VideoCommon/GeometryShaderManager.h" // For GeometryShaderCache - though likely through g_shader_cache
 #include "VideoCommon/OnScreenDisplay.h"   // For OSD
-#include "VideoCommon/Renderer.h"          // For g_renderer
+//#include "VideoCommon/Renderer.h"          // For g_renderer
 #include "VideoCommon/VR.h"
-#include "VideoCommon/VROculus.h"
+//#include "VideoCommon/VROculus.h"
 #include "VideoCommon/VROpenVR.h"
 #include "VideoCommon/VideoConfig.h"
+#include "VideoCommon/TextureConfig.h"
 
 // TODO: These includes are from Hydra's Render.cpp, might not all be needed here
 // or might need to be accessed via g_renderer or g_shader_cache
@@ -350,12 +351,12 @@ void VR_StartFramebuffer()
     RecreateMirrorTextureIfNeeded();
   }
 #endif
-  if (g_has_vr920)
+  /*if (g_has_vr920)
   {
 #ifdef _WIN32
     VR920_StartStereo3D();
 #endif
-  }
+  }*/
 #if (defined(OVR_MAJOR_VERSION) && OVR_PRODUCT_VERSION == 0 && OVR_MAJOR_VERSION <= 5) ||          \
     defined(HAVE_OPENVR)
   // This section is for very old Oculus SDKs (0.5 and below) and OpenVR from Hydra
@@ -363,11 +364,11 @@ void VR_StartFramebuffer()
   if (g_has_openvr && g_ActiveConfig.stereo_mode != StereoMode::OculusVR && g_framebuffer_manager && g_gfx)
   {
     // Create eye textures for OpenVR and store them in FramebufferManager
-    VideoCommon::TextureConfig vr_eye_texture_config = VideoCommon::TextureConfig(
+    TextureConfig vr_eye_texture_config = TextureConfig(
         g_framebuffer_manager->GetEFBWidth(), g_framebuffer_manager->GetEFBHeight(), 1, 1, // Each eye texture is a single layer/slice
-        g_ActiveConfig.iMultisamples, VideoCommon::FramebufferManager::GetEFBColorFormat(),
-        VideoCommon::AbstractTextureFlag_RenderTarget | VideoCommon::AbstractTextureFlag_ShaderResource,
-        VideoCommon::AbstractTextureType::Texture_2D);
+        g_ActiveConfig.iMultisamples, FramebufferManager::GetEFBColorFormat(),
+        AbstractTextureFlag_RenderTarget,// | AbstractTextureFlag_ShaderResource,
+        AbstractTextureType::Texture_2D);
 
     // Casting g_framebuffer_manager to its concrete type or adding a method
     // to set these textures would be cleaner. For now, direct assignment if compatible.
@@ -389,8 +390,8 @@ void VR_StartFramebuffer()
 
     // For OpenVR, m_left_texture and m_right_texture are used by VR_PresentHMDFrame
     // These should point to the D3D resources held by g_framebuffer_manager->m_vr_eye_textures
-    VideoCommon::AbstractTexture* left_abs_tex = g_framebuffer_manager->GetVREyeTexture(0);
-    VideoCommon::AbstractTexture* right_abs_tex = g_framebuffer_manager->GetVREyeTexture(1);
+    AbstractTexture* left_abs_tex = g_framebuffer_manager->GetVREyeTexture(0);
+    AbstractTexture* right_abs_tex = g_framebuffer_manager->GetVREyeTexture(1);
 
     if (left_abs_tex && right_abs_tex)
     {
@@ -415,12 +416,12 @@ void VR_StartFramebuffer()
         }
         else
         {
-            PanicAlert("Failed to cast VR eye textures to DXTexture for OpenVR.");
+            PanicAlertFmt("Failed to cast VR eye textures to DXTexture for OpenVR.");
         }
     }
     else
     {
-        PanicAlert("VR eye textures not created in FramebufferManager for OpenVR.");
+        PanicAlertFmt("VR eye textures not created in FramebufferManager for OpenVR.");
     }
   }
 #endif

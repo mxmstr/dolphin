@@ -306,7 +306,7 @@ bool Create(u32 adapter_index, bool enable_debug_layer)
   if (dxgi_factory) { // dxgi_factory should be valid here
       hr = dxgi_factory->MakeWindowAssociation(hwnd, DXGI_MWA_NO_WINDOW_CHANGES | DXGI_MWA_NO_ALT_ENTER);
       if (FAILED(hr)) {
-          WARN_LOG_FMT(D3D, "Failed to set MakeWindowAssociation(DXGI_MWA_NO_WINDOW_CHANGES | DXGI_MWA_NO_ALT_ENTER): {}", DX11HRWrap(hr));
+          WARN_LOG_FMT(VIDEO, "Failed to set MakeWindowAssociation(DXGI_MWA_NO_WINDOW_CHANGES | DXGI_MWA_NO_ALT_ENTER): {}", DX11HRWrap(hr));
       }
   }
 
