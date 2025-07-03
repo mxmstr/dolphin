@@ -13,6 +13,7 @@
 #include "VideoCommon/CPMemory.h"
 #include "VideoCommon/DataReader.h" // Added for TimewarpLogEntry
 #include "VideoCommon/VertexLoaderBase.h"
+#include "VideoCommon/VertexLoaderManager.h"
 #include <vector> // Added for timewarp_logentries
 
 struct CPState;

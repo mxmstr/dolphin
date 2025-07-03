@@ -121,7 +121,7 @@ bool g_new_tracking_frame = true;
 bool g_new_frame_tracker_for_efb_skip = true;
 u32 skip_objects_count = 0;
 Common::Matrix44 g_head_tracking_matrix;
-float g_head_tracking_position[3];
+Common::Vec3 g_head_tracking_position;
 float g_left_hand_tracking_position[3], g_right_hand_tracking_position[3];
 int g_hmd_window_width = 0, g_hmd_window_height = 0, g_hmd_window_x = 0, g_hmd_window_y = 0,
     g_hmd_refresh_rate = 90;

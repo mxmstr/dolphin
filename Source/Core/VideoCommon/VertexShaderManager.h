@@ -26,7 +26,7 @@ enum ViewportType
   VIEW_OFFSCREEN,
   VIEW_RENDER_TO_TEXTURE,
 };
-extern enum ViewportType g_viewport_type, g_old_viewport_type;
+ViewportType g_viewport_type, g_old_viewport_type;
 
 class PointerWrap;
 struct PortableVertexDeclaration;
@@ -102,10 +102,13 @@ public:
   }
 
 private:
-  alignas(16) std::array<float, 16> m_projection_matrix;
+  bool m_projection_graphics_mod_change = false; // From existing code
+  std::array<float, 16> m_projection_matrix; // From existing code
+
+  //alignas(16) std::array<float, 16> m_projection_matrix;
 
   // track changes
-  bool m_projection_graphics_mod_change = false;
+  //bool m_projection_graphics_mod_change = false;
 
   Common::Matrix44 LoadProjectionMatrix();
 };

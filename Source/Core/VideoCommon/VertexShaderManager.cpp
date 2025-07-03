@@ -36,29 +36,11 @@
 // into a VR state structure or making them static members of VertexShaderManager if appropriate,
 // instead of file-scope statics, for better encapsulation in the future.
 
-namespace // Anonymous namespace for VR helpers and related statics
-{
+extern Common::Matrix44 g_head_tracking_matrix;
+extern Common::Vec3 g_head_tracking_position;
 
-// --- Start of VR-Hydra Ported Globals (file-scope static) ---
-// g_fProjectionMatrix is the game's original projection matrix, potentially modified by VR logic for HUDs etc.
-static float g_fProjectionMatrix[16];
-static Common::Matrix33 s_locked_skybox_orientation;
-static bool s_had_skybox = false;
-
-// Viewport related globals
-EFBRectangle g_final_screen_region = EFBRectangle(0, 0, EFB_WIDTH, EFB_HEIGHT);
-EFBRectangle g_requested_viewport = EFBRectangle(0, 0, EFB_WIDTH, EFB_HEIGHT);
-EFBRectangle g_rendered_viewport = EFBRectangle(0, 0, EFB_WIDTH, EFB_HEIGHT);
-ViewportType g_viewport_type = ViewportType::Fullscreen;
-ViewportType g_old_viewport_type = ViewportType::Fullscreen;
-SplitScreenType g_splitscreen_type = SplitScreenType::Fullscreen;
-SplitScreenType g_old_splitscreen_type = SplitScreenType::Fullscreen;
-bool g_is_skybox = false;
-
-// Game camera stabilization globals (set by CheckOrientationConstants)
-Common::Matrix44 g_game_camera_rotmat = Common::Matrix44::Identity();
-float g_game_camera_pos[3] = {0.0f, 0.0f, 0.0f};
-bool g_vr_had_3D_already = false;
+ViewportType g_viewport_type = ViewportType::VIEW_FULLSCREEN;
+ViewportType g_old_viewport_type = ViewportType::VIEW_FULLSCREEN;
 
 // VR statistics / state tracking globals
 float vr_widest_3d_HFOV = 0.0f;
@@ -66,6 +48,29 @@ float vr_widest_3d_VFOV = 0.0f;
 float vr_widest_3d_zNear = 0.0f;
 float vr_widest_3d_zFar = 0.0f;
 // int vr_widest_3d_projNum = -1; // If debug logging with projNum is ported
+
+// Game camera stabilization globals (set by CheckOrientationConstants)
+Common::Matrix44 g_game_camera_rotmat = Common::Matrix44::Identity();
+float g_game_camera_pos[3] = {0.0f, 0.0f, 0.0f};
+extern bool g_vr_had_3D_already;
+
+namespace // Anonymous namespace for VR helpers and related statics
+{
+
+// --- Start of VR-Hydra Ported Globals (file-scope static) ---
+// g_fProjectionMatrix is the game's original projection matrix, potentially modified by VR logic for HUDs etc.
+static std::array<float, 16> g_fProjectionMatrix;
+static Common::Matrix33 s_locked_skybox_orientation;
+static bool s_had_skybox = false;
+
+// Viewport related globals
+MathUtil::Rectangle<int> g_final_screen_region = MathUtil::Rectangle<int>(0, 0, EFB_WIDTH, EFB_HEIGHT);
+MathUtil::Rectangle<int> g_requested_viewport = MathUtil::Rectangle<int>(0, 0, EFB_WIDTH, EFB_HEIGHT);
+MathUtil::Rectangle<int> g_rendered_viewport = MathUtil::Rectangle<int>(0, 0, EFB_WIDTH, EFB_HEIGHT);
+//SplitScreenType g_splitscreen_type = SplitScreenType;
+//SplitScreenType g_old_splitscreen_type = SplitScreenType::Fullscreen;
+bool g_is_skybox = false;
+
 
 // TODO: Game specific globals (example, Metroid Prime)
 // MetroidLayer g_metroid_layer = MetroidLayer::METROID_UNKNOWN;
@@ -94,10 +99,10 @@ static float PHackValue(const std::string& sValue)
     f = std::stof(temp_sValue);
     fp = temp_sValue.find('.') != std::string::npos;
   } catch (const std::invalid_argument& ia) {
-    ERROR_LOG(VIDEO, "Invalid argument for PHackValue: %s", sValue.c_str());
+    ERROR_LOG_FMT(VIDEO, "Invalid argument for PHackValue: {}", sValue.c_str());
     return 0.0f;
   } catch (const std::out_of_range& oor) {
-    ERROR_LOG(VIDEO, "Out of range for PHackValue: %s", sValue.c_str());
+    ERROR_LOG_FMT(VIDEO, "Out of range for PHackValue: {}", sValue.c_str());
     return 0.0f;
   }
   if (!fp && sValue.length() > 0)
@@ -105,7 +110,7 @@ static float PHackValue(const std::string& sValue)
   return f;
 }
 
-void UpdateProjectionHack(const VideoConfig::ProjectionHackConfig& config)
+void UpdateProjectionHack(const ProjectionHackConfig& config)
 {
   float near_value = 0, far_value = 0;
   float near_sign = 1.0, far_sign = 1.0;
@@ -120,7 +125,7 @@ void UpdateProjectionHack(const VideoConfig::ProjectionHackConfig& config)
   g_proj_hack_far = ProjectionHack(far_sign, far_value);
 }
 
-void ScaleRequestedToRendered(const EFBRectangle& requested, EFBRectangle& rendered)
+void ScaleRequestedToRendered(const MathUtil::Rectangle<int>& requested, MathUtil::Rectangle<int>& rendered)
 {
   if (g_requested_viewport.GetWidth() == 0 || g_requested_viewport.GetHeight() == 0) {
       rendered = requested;
@@ -136,7 +141,7 @@ void ScaleRequestedToRendered(const EFBRectangle& requested, EFBRectangle& rende
 
 // Logging stubs
 static void ClearDebugProj() { /* Stub */ }
-static void DoLogViewport(int j, const XF::Viewport& v, ViewportType type) { /* Stub */ }
+static void DoLogViewport(int j, const Viewport& v, ViewportType type) { /* Stub */ }
 static void DoLogProj(int j, const float p[], const char* layer_name_str, ProjectionType proj_type) { /* Stub */ }
 
 static void LogProj(const float p[], ProjectionType proj_type) {
@@ -162,27 +167,27 @@ static void LogProj(const float p[], ProjectionType proj_type) {
     }
     */
 }
-static void LogViewport(const XF::Viewport& v, ViewportType type) { /* Stub */ }
+static void LogViewport(const Viewport& v, ViewportType type) { /* Stub */ }
 
 const char* GetViewportTypeName(ViewportType v)
 {
   if (g_is_skybox) return "Skybox";
   switch (v)
   {
-    case ViewportType::Fullscreen: return "Fullscreen";
-    case ViewportType::Letterboxed: return "Letterboxed";
-    case ViewportType::HudElement: return "HUD element";
-    case ViewportType::Offscreen: return "Offscreen";
-    case ViewportType::RenderToTexture: return "Render to Texture";
-    case ViewportType::Player1: return "Player 1";
-    case ViewportType::Player2: return "Player 2";
-    case ViewportType::Player3: return "Player 3";
-    case ViewportType::Player4: return "Player 4";
+    case ViewportType::VIEW_FULLSCREEN: return "Fullscreen";
+    case ViewportType::VIEW_LETTERBOXED: return "Letterboxed";
+    case ViewportType::VIEW_HUD_ELEMENT: return "HUD element";
+    case ViewportType::VIEW_OFFSCREEN: return "Offscreen";
+    case ViewportType::VIEW_RENDER_TO_TEXTURE: return "Render to Texture";
+    case ViewportType::VIEW_PLAYER_1: return "Player 1";
+    case ViewportType::VIEW_PLAYER_2: return "Player 2";
+    case ViewportType::VIEW_PLAYER_3: return "Player 3";
+    case ViewportType::VIEW_PLAYER_4: return "Player 4";
     default: return "Error";
   }
 }
 
-void SetViewportType(const XF::Viewport& v)
+void SetViewportType(const Viewport& v)
 {
   g_old_viewport_type = g_viewport_type;
   float left = v.xOrig - v.wd;
@@ -200,41 +205,41 @@ void SetViewportType(const XF::Viewport& v)
   if (width == height && (width == 1 || width == 2 || width == 4 || (static_cast<int>(width) % 8 == 0)) &&
       (left == 0 || top == 0 || std::abs(top - (screen_height - height)) < 1.0f || std::abs(left - (screen_width - width)) < 1.0f ) &&
       !(width == 512 && screen_width == 512 && screen_height == 512)) {
-    g_viewport_type = ViewportType::RenderToTexture;
+    g_viewport_type = ViewportType::VIEW_RENDER_TO_TEXTURE;
   } else if (width >= min_screen_width && std::abs(left) <= max_left_offset) {
     if (height >= min_screen_height && std::abs(top) <= max_top_offset) {
         g_viewport_type = (width == screen_width && height == screen_height && left == 0 && top == 0) ?
-                           ViewportType::Fullscreen : ViewportType::Letterboxed;
+                           ViewportType::VIEW_FULLSCREEN : ViewportType::VIEW_LETTERBOXED;
     } else if (height >= min_screen_height / 2.1f && height <= screen_height / 1.9f) {
-        if (std::abs(top) <= max_top_offset) g_viewport_type = ViewportType::Player1;
-        else if (std::abs(top - height) <= max_top_offset) g_viewport_type = ViewportType::Player2;
-        else g_viewport_type = ViewportType::Letterboxed;
+        if (std::abs(top) <= max_top_offset) g_viewport_type = ViewportType::VIEW_PLAYER_1;
+        else if (std::abs(top - height) <= max_top_offset) g_viewport_type = ViewportType::VIEW_PLAYER_2;
+        else g_viewport_type = ViewportType::VIEW_LETTERBOXED;
     } else {
-      g_viewport_type = ViewportType::Letterboxed;
+      g_viewport_type = ViewportType::VIEW_LETTERBOXED;
     }
   } else if (height >= min_screen_height && std::abs(top) <= max_top_offset) {
      if (width >= min_screen_width / 2.1f && width <= screen_width / 1.9f) {
-        if (std::abs(left) <= max_left_offset) g_viewport_type = ViewportType::Player1;
-        else if (std::abs(left - width) <= max_left_offset) g_viewport_type = ViewportType::Player2;
-        else g_viewport_type = ViewportType::HudElement;
+        if (std::abs(left) <= max_left_offset) g_viewport_type = ViewportType::VIEW_PLAYER_1;
+        else if (std::abs(left - width) <= max_left_offset) g_viewport_type = ViewportType::VIEW_PLAYER_2;
+        else g_viewport_type = ViewportType::VIEW_HUD_ELEMENT;
      } else {
-        g_viewport_type = ViewportType::Letterboxed;
+        g_viewport_type = ViewportType::VIEW_LETTERBOXED;
      }
   } else if (width >= (min_screen_width / 2.1f) && width <= (screen_width / 1.9f) &&
            height >= (min_screen_height / 2.1f) && height <= (screen_height / 1.9f)) {
-      if(std::abs(left) <= max_left_offset && std::abs(top) <= max_top_offset) g_viewport_type = ViewportType::Player1;
-      else if(std::abs(left-width) <= max_left_offset && std::abs(top) <= max_top_offset) g_viewport_type = ViewportType::Player2;
-      else if(std::abs(left) <= max_left_offset && std::abs(top-height) <= max_top_offset) g_viewport_type = ViewportType::Player3;
-      else if(std::abs(left-width) <= max_left_offset && std::abs(top-height) <= max_top_offset) g_viewport_type = ViewportType::Player4;
-      else g_viewport_type = ViewportType::HudElement;
+      if(std::abs(left) <= max_left_offset && std::abs(top) <= max_top_offset) g_viewport_type = ViewportType::VIEW_PLAYER_1;
+      else if(std::abs(left-width) <= max_left_offset && std::abs(top) <= max_top_offset) g_viewport_type = ViewportType::VIEW_PLAYER_2;
+      else if(std::abs(left) <= max_left_offset && std::abs(top-height) <= max_top_offset) g_viewport_type = ViewportType::VIEW_PLAYER_3;
+      else if(std::abs(left-width) <= max_left_offset && std::abs(top-height) <= max_top_offset) g_viewport_type = ViewportType::VIEW_PLAYER_4;
+      else g_viewport_type = ViewportType::VIEW_HUD_ELEMENT;
   } else if (left >= screen_width || top >= screen_height || left + width <= 0 || top + height <= 0) {
-    g_viewport_type = ViewportType::Offscreen;
+    g_viewport_type = ViewportType::VIEW_OFFSCREEN;
   } else {
-    g_viewport_type = ViewportType::HudElement;
+    g_viewport_type = ViewportType::VIEW_HUD_ELEMENT;
   }
 
-  if (g_viewport_type == ViewportType::Fullscreen || g_viewport_type == ViewportType::Letterboxed ||
-      (g_viewport_type >= ViewportType::Player1 && g_viewport_type <= ViewportType::Player4)) {
+  if (g_viewport_type == ViewportType::VIEW_FULLSCREEN || g_viewport_type == ViewportType::VIEW_LETTERBOXED ||
+      (g_viewport_type >= ViewportType::VIEW_PLAYER_1 && g_viewport_type <= ViewportType::VIEW_PLAYER_4)) {
     float znear_norm = (v.farZ - v.zRange) / 16777216.0f;
     float zfar_norm = v.farZ / 16777216.0f;
     g_is_skybox = (znear_norm >= 0.99f && zfar_norm >= 0.999f);
@@ -245,7 +250,7 @@ void SetViewportType(const XF::Viewport& v)
 
 void CheckOrientationConstants()
 {
-  g_game_camera_rotmat.LoadIdentity();
+  g_game_camera_rotmat = Common::Matrix44::Identity();
   g_game_camera_pos[0] = g_game_camera_pos[1] = g_game_camera_pos[2] = 0.0f;
   // TODO: Full original VR-Hydra CheckOrientationConstants logic (highly game-specific)
   // involves reading game memory or using heuristics on constants.posnormalmatrix.
@@ -283,7 +288,7 @@ void LockSkybox()
       target_pnm[8] = s_locked_skybox_orientation.data[6]; target_pnm[9] = s_locked_skybox_orientation.data[7]; target_pnm[10] = s_locked_skybox_orientation.data[8];
       VertexShaderManager::dirty = true;
     } else {
-      memcpy(s_locked_skybox_orientation.data, current_skybox_modelview_rot_scale, sizeof(s_locked_skybox_orientation.data));
+      memcpy(&s_locked_skybox_orientation.data, current_skybox_modelview_rot_scale, sizeof(s_locked_skybox_orientation.data));
       s_had_skybox = true;
     }
   }
@@ -309,7 +314,7 @@ static void CalculateVRProjectionViewMatrices(
     }
   }
 
-  if (projection_type == ProjectionType::Perspective && g_viewport_type != ViewportType::HudElement && g_viewport_type != ViewportType::Offscreen) {
+  if (projection_type == ProjectionType::Perspective && g_viewport_type != ViewportType::VIEW_HUD_ELEMENT && g_viewport_type != ViewportType::VIEW_OFFSCREEN) {
     const float* p_raw = rawProjection;
     if (std::abs(p_raw[4] - 1.0f) > 1e-6f && std::abs(p_raw[4] + 1.0f) > 1e-6f) {
          znear_game = p_raw[5] / (p_raw[4] - 1.0f); zfar_game  = p_raw[5] / (p_raw[4] + 1.0f);
@@ -317,8 +322,8 @@ static void CalculateVRProjectionViewMatrices(
     if (znear_game >= zfar_game || znear_game <= 0.0f) {
         znear_game = 0.1f * UnitsPerMetre; if (zfar_game <= znear_game) zfar_game = znear_game + 100.0f * UnitsPerMetre;
     }
-    hfov_game = (p_raw[0] != 0.0f) ? 2.0f * atanf(1.0f / p_raw[0]) * RADIANS_TO_DEGREES : 90.0f;
-    vfov_game = (p_raw[2] != 0.0f) ? 2.0f * atanf(1.0f / p_raw[2]) * RADIANS_TO_DEGREES : hfov_game * (VideoCommon::GetDisplayAspectRatio() > 1.5f ? (9.0f/16.0f) : (3.0f/4.0f));
+    hfov_game = (p_raw[0] != 0.0f) ? 2.0f * RADIANS_TO_DEGREES(atanf(1.0f / p_raw[0])) : 90.0f;
+    vfov_game = (p_raw[2] != 0.0f) ? 2.0f * RADIANS_TO_DEGREES(atanf(1.0f / p_raw[2])) : hfov_game * (VideoCommon::GetDisplayAspectRatio() > 1.5f ? (9.0f/16.0f) : (3.0f/4.0f));
   } else {
     if (vr_widest_3d_HFOV > 0.0f) {
       znear_game = vr_widest_3d_zNear; zfar_game = vr_widest_3d_zFar;
@@ -331,7 +336,7 @@ static void CalculateVRProjectionViewMatrices(
   }
 
   Common::Matrix44 proj_left_hmd, proj_right_hmd;
-  VR::VR_GetProjectionMatrices(proj_left_hmd, proj_right_hmd, znear_game, zfar_game);
+  VR_GetProjectionMatrices(proj_left_hmd, proj_right_hmd, znear_game, zfar_game);
 
   proj_left_hmd.data[0] *= fLeftWidthHack;   proj_left_hmd.data[5] *= fLeftHeightHack;
   proj_left_hmd.data[8] -= fSharedRightHack; proj_left_hmd.data[9] -= fSharedUpHack;
@@ -356,18 +361,18 @@ static void CalculateVRProjectionViewMatrices(
         if (g_ActiveConfig.bStabilizeX || g_ActiveConfig.bStabilizeY || g_ActiveConfig.bStabilizeZ)
             mat_cam_stab_pos = Common::Matrix44::Translate(Common::Vec3(-g_game_camera_pos[0], -g_game_camera_pos[1], -g_game_camera_pos[2]) * UnitsPerMetre);
         if (g_ActiveConfig.bStabilizePitch || g_ActiveConfig.bStabilizeRoll || g_ActiveConfig.bStabilizeYaw)
-            mat_cam_stab_rot = g_game_camera_rotmat.Inverse();
+            mat_cam_stab_rot = g_game_camera_rotmat.Inverted();
     }
     float current_cam_pitch_deg = (projection_type == ProjectionType::Perspective || vr_widest_3d_HFOV > 0) ? g_ActiveConfig.fCameraPitch : g_ActiveConfig.fScreenPitch;
     mat_cam_pitch_cfg = Common::Matrix44::RotateX(DEGREES_TO_RADIANS(-current_cam_pitch_deg));
     if (!bNoForward && !g_is_skybox)
-        mat_cam_fwd = Common::Matrix44::Translate(0.0f, 0.0f, (g_ActiveConfig.fCameraForward + zoom_forward) * UnitsPerMetre);
+      mat_cam_fwd = Common::Matrix44::Translate({ 0.0f, 0.0f, (g_ActiveConfig.fCameraForward + zoom_forward) * UnitsPerMetre });
     mat_lean = Common::Matrix44::RotateX(DEGREES_TO_RADIANS(-g_ActiveConfig.fLeanBackAngle));
   }
 
   Common::Matrix44 view_base_pre_head = mat_lean * mat_fl_rot * mat_fl_pos * mat_cam_pitch_cfg * mat_cam_fwd * mat_cam_stab_rot * mat_cam_stab_pos;
 
-  if (!(projection_type == ProjectionType::Perspective && g_viewport_type != ViewportType::HudElement && g_viewport_type != ViewportType::Offscreen)) {
+  if (!(projection_type == ProjectionType::Perspective && g_viewport_type != ViewportType::VIEW_HUD_ELEMENT && g_viewport_type != ViewportType::VIEW_OFFSCREEN)) {
     // TODO: Port detailed HUD transformation logic from VR-Hydra.
     // This involves creating a specific model matrix for the HUD plane/box.
   }
@@ -376,8 +381,8 @@ static void CalculateVRProjectionViewMatrices(
   Common::Matrix44 mat_head_rot_vr = Common::Matrix44::Identity();
   if (!bStuckToHead) {
       // VR::VR_UpdateHeadTrackingIfNeeded() is called from SetConstants before this helper
-      if (g_ActiveConfig.bOrientationTracking) { mat_head_rot_vr = VR::g_head_tracking_matrix; }
-      if (g_ActiveConfig.bPositionTracking) { mat_head_pos_vr = Common::Matrix44::Translate(VR::g_head_tracking_position * UnitsPerMetre); }
+      if (g_ActiveConfig.bOrientationTracking) { mat_head_rot_vr = g_head_tracking_matrix; }
+      if (g_ActiveConfig.bPositionTracking) { mat_head_pos_vr = Common::Matrix44::Translate(g_head_tracking_position * UnitsPerMetre); }
   }
   Common::Matrix44 world_to_head_view = mat_head_rot_vr * mat_head_pos_vr * view_base_pre_head;
 
@@ -385,7 +390,7 @@ static void CalculateVRProjectionViewMatrices(
   Common::Matrix44 eye_offset_right_mat = Common::Matrix44::Identity();
   if (!g_is_skybox) {
       Common::Vec3 eye_pos_left_offset, eye_pos_right_offset;
-      VR::VR_GetEyeOffsets(eye_pos_left_offset, eye_pos_right_offset);
+      VR_GetEyeOffsets(eye_pos_left_offset, eye_pos_right_offset);
       eye_offset_left_mat = Common::Matrix44::Translate(eye_pos_left_offset * UnitsPerMetre);
       eye_offset_right_mat = Common::Matrix44::Translate(eye_pos_right_offset * UnitsPerMetre);
   }
@@ -410,8 +415,6 @@ VertexShaderConstants VertexShaderManager::constants;
 float4 VertexShaderManager::constants_eye_projection[2][4]; // For VR stereo
 bool VertexShaderManager::m_layer_on_top = false; // For VR HUD layering
 bool VertexShaderManager::dirty = true; // Initialize dirty to true
-bool VertexShaderManager::m_projection_graphics_mod_change = false; // From existing code
-std::array<float, 16> VertexShaderManager::m_projection_matrix; // From existing code
 
 
 // VR view manipulation functions
@@ -454,8 +457,8 @@ void VertexShaderManager::ResetView()
   // This would be VR::VR_ResetTrackerView(); or similar if such a function exists.
   // VR::VR_RecenterView() is a placeholder for the actual function name from VR.h/cpp
   // that should be called to reset/recenter the HMD's tracking origin or view.
-  if (VR::g_has_hmd) {
-    VR::VR_RecenterView();
+  if (g_has_hmd) {
+    VR_RecenterView();
   }
   s_had_skybox = false; // Reset skybox locking state
   g_vr_had_3D_already = false; // Reset 3D scene detection state
@@ -474,7 +477,7 @@ void VertexShaderManager::Init()
   // Initialize VR specific members and globals
   memset(constants_eye_projection, 0, sizeof(constants_eye_projection));
   m_layer_on_top = false;
-  memset(g_fProjectionMatrix, 0, sizeof(g_fProjectionMatrix));
+  //memset(g_fProjectionMatrix, 0, sizeof(g_fProjectionMatrix));
   // Set g_fProjectionMatrix to a default identity or suitable state if needed at init.
   g_fProjectionMatrix[0] = g_fProjectionMatrix[5] = g_fProjectionMatrix[10] = g_fProjectionMatrix[15] = 1.0f;
 
@@ -612,10 +615,10 @@ void VertexShaderManager::SetConstants(const std::vector<std::string>& textures,
 
   // TODO: Game-specific VR logic (e.g. VR::GetGameSpecificTweaks)
 
-  bHide = bHide || (VR::g_has_hmd && (g_viewport_type == ViewportType::Offscreen ||
-                 (g_viewport_type >= ViewportType::Player1 && g_viewport_type <= ViewportType::Player4 &&
-                  g_ActiveConfig.iVRPlayer != (static_cast<int>(g_viewport_type) - static_cast<int>(ViewportType::Player1)))));
-  bHide = bHide || (g_is_skybox && g_ActiveConfig.iMotionSicknessSkybox == 1) || VR::g_vr_black_screen;
+  bHide = bHide || (g_has_hmd && (g_viewport_type == ViewportType::VIEW_OFFSCREEN ||
+                 (g_viewport_type >= ViewportType::VIEW_PLAYER_1 && g_viewport_type <= ViewportType::VIEW_PLAYER_4 &&
+                  g_ActiveConfig.iVRPlayer != (static_cast<int>(g_viewport_type) - static_cast<int>(ViewportType::VIEW_PLAYER_1)))));
+  bHide = bHide || (g_is_skybox && g_ActiveConfig.iMotionSicknessSkybox == 1) || g_vr_black_screen;
 
   float fLeftWidthHack = fWidthHack, fRightWidthHack = fWidthHack;
   float fLeftHeightHack = fHeightHack, fRightHeightHack = fHeightHack;
@@ -628,7 +631,7 @@ void VertexShaderManager::SetConstants(const std::vector<std::string>& textures,
     iTelescopeHack = g_ActiveConfig.iTelescopeEye;
   }
 
-  if (VR::g_has_hmd && iTelescopeHack > 0) {
+  if (g_has_hmd && iTelescopeHack > 0) {
     bNoForward = true;
     // TODO: Full telescope scaling logic using VR::VR_GetProjectionHalfTan
   }
@@ -671,7 +674,7 @@ void VertexShaderManager::SetConstants(const std::vector<std::string>& textures,
   }
 
   // Call CheckOrientationConstants once per frame if conditions met (e.g. if VR active and stabilization enabled)
-  if (VR::g_has_hmd && g_ActiveConfig.bEnableVR && g_ActiveConfig.bCanReadCameraAngles) {
+  if (g_has_hmd && g_ActiveConfig.bEnableVR && g_ActiveConfig.bCanReadCameraAngles) {
       CheckOrientationConstants(); // Updates g_game_camera_pos/rotmat
       // If CheckOrientationConstants changes these, projection might need update
       // This depends on whether stabilization is active. For now, assume it makes things dirty.
@@ -699,7 +702,7 @@ void VertexShaderManager::SetConstants(const std::vector<std::string>& textures,
     xf_state_manager.ResetProjection();
     m_projection_graphics_mod_change = !projection_actions_vec.empty();
 
-    const float* rawProjection = xfmem.projection.rawProjection;
+    const Projection::Raw rawProjection = xfmem.projection.rawProjection;
     switch (xfmem.projection.type) {
       case ProjectionType::Perspective:
         g_fProjectionMatrix[0]=rawProjection[0]; g_fProjectionMatrix[1]=0.0f; g_fProjectionMatrix[2]=rawProjection[1]; g_fProjectionMatrix[3]=0.0f;
@@ -719,9 +722,9 @@ void VertexShaderManager::SetConstants(const std::vector<std::string>& textures,
         }
         g_fProjectionMatrix[12]=0.0f; g_fProjectionMatrix[13]=0.0f; g_fProjectionMatrix[14]=0.0f; g_fProjectionMatrix[15]=1.0f;
         break;
-      default: ERROR_LOG(VIDEO, "Unknown projection type: %d", xfmem.projection.type);
+      default: ERROR_LOG_FMT(VIDEO, "Unknown projection type: %d", xfmem.projection.type);
     }
-    LogProj(rawProjection, xfmem.projection.type); // Update VR stats like widest FOV
+    LogProj(rawProjection.data(), xfmem.projection.type); // Update VR stats like widest FOV
 
     bool bN64 = (xfmem.projection.type == ProjectionType::Perspective && rawProjection[0] == 1.0f && rawProjection[1] == 1.0f && rawProjection[2] == 1.0f && rawProjection[3] == 1.0f);
     float UnitsPerMetre = g_ActiveConfig.fUnitsPerMetre * fScaleHack / g_ActiveConfig.fScale;
@@ -732,7 +735,7 @@ void VertexShaderManager::SetConstants(const std::vector<std::string>& textures,
       memset(constants.projection.data(), 0, sizeof(constants.projection));
       memset(constants_eye_projection, 0, sizeof(constants_eye_projection));
       GeometryShaderManager::constants.stereoparams.Fill(0.0f);
-    } else if (g_viewport_type == ViewportType::RenderToTexture) {
+    } else if (g_viewport_type == ViewportType::VIEW_RENDER_TO_TEXTURE) {
       Common::Matrix44 correctedMtx = Common::Matrix44::FromArray(g_fProjectionMatrix);
       memcpy(constants.projection.data(), correctedMtx.data.data(), sizeof(float4) * 4);
       memcpy(constants_eye_projection[0], correctedMtx.data.data(), sizeof(float4) * 4);
@@ -767,7 +770,7 @@ void VertexShaderManager::SetConstants(const std::vector<std::string>& textures,
     } else { // Main VR 3D HMD rendering path
       Common::Matrix44 final_matrix_left, final_matrix_right;
       CalculateVRProjectionViewMatrices(
-            rawProjection, xfmem.projection.type, UnitsPerMetre,
+            rawProjection.data(), xfmem.projection.type, UnitsPerMetre,
             bStuckToHead, bHideLeft, bHideRight, bNoForward, iTelescopeHack,
             fLeftWidthHack, fLeftHeightHack, fRightWidthHack, fRightHeightHack, fRightHack, fUpHack, bN64,
             final_matrix_left, final_matrix_right,
@@ -892,7 +895,7 @@ void VertexShaderManager::TransformToClipSpace(const float* data, float* out, u3
 {
   const float* world_matrix = &xfmem.posMatrices[(MtxIdx & 0x3f) * 4];
   const float* proj_matrix;
-  if (VR::g_has_hmd && g_ActiveConfig.bEnableVR) {
+  if (g_has_hmd && g_ActiveConfig.bEnableVR) {
     proj_matrix = constants.projection[0].data();
   } else {
     proj_matrix = &m_projection_matrix[0];
@@ -936,5 +939,3 @@ void VertexShaderManager::DoState(PointerWrap& p)
     dirty = true;
   }
 }
-
-[end of Source/Core/VideoCommon/VertexShaderManager.cpp]

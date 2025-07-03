@@ -184,6 +184,15 @@ struct BackendInfo
 
 extern BackendInfo g_backend_info;
 
+struct ProjectionHackConfig final
+{
+  bool m_enable;
+  bool m_sznear;
+  bool m_szfar;
+  std::string m_znear;
+  std::string m_zfar;
+};
+
 // NEVER inherit from this class.
 struct VideoConfig final
 {
