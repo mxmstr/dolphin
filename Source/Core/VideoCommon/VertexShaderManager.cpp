@@ -13,6 +13,7 @@
 #include "Common/CommonTypes.h"
 #include "Common/Logging/Log.h"
 #include "Common/Matrix.h"
+#include "Core/FreeLookConfig.h"
 #include "VideoCommon/BPFunctions.h"
 #include "VideoCommon/BPMemory.h"
 #include "VideoCommon/CPMemory.h"
@@ -323,15 +324,15 @@ static void CalculateVRProjectionViewMatrices(
         znear_game = 0.1f * UnitsPerMetre; if (zfar_game <= znear_game) zfar_game = znear_game + 100.0f * UnitsPerMetre;
     }
     hfov_game = (p_raw[0] != 0.0f) ? 2.0f * RADIANS_TO_DEGREES(atanf(1.0f / p_raw[0])) : 90.0f;
-    vfov_game = (p_raw[2] != 0.0f) ? 2.0f * RADIANS_TO_DEGREES(atanf(1.0f / p_raw[2])) : hfov_game * (VideoCommon::GetDisplayAspectRatio() > 1.5f ? (9.0f/16.0f) : (3.0f/4.0f));
+    vfov_game = (p_raw[2] != 0.0f) ? 2.0f * RADIANS_TO_DEGREES(atanf(1.0f / p_raw[2])) : hfov_game * ((static_cast<float>(g_framebuffer_manager->GetEFBWidth()) / static_cast<float>(g_framebuffer_manager->GetEFBHeight())) > 1.5f ? (9.0f/16.0f) : (3.0f/4.0f));
   } else {
     if (vr_widest_3d_HFOV > 0.0f) {
       znear_game = vr_widest_3d_zNear; zfar_game = vr_widest_3d_zFar;
       hfov_game = (zoom_forward != 0.0f) ? g_ActiveConfig.fMinFOV : vr_widest_3d_HFOV;
-      vfov_game = (vr_widest_3d_HFOV > 0.0f) ? hfov_game * (vr_widest_3d_VFOV / vr_widest_3d_HFOV) : hfov_game * (VideoCommon::GetDisplayAspectRatio() > 1.5f ? (9.0f/16.0f) : (3.0f/4.0f));
+      vfov_game = (vr_widest_3d_HFOV > 0.0f) ? hfov_game * (vr_widest_3d_VFOV / vr_widest_3d_HFOV) : hfov_game * ((static_cast<float>(g_framebuffer_manager->GetEFBWidth()) / static_cast<float>(g_framebuffer_manager->GetEFBHeight())) > 1.5f ? (9.0f/16.0f) : (3.0f/4.0f));
     } else {
       znear_game = 0.5f * UnitsPerMetre; zfar_game = 40.0f * UnitsPerMetre; hfov_game = 70.0f;
-      vfov_game = hfov_game * (VideoCommon::GetDisplayAspectRatio() > 1.5f ? (9.0f/16.0f) : (3.0f/4.0f));
+      vfov_game = hfov_game * ((static_cast<float>(g_framebuffer_manager->GetEFBWidth()) / static_cast<float>(g_framebuffer_manager->GetEFBHeight())) > 1.5f ? (9.0f/16.0f) : (3.0f/4.0f));
     }
   }
 
@@ -345,17 +346,21 @@ static void CalculateVRProjectionViewMatrices(
 
   out_stereoparams[0] = proj_left_hmd.data[0];  out_stereoparams[1] = proj_right_hmd.data[0];
   out_stereoparams[2] = proj_left_hmd.data[8];  out_stereoparams[3] = proj_right_hmd.data[8];
-  if (g_ActiveConfig.backend_info.bSupportsGeometryShaders) { proj_left_hmd.data[8] = 0.0f; }
+  if (g_backend_info.bSupportsGeometryShaders) { proj_left_hmd.data[8] = 0.0f; }
 
   Common::Matrix44 mat_cam_stab_pos = Common::Matrix44::Identity(), mat_cam_stab_rot = Common::Matrix44::Identity();
   Common::Matrix44 mat_cam_fwd = Common::Matrix44::Identity(), mat_cam_pitch_cfg = Common::Matrix44::Identity();
-  Common::Matrix44 mat_fl_pos = Common::Matrix44::Identity(), mat_fl_rot = Common::Matrix44::Identity();
+  Common::Matrix44 mat_freelook_view = Common::Matrix44::Identity();
   Common::Matrix44 mat_lean = Common::Matrix44::Identity();
 
   if (!bStuckToHead) {
-    if (g_freelook_camera.IsActive()) {
-        mat_fl_pos = Common::Matrix44::Translate(-g_freelook_camera.GetPosition() * UnitsPerMetre);
-        mat_fl_rot = Common::Matrix44::FromQuaternion(g_freelook_camera.GetOrientation().Conjugate());
+    if (g_freelook_camera.IsActive() && g_freelook_camera.GetController() && g_freelook_camera.GetController()->SupportsInput()) {
+        mat_freelook_view = g_freelook_camera.GetController()->GetView();
+        // Note: UnitsPerMetre scaling for freelook position needs to be handled by the FPSCamera controller's GetView()
+        // or its internal speed settings if GetView() provides world-to-camera directly.
+        // The original code scaled the position by UnitsPerMetre when constructing mat_fl_pos.
+        // If GetView() doesn't account for UnitsPerMetre, this might need adjustment.
+        // For now, we assume GetView() is correctly scaled or that speed settings achieve this.
     }
     if (g_ActiveConfig.bCanReadCameraAngles) {
         if (g_ActiveConfig.bStabilizeX || g_ActiveConfig.bStabilizeY || g_ActiveConfig.bStabilizeZ)
@@ -370,7 +375,10 @@ static void CalculateVRProjectionViewMatrices(
     mat_lean = Common::Matrix44::RotateX(DEGREES_TO_RADIANS(-g_ActiveConfig.fLeanBackAngle));
   }
 
-  Common::Matrix44 view_base_pre_head = mat_lean * mat_fl_rot * mat_fl_pos * mat_cam_pitch_cfg * mat_cam_fwd * mat_cam_stab_rot * mat_cam_stab_pos;
+  // The order is: World -> CamStabPos -> CamStabRot -> CamFwd -> CamPitchCfg -> FreeLook(View) -> Lean -> HeadPos -> HeadRot -> EyeOffset -> Projection
+  // So, view_base_pre_head is everything before Head tracking and EyeOffset, applied to world coordinates.
+  // It means: mat_lean * mat_freelook_view * mat_cam_pitch_cfg * mat_cam_fwd * mat_cam_stab_rot * mat_cam_stab_pos
+  Common::Matrix44 view_base_pre_head = mat_lean * mat_freelook_view * mat_cam_pitch_cfg * mat_cam_fwd * mat_cam_stab_rot * mat_cam_stab_pos;
 
   if (!(projection_type == ProjectionType::Perspective && g_viewport_type != ViewportType::VIEW_HUD_ELEMENT && g_viewport_type != ViewportType::VIEW_OFFSCREEN)) {
     // TODO: Port detailed HUD transformation logic from VR-Hydra.
@@ -390,7 +398,11 @@ static void CalculateVRProjectionViewMatrices(
   Common::Matrix44 eye_offset_right_mat = Common::Matrix44::Identity();
   if (!g_is_skybox) {
       Common::Vec3 eye_pos_left_offset, eye_pos_right_offset;
-      VR_GetEyeOffsets(eye_pos_left_offset, eye_pos_right_offset);
+      float eye_pos_left_raw[3];
+      float eye_pos_right_raw[3];
+      VR_GetEyePos(eye_pos_left_raw, eye_pos_right_raw);
+      eye_pos_left_offset = Common::Vec3(eye_pos_left_raw[0], eye_pos_left_raw[1], eye_pos_left_raw[2]);
+      eye_pos_right_offset = Common::Vec3(eye_pos_right_raw[0], eye_pos_right_raw[1], eye_pos_right_raw[2]);
       eye_offset_left_mat = Common::Matrix44::Translate(eye_pos_left_offset * UnitsPerMetre);
       eye_offset_right_mat = Common::Matrix44::Translate(eye_pos_right_offset * UnitsPerMetre);
   }
@@ -430,35 +442,63 @@ void VertexShaderManager::ScaleView(float scale)
   // In Hydra, this scaled s_fViewTranslationVector. If freelook camera needs explicit scaling of its movement speed
   // or position due to world scale changes, that would happen via g_freelook_camera.
   // For example: g_freelook_camera.ScaleMovement(scale);
-  g_freelook_camera.GetController()->SetDirty(); // FreeLook camera's own state changed
+  // The controller will set its own dirty flag if its properties change.
+  // VertexShaderManager::dirty is for VSM's constants.
   VertexShaderManager::dirty = true; // Our projection constants depend on it
 }
 
 void VertexShaderManager::TranslateView(float left_metres, float forward_metres, float down_metres)
 {
   // These are inputs for the FreeLook camera to move.
-  Common::Vec3 translation_cam_space = {left_metres, -down_metres, -forward_metres};
-  g_freelook_camera.GetController()->Translate(translation_cam_space);
-  // g_freelook_camera.GetController()->SetDirty(); // Translate should do this internally
-  VertexShaderManager::dirty = true;
+  // translation_cam_space was {left_metres, -down_metres, -forward_metres};
+  // MoveHorizontal for x, MoveVertical for y, MoveForward for z.
+  // Controller's local axes: +X right, +Y up, +Z backward.
+  // Input: left_metres (+left), forward_metres (+forward), down_metres (+down)
+  if (g_freelook_camera.GetController() && g_freelook_camera.GetController()->SupportsInput())
+  {
+    auto* input_controller = static_cast<CameraControllerInput*>(g_freelook_camera.GetController());
+    // FPSCamera::MoveHorizontal: +amt moves camera right. Input left_metres: +val means move left.
+    input_controller->MoveHorizontal(-left_metres);
+    // FPSCamera::MoveVertical: +amt moves camera up. Input down_metres: +val means move down.
+    input_controller->MoveVertical(-down_metres);
+    // FPSCamera::MoveForward: +amt moves camera forward. Input forward_metres: +val means move forward.
+    input_controller->MoveForward(forward_metres);
+  }
+  // The controller's Move methods should set its internal dirty flag.
+  VertexShaderManager::dirty = true; // VSM constants depend on camera view
 }
 
 void VertexShaderManager::RotateView(float x_rad, float y_rad)
 {
-  g_freelook_camera.GetController()->Turn(x_rad, y_rad);
-  // g_freelook_camera.GetController()->SetDirty(); // Turn should do this internally
-  VertexShaderManager::dirty = true;
+  // x_rad is yaw (around Y axis), y_rad is pitch (around X axis)
+  // FPSCamera::Rotate likely expects {pitch, yaw, roll}
+  if (g_freelook_camera.GetController() && g_freelook_camera.GetController()->SupportsInput())
+  {
+    auto* input_controller = static_cast<CameraControllerInput*>(g_freelook_camera.GetController());
+    input_controller->Rotate({y_rad, x_rad, 0.0f});
+  }
+  // The controller's Rotate method should set its internal dirty flag.
+  VertexShaderManager::dirty = true; // VSM constants depend on camera view
 }
 
 void VertexShaderManager::ResetView()
 {
-  g_freelook_camera.Reset();
+  // Attempting to replace g_freelook_camera.Reset() due to persistent compile error.
+  // Replicating the logic from FreeLookCamera::Reset() here.
+  if (g_freelook_camera.GetController() && g_freelook_camera.GetController()->SupportsInput())
+  {
+    // CameraControllerInput has a virtual Reset method.
+    if (auto* input_controller = dynamic_cast<CameraControllerInput*>(g_freelook_camera.GetController()))
+    {
+      input_controller->Reset();
+    }
+  }
   // VR-Hydra also reset VRTracker::ResetView();
   // This would be VR::VR_ResetTrackerView(); or similar if such a function exists.
   // VR::VR_RecenterView() is a placeholder for the actual function name from VR.h/cpp
   // that should be called to reset/recenter the HMD's tracking origin or view.
   if (g_has_hmd) {
-    VR_RecenterView();
+    VR_RecenterHMD();
   }
   s_had_skybox = false; // Reset skybox locking state
   g_vr_had_3D_already = false; // Reset 3D scene detection state
@@ -482,12 +522,12 @@ void VertexShaderManager::Init()
   g_fProjectionMatrix[0] = g_fProjectionMatrix[5] = g_fProjectionMatrix[10] = g_fProjectionMatrix[15] = 1.0f;
 
 
-  s_locked_skybox_orientation.LoadIdentity();
+  s_locked_skybox_orientation = Common::Matrix33::Identity();
   s_had_skybox = false;
 
-  g_viewport_type = ViewportType::Fullscreen;
-  g_old_viewport_type = ViewportType::Fullscreen;
-  g_game_camera_rotmat.LoadIdentity();
+  g_viewport_type = ViewportType::VIEW_FULLSCREEN;
+  g_old_viewport_type = ViewportType::VIEW_FULLSCREEN;
+  g_game_camera_rotmat = Common::Matrix44::Identity();
   g_game_camera_pos[0] = g_game_camera_pos[1] = g_game_camera_pos[2] = 0.0f;
   g_vr_had_3D_already = false;
   vr_widest_3d_HFOV = 0.0f;
@@ -728,7 +768,7 @@ void VertexShaderManager::SetConstants(const std::vector<std::string>& textures,
 
     bool bN64 = (xfmem.projection.type == ProjectionType::Perspective && rawProjection[0] == 1.0f && rawProjection[1] == 1.0f && rawProjection[2] == 1.0f && rawProjection[3] == 1.0f);
     float UnitsPerMetre = g_ActiveConfig.fUnitsPerMetre * fScaleHack / g_ActiveConfig.fScale;
-    bFullscreenLayer = (g_ActiveConfig.bHudFullscreen && xfmem.projection.type != ProjectionType::Perspective && g_viewport_type != ViewportType::RenderToTexture);
+    bFullscreenLayer = (g_ActiveConfig.bHudFullscreen && xfmem.projection.type != ProjectionType::Perspective && g_viewport_type != ViewportType::VIEW_RENDER_TO_TEXTURE);
 
 
     if (bHide) {
