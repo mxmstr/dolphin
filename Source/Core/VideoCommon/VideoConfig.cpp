@@ -402,8 +402,8 @@ void VideoConfig::Refresh()
   iVRPlayer2 = Config::Get(Config::GLOBAL_VR_PLAYER_2);
   iMirrorPlayer = Config::Get(Config::GLOBAL_VR_MIRROR_PLAYER);
   iMirrorStyle = Config::Get(Config::GLOBAL_VR_MIRROR_STYLE);
-  if (bNoMirrorToWindow && iMirrorStyle != VR_MIRROR_DISABLED_POWER_SAVING) // VR-Hydra logic for default
-      iMirrorStyle = VR_MIRROR_DISABLED;
+  //if (bNoMirrorToWindow && iMirrorStyle != VR_MIRROR_DISABLED_POWER_SAVING) // VR-Hydra logic for default
+  //    iMirrorStyle = VR_MIRROR_DISABLED;
 
   fTimeWarpTweak = Config::Get(Config::GLOBAL_VR_TIMEWARP_TWEAK);
   iExtraTimewarpedFrames = Config::Get(Config::GLOBAL_VR_NUM_EXTRA_FRAMES);

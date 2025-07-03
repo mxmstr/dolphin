@@ -5,6 +5,19 @@
 #pragma once
 
 // Distances are in metres, angles are in degrees.
+const float DEFAULT_VR_UNITS_PER_METRE = 1.0f, DEFAULT_VR_FREE_LOOK_SENSITIVITY = 1.0f,
+            DEFAULT_VR_HUD_DISTANCE = 1.5f, DEFAULT_VR_HUD_THICKNESS = 0.5f,
+            DEFAULT_VR_HUD_3D_CLOSER = 0.5f, DEFAULT_VR_CAMERA_FORWARD = 0.0f,
+            DEFAULT_VR_CAMERA_PITCH = 0.0f, DEFAULT_VR_AIM_DISTANCE = 7.0f,
+            DEFAULT_VR_SCREEN_HEIGHT = 2.0f, DEFAULT_VR_SCREEN_DISTANCE = 1.5f,
+            DEFAULT_VR_SCREEN_THICKNESS = 0.5f, DEFAULT_VR_SCREEN_UP = 0.0f,
+            DEFAULT_VR_SCREEN_RIGHT = 0.0f, DEFAULT_VR_SCREEN_PITCH = 0.0f,
+            DEFAULT_VR_TIMEWARP_TWEAK = 0, DEFAULT_VR_MIN_FOV = 10.0f, DEFAULT_VR_N64_FOV = 90.0f,
+            DEFAULT_VR_MOTION_SICKNESS_FOV = 45.0f;
+const int DEFAULT_VR_EXTRA_FRAMES = 0;
+const int DEFAULT_VR_EXTRA_VIDEO_LOOPS = 0;
+const int DEFAULT_VR_EXTRA_VIDEO_LOOPS_DIVIDER = 0;
+// Distances are in metres, angles are in degrees.
 // These constants are now primarily in VideoConfig.h, but keeping a few key ones here for reference
 // if VR.cpp uses them before VideoConfig is fully processed, or for defaults if config load fails.
 const float DEFAULT_VR_AIM_DISTANCE = 7.0f;
@@ -43,6 +56,7 @@ extern const char* scm_vr_sdk_str; // Likely related to build versioning
 #include <vector> // For TimewarpLogEntry
 
 #include "Common/MathUtil.h"   // For Matrix44, Matrix33
+#include <Common/Matrix.h>
 #include "VideoCommon/DataReader.h" // For TimewarpLogEntry's DataReader
 
 #ifndef M_PI
@@ -80,7 +94,7 @@ void VR_UpdateHeadTrackingIfNeeded(); // Updates g_head_tracking_matrix etc.
 
 // Projection and view information (used by VideoCommon::VertexShaderManager or backend)
 void VR_GetProjectionHalfTan(float& hmd_halftan); // For FOV calculations
-void VR_GetProjectionMatrices(Matrix44& left_eye, Matrix44& right_eye, float znear, float zfar);
+void VR_GetProjectionMatrices(Common::Matrix44& left_eye, Common::Matrix44& right_eye, float znear, float zfar);
 void VR_GetEyeOffsets(float posLeft[3], float posRight[3]); // Renamed from GetEyePos for clarity
 void VR_GetFovTextureSize(int* width, int* height); // Recommended texture size per eye
 
@@ -97,7 +111,7 @@ extern bool g_force_vr, g_prefer_openvr, g_one_hmd;
 extern bool g_has_hmd, g_has_two_hmds, g_has_rift, g_has_vr920, g_has_openvr, g_openvr_is_vive, g_openvr_is_rift;
 extern bool g_is_direct_mode;
 // extern bool g_vr_needs_endframe; // This logic is now more tied to backend Present/SwapImpl
-extern Matrix44 g_head_tracking_matrix;
+extern Common::Matrix44 g_head_tracking_matrix;
 extern float g_head_tracking_position[3];
 // extern float g_left_hand_tracking_position[3], g_right_hand_tracking_position[3]; // Hand tracking more for InputCommon
 extern int g_hmd_refresh_rate;
