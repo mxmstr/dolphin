@@ -838,7 +838,7 @@ void VertexShaderManager::SetConstants(const std::vector<std::string>& textures,
         for (const auto& action : projection_actions_vec) action->OnProjection(&projection_mod_data);
         // constants.projection is std::array<float, 16>
         memcpy(constants.projection.data(), matrix_to_mod.data.data(), sizeof(float) * 16);
-        if (VR::g_has_hmd && g_ActiveConfig.bEnableVR) {
+        if (g_has_hmd && g_ActiveConfig.bEnableVR) {
             // constants_eye_projection is float4[2][4]
              memcpy(constants_eye_projection[0], matrix_to_mod.data.data(), sizeof(float4) * 4);
         }
@@ -950,7 +950,7 @@ void VertexShaderManager::TransformToClipSpace(const float* data, float* out, u3
   const float* world_matrix = &xfmem.posMatrices[(MtxIdx & 0x3f) * 4];
   const float* proj_matrix;
   if (g_has_hmd && g_ActiveConfig.bEnableVR) {
-    proj_matrix = constants.projection[0].data();
+    proj_matrix = constants.projection.data();
   } else {
     proj_matrix = &m_projection_matrix[0];
   }

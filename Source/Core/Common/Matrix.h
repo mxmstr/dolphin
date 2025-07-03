@@ -424,6 +424,8 @@ public:
   static Matrix44 FromQuaternion(const Quaternion& q);
   static Matrix44 FromArray(const std::array<float, 16>& arr);
 
+  static Quaternion ToQuaternion(const Matrix44& m44);
+
   static Matrix44 RotateX(float rad);
   static Matrix44 RotateY(float rad);
   static Matrix44 RotateZ(float rad);

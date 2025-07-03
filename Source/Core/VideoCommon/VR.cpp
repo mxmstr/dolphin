@@ -896,13 +896,15 @@ void ProcessVREvent(const vr::VREvent_t& event)
 void ConvertOpenVRToOculusPose()
 {
 #if defined(OVR_MAJOR_VERSION) && defined(HAVE_OPENVR)
-  OVR::Posef pose;
-  ovrMatrix4f m;
-  for (int r = 0; r < 4; ++r)
-    for (int c = 0; c < 4; ++c)
-      m.M[r][c] = g_head_tracking_matrix.data[c * 4 + r];
-  pose.Rotation = OVR::Quatf(m);
-  pose.Translation = OVR::Vector3f(-g_head_tracking_position[0], -g_head_tracking_position[1], -g_head_tracking_position[2]);
+  ovrPosef pose;
+
+  Common::Quaternion q = Common::Matrix44::ToQuaternion(g_head_tracking_matrix);
+    
+  pose.Orientation.x = q.data.x;
+  pose.Orientation.y = q.data.y;
+  pose.Orientation.z = q.data.z;
+  pose.Orientation.w = q.data.w;
+  pose.Position = ovrVector3f(-g_head_tracking_position.x, -g_head_tracking_position.y, -g_head_tracking_position.z);
 
   g_eye_poses[0] = pose;
   g_eye_poses[1] = pose;
@@ -954,12 +956,12 @@ void UpdateOculusHeadTracking()
     x = pose.Translation.x;
     y = pose.Translation.y;
     z = pose.Translation.z;
-    g_head_tracking_position[0] = -x;
-    g_head_tracking_position[1] = -y;
+    g_head_tracking_position.x = -x;
+    g_head_tracking_position.y = -y;
 #if OVR_PRODUCT_VERSION == 0 && OVR_MAJOR_VERSION <= 4
-    g_head_tracking_position[2] = 0.06f - z;
+    g_head_tracking_position.z = 0.06f - z;
 #else
-    g_head_tracking_position[2] = -z;
+    g_head_tracking_position.z = -z;
 #endif
     Common::Matrix33 m, yp, ya, p, r;
     ya = Common::Matrix33::RotateY(DEGREES_TO_RADIANS(yaw));
@@ -1003,9 +1005,9 @@ void UpdateOpenVRHeadTracking()
         m_rTrackedDevicePose[vr::k_unTrackedDeviceIndex_Hmd].mDeviceToAbsoluteTracking.m[1][3];
     float z =
         m_rTrackedDevicePose[vr::k_unTrackedDeviceIndex_Hmd].mDeviceToAbsoluteTracking.m[2][3];
-    g_head_tracking_position[0] = -x;
-    g_head_tracking_position[1] = -y;
-    g_head_tracking_position[2] = -z;
+    g_head_tracking_position.x = -x;
+    g_head_tracking_position.y = -y;
+    g_head_tracking_position.z = -z;
     Common::Matrix33 m;
     for (int r = 0; r < 3; r++)
       for (int c = 0; c < 3; c++)

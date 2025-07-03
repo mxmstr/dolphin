@@ -146,9 +146,9 @@ bool CalculateViewMatrix(int kind, Common::Matrix44& look_matrix)
     // head tracking
     if (g_ActiveConfig.bPositionTracking)
     {
-      pos.x = g_head_tracking_position[0] * UnitsPerMetre;
-      pos.y = g_head_tracking_position[1] * UnitsPerMetre;
-      pos.z = g_head_tracking_position[2] * UnitsPerMetre;
+      pos.x = g_head_tracking_position.x * UnitsPerMetre;
+      pos.y = g_head_tracking_position.y * UnitsPerMetre;
+      pos.z = g_head_tracking_position.z * UnitsPerMetre;
       head_position_matrix *= Common::Matrix44::Translate(pos);
     }
     else

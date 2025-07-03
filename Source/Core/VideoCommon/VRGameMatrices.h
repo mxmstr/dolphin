@@ -5,6 +5,7 @@
 #pragma once
 
 #include "Common/MathUtil.h"
+#include "Common/Matrix.h"
 
 bool CalculateTrackingSpaceToViewSpaceMatrix(int kind, Common::Matrix44& look_matrix);
 bool CalculateViewMatrix(int kind, Common::Matrix44& look_matrix);

@@ -7,6 +7,7 @@
 #include "VideoBackends/D3D/tiny_obj_loader.h"
 #include "VideoCommon/VR.h"
 #include "VideoCommon/VideoCommon.h"
+#include "Common/Matrix.h"
 
 struct ID3D11Texture2D;
 struct ID3D11Buffer;
@@ -45,10 +46,10 @@ public:
   void Draw();
 
 private:
-  void DrawHydra(int hand, float* pos, Matrix33& m, ControllerStyle cs);
-  void DrawLine(float* pos, Matrix33& m, float r, float g, float b);
-  void DrawThumb(float* pos, float x, float y, Matrix33& m);
-  void DrawBox(int kind, float* pos, Matrix33& m, float r, float g, float b);
+  void DrawHydra(int hand, float* pos, Common::Matrix33& m, ControllerStyle cs);
+  void DrawLine(float* pos, Common::Matrix33& m, float r, float g, float b);
+  void DrawThumb(float* pos, float x, float y, Common::Matrix33& m);
+  void DrawBox(int kind, float* pos, Common::Matrix33& m, float r, float g, float b);
 
   ID3D11Buffer* m_vertex_shader_params;
   ID3D11Buffer* m_vertex_buffer;

@@ -57,7 +57,7 @@ u8* RunFifo(DataReader src, u32* cycles)
   // The original check was: if (g_opcode_replay_log_frame && !g_opcode_replay_frame && !recursive_call && ...)
   // Here, !recursive_call is assumed.
   if (g_opcode_replay_log_frame && !g_opcode_replay_frame &&
-      (skipped_opcode_replay_count >= g_ActiveConfig.iExtraVideoLoopsDivider)) // TODO: Ensure g_ActiveConfig is accessible and iExtraVideoLoopsDivider is correct name
+      (skipped_opcode_replay_count >= (int)g_ActiveConfig.iExtraVideoLoopsDivider)) // TODO: Ensure g_ActiveConfig is accessible and iExtraVideoLoopsDivider is correct name
   {
     // It's important that TimewarpLogEntry's constructor correctly copies the data from src.
     timewarp_logentries.emplace_back(src, is_preprocess);
