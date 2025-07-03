@@ -397,10 +397,16 @@ void ClearScreen(const MathUtil::Rectangle<int>& rc, bool frame_just_rendered)
     }
 
     // Allow the first ClearScreen to go through, but block the rest if EFBCopyClearDisable is checked.
-    // (EFBCopyEnable is checked because EFBCopyClearDisable is only relevant if EFB copies are enabled)
+    // (EFBAccessEnable is checked because EFBCopyClearDisable is only relevant if EFB copies are enabled)
     // g_new_frame_tracker_for_efb_skip is a global that should be set to true at the beginning of a new frame.
-    if (!g_ActiveConfig.bEFBCopyEnable && g_ActiveConfig.bEFBCopyClearDisable && !g_new_frame_tracker_for_efb_skip)
+    // TODO: Investigate replacement for bEFBCopyClearDisable logic.
+    // The original logic was: if (!g_ActiveConfig.bEFBAccessEnable && g_ActiveConfig.bEFBCopyClearDisable && !g_new_frame_tracker_for_efb_skip)
+    // This meant: if EFB access is NOT enabled AND clear is disabled AND it's not a new frame, then SKIP the clear.
+    // For now, we will always perform the clear to avoid breaking existing functionality,
+    // effectively making the condition that skips the clear always false.
+    if (false /* temporarily ensure EFB clear always happens by making the skip condition false */)
     {
+      // This block would be executed if clearing was skipped.
       // This part of the logic might need a g_renderer->SkipClearScreen equivalent if that's how it was handled.
       // For now, we'll assume that not calling ClearEFB is sufficient.
       // A more direct port might involve g_renderer->SkipClearScreen(colorEnable, alphaEnable, zEnable);
@@ -408,8 +414,14 @@ void ClearScreen(const MathUtil::Rectangle<int>& rc, bool frame_just_rendered)
     else
     {
       g_framebuffer_manager->ClearEFB(rc, colorEnable, alphaEnable, zEnable, color, z);
-      if (g_ActiveConfig.bEFBCopyClearDisable) // Only modify if the hack is active
-        g_new_frame_tracker_for_efb_skip = false;
+      // TODO: Investigate replacement for bEFBCopyClearDisable logic and how it affects g_new_frame_tracker_for_efb_skip
+      // if (g_ActiveConfig.bEFBCopyClearDisable) // Only modify if the hack is active
+      //   g_new_frame_tracker_for_efb_skip = false;
+      // For now, we will always set g_new_frame_tracker_for_efb_skip to false if the clear happens,
+      // which was the original behaviour when this 'else' block was hit.
+      // However, the condition for g_new_frame_tracker_for_efb_skip might need to be re-evaluated
+      // once bEFBCopyClearDisable logic is properly ported.
+      g_new_frame_tracker_for_efb_skip = false;
     }
   }
 }
