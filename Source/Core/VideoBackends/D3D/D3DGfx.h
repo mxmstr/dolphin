@@ -7,7 +7,9 @@
 #include <string_view>
 
 #include "VideoBackends/D3D/D3DState.h"
+#include "VideoBackends/D3D/VRD3D.h" // Added for VR
 #include "VideoCommon/AbstractGfx.h"
+#include "VideoCommon/VideoConfig.h" // Added for g_ActiveConfig
 
 class BoundingBox;
 
@@ -80,5 +82,17 @@ private:
 
   float m_backbuffer_scale;
   std::unique_ptr<SwapChain> m_swap_chain;
+
+  // VR members
+  bool m_stereo3d = false;
+  int m_eye_count = 1;
+  DXTexture* m_frontBuffer[2] = {nullptr, nullptr};
+
+  static ID3D11PixelShader* s_osvr_distortion_shader;
+
+public:
+  static ID3D11PixelShader* GetOSVRDistortionShader();
+  static void InitUtilityShaders();
+  static void ShutdownUtilityShaders();
 };
 }  // namespace DX11

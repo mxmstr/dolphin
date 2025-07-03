@@ -37,12 +37,109 @@
 
 namespace DX11
 {
+
+ID3D11PixelShader* Gfx::s_osvr_distortion_shader = nullptr;
+
+const char osvr_program_code[] = {
+    "sampler samp0 : register(s0);\n"
+    "Texture2DArray Tex0 : register(t0);\n"
+
+    "float2 Distort(float2 p, float k1){\n"
+    "	float r2 = p.x * p.x + p.y * p.y;\n"
+    "	float r = sqrt(r2);\n"
+    "	float newRadius = (1 + k1*r*r);\n"
+    "	p.x = p.x * newRadius;\n"
+    "	p.y = p.y * newRadius;\n"
+    "	return p;\n"
+    "}\n"
+
+    "void main(\n"
+    "out float4 ocol0 : SV_Target,\n"
+    "in float4 pos : SV_Position,\n"
+    "in float3 uv0 : TEXCOORD0){\n"
+    "	float2 uv_red, uv_green, uv_blue;\n"
+    "	float4 color_red, color_green, color_blue;\n"
+    "	float2 sectorOrigin;\n"
+
+    "	if (uv0.z > 0.0)\n" // Assuming uv0.z indicates eye index (0 for left, >0 for right)
+    "		sectorOrigin = float2(1.0 - 0.47, 0.55); // Values from Hydra, might need adjustment\n"
+    "	else\n"
+    "		sectorOrigin = float2(0.47, 0.55);\n"
+
+    "	uv_red		= Distort(uv0.xy - sectorOrigin, 0.45) + sectorOrigin;\n"
+    "	uv_green	= Distort(uv0.xy - sectorOrigin, 0.53) + sectorOrigin;\n"
+    "	uv_blue		= Distort(uv0.xy - sectorOrigin, 0.66) + sectorOrigin;\n"
+
+    "	color_red = Tex0.Sample(samp0, float3(uv_red, uv0.z));\n"
+    "	color_green = Tex0.Sample(samp0, float3(uv_green, uv0.z));\n"
+    "	color_blue = Tex0.Sample(samp0, float3(uv_blue, uv0.z));\n"
+
+    "	if (((uv_red.x>0) && (uv_red.x<1) && (uv_red.y>0) && (uv_red.y<1)))\n"
+    "		ocol0 = float4(color_red.x, color_green.y, color_blue.z, 1.0);\n"
+    "	else\n"
+    "		ocol0 = float4(0, 0, 0, 0); //black\n"
+    "}\n"};
+
+void Gfx::InitUtilityShaders()
+{
+  auto bytecode = DXShader::CompileShader(D3D::feature_level, ShaderStage::Pixel, osvr_program_code);
+  if (bytecode)
+  {
+    s_osvr_distortion_shader = static_cast<ID3D11PixelShader*>(
+        DXShader::CreateFromBytecode(ShaderStage::Pixel, std::move(*bytecode), "OSVRDistortion")
+            ->GetD3DShader());
+    // The shader object is now owned by s_osvr_distortion_shader, no need to release the unique_ptr explicitly
+    // as it goes out of scope. The underlying D3D resource is AddRef'd.
+  }
+  if (!s_osvr_distortion_shader)
+  {
+    PanicAlert("Failed to compile OSVR distortion pixel shader.");
+  }
+}
+
+void Gfx::ShutdownUtilityShaders()
+{
+  SAFE_RELEASE(s_osvr_distortion_shader);
+}
+
+ID3D11PixelShader* Gfx::GetOSVRDistortionShader()
+{
+  return s_osvr_distortion_shader;
+}
+
 Gfx::Gfx(std::unique_ptr<SwapChain> swap_chain, float backbuffer_scale)
     : m_backbuffer_scale(backbuffer_scale), m_swap_chain(std::move(swap_chain))
 {
+  InitUtilityShaders(); // Initialize utility shaders including OSVR
+  if (g_ActiveConfig.bEnableVR)
+  {
+    // Initialize VR system
+    VR_Init(); // From VR.cpp - initializes SDKs
+    if (g_has_hmd) // g_has_hmd is set within VR_Init if an HMD is detected
+    {
+      m_stereo3d = true;
+      m_eye_count = 2; // Assuming 2 eyes for typical VR HMDs
+      VR_ConfigureHMD(); // From VRD3D.cpp - specific D3D configuration for HMD
+      VR_StartFramebuffer(); // From VRD3D.cpp - creates eye textures
+    }
+    else
+    {
+      m_stereo3d = false;
+      m_eye_count = 1;
+    }
+  }
 }
 
-Gfx::~Gfx() = default;
+Gfx::~Gfx()
+{
+  ShutdownUtilityShaders(); // Shutdown utility shaders
+  if (g_ActiveConfig.bEnableVR && g_has_hmd)
+  {
+    VR_StopFramebuffer(); // From VRD3D.cpp - releases eye textures
+    VR_StopRendering();   // From VR.cpp (potentially, or VRD3D) - platform-agnostic VR rendering shutdown
+    VR_Shutdown();        // From VR.cpp - shuts down VR SDKs
+  }
+}
 
 bool Gfx::IsHeadless() const
 {
@@ -169,16 +266,153 @@ void Gfx::PresentBackbuffer()
   m_swap_chain->Present();
 }
 
+void Gfx::PresentBackbuffer()
+{
+  if (g_ActiveConfig.bEnableVR && g_has_hmd && m_stereo3d)
+  {
+    // VR Rendering Path
+    VR_BeginFrame(); // Generic SDK call
+    VR_GetEyePoses(); // Generic SDK call to get latest HMD poses
+
+    // Get EFB texture (resolved if MSAA is active)
+    AbstractTexture* efb_abstract_texture = g_framebuffer_manager->IsEFBMultisampled() ?
+                                            g_framebuffer_manager->ResolveEFBColorTexture({}) : // Resolve whole EFB
+                                            g_framebuffer_manager->GetEFBColorTexture();
+
+    DXTexture* efb_dx_texture = static_cast<DXTexture*>(efb_abstract_texture);
+    if (!efb_dx_texture || !efb_dx_texture->GetD3DSRV())
+    {
+      ERROR_LOG(VR_D3D, "Failed to get EFB texture for VR rendering.");
+      // Fallback to normal presentation or error out? For now, try to present to screen.
+      if (m_swap_chain)
+        m_swap_chain->Present();
+      return;
+    }
+
+    // Define EFB source rectangle (full EFB)
+    D3D11_RECT efb_source_rect = CD3D11_RECT(0, 0, efb_dx_texture->GetWidth(), efb_dx_texture->GetHeight());
+    UINT efb_source_width = efb_dx_texture->GetWidth();
+    UINT efb_source_height = efb_dx_texture->GetHeight();
+
+    // TODO: AvatarDrawer would be drawn here if ported and active, likely before eye loops or per-eye.
+    // s_avatarDrawer.Draw(); // From Hydra
+
+    for (int eye = 0; eye < m_eye_count; ++eye)
+    {
+      VR_D3D_RenderToEyeBuffer(this, eye);
+
+      // TODO: Set up viewport for this eye texture if it's different from EFB size
+      // For now, assume eye buffer is same size as EFB for direct blit.
+      D3D11_VIEWPORT eye_viewport = CD3D11_VIEWPORT(0.0f, 0.0f,
+                                                 (float)m_frontBuffer[eye]->GetWidth(),
+                                                 (float)m_frontBuffer[eye]->GetHeight(),
+                                                 0.0f, 1.0f);
+      D3D::context->RSSetViewports(1, &eye_viewport);
+
+      // TODO: Correctly set up shaders and constants for VR rendering for this eye.
+      // This is a simplified blit for now. Hydra's VertexShaderManager::SetConstants
+      // handled complex VR matrix transformations.
+      // For a simple blit, we might use a standard textured quad shader.
+      // The `g_renderer->GetScreenQuadPixelShader()` and `g_renderer->GetScreenQuadVertexShader()`
+      // might be suitable if they are simple pass-throughs.
+      // Gamma is 1.0f for direct copy. The 'eye' parameter to drawShadedTexQuad in Hydra
+      // was used to select the correct part of a stereo texture or apply eye-specific transforms.
+      // Here, we are rendering to separate eye textures.
+
+      // Placeholder: Using a generic quad draw. This needs proper shader setup for VR.
+      // This assumes a function similar to Hydra's D3D::drawShadedTexQuad.
+      // We need to ensure VideoCommon or D3DCommon provides such a utility or adapt it.
+      // For now, this is a conceptual blit.
+      D3DCommon::DrawVideoQuad(efb_dx_texture->GetD3DSRV(),
+                               efb_source_rect,
+                               m_frontBuffer[eye]->GetWidth(), m_frontBuffer[eye]->GetHeight(),
+                               0.0f, // sx_scale
+                               0.0f, // sy_scale
+                               1.0f, // Gamma,
+                               0,    // slice for array textures, or eye index for stereo shaders
+                               D3DCommon::MONO_VIDEO_QUAD); // Shader type - needs a stereo/VR version or parameter
+
+      // TODO: Draw OSD messages per eye if needed
+      // OSD::DrawMessages(); // This would need to be adapted for VR context
+    }
+
+    VR_D3D_SubmitFrameToHMD(); // Submits m_frontBuffer[0] and m_frontBuffer[1]
+
+    // Synchronous Timewarp
+    if (g_ActiveConfig.bSynchronousTimewarp)
+    {
+        // Simplified timewarp logic from Hydra. Actual frame rate calculation would be needed.
+        // This is just a placeholder for the loop.
+        int extra_timewarp_frames = 0;
+        if (g_ActiveConfig.iExtraTimewarpedFrames > 0) { // Use the config value directly if set
+            extra_timewarp_frames = g_ActiveConfig.iExtraTimewarpedFrames;
+        } else {
+            // Basic dynamic calculation (needs proper FPS tracking)
+            // float current_fps = Core::GetFPS(); // Hypothetical FPS getter
+            // if (current_fps > 0 && g_ActiveConfig.HMD_refresh_rate > current_fps) {
+            //    extra_timewarp_frames = static_cast<int>(g_ActiveConfig.HMD_refresh_rate / current_fps) -1;
+            // }
+        }
+
+        for (int i = 0; i < extra_timewarp_frames; ++i)
+        {
+            if (!VR_GetShouldQuit()) // VR_GetShouldQuit from VideoCommon/VR.h
+            {
+                VR_GetEyePoses(); // Update poses for timewarp
+                VR_D3D_DrawTimewarpFrame(this);
+            } else {
+                break;
+            }
+        }
+    }
+    // End of VR Rendering Path
+  }
+  else
+  {
+    // Original PresentBackbuffer logic for non-VR
+    if (m_swap_chain)
+      m_swap_chain->Present();
+  }
+}
+
+
 void Gfx::OnConfigChanged(u32 bits)
 {
   AbstractGfx::OnConfigChanged(bits);
 
   // Quad-buffer changes require swap chain recreation.
   if (bits & CONFIG_CHANGE_BIT_STEREO_MODE && m_swap_chain)
+  {
     m_swap_chain->SetStereo(SwapChain::WantsStereo());
+    // If VR is being enabled/disabled, we might need to re-init parts of VR system
+    if(g_ActiveConfig.bEnableVR && !m_stereo3d) { // VR just got enabled
+        VR_Init();
+        if(g_has_hmd){
+            m_stereo3d = true;
+            m_eye_count = 2;
+            VR_D3D_ConfigureHMD();
+            VR_D3D_StartFramebuffer(this);
+        }
+    } else if (!g_ActiveConfig.bEnableVR && m_stereo3d) { // VR just got disabled
+        if(g_has_hmd){
+            VR_D3D_StopFramebuffer(this);
+            VR_StopRendering(); // Generic
+            VR_Shutdown(); // Generic
+        }
+        m_stereo3d = false;
+        m_eye_count = 1;
+    }
+  }
 
   if (bits & CONFIG_CHANGE_BIT_HDR && m_swap_chain)
     m_swap_chain->SetHDR(SwapChain::WantsHDR());
+
+  if (bits & CONFIG_CHANGE_BIT_TARGET_SIZE && g_ActiveConfig.bEnableVR && m_stereo3d && g_has_hmd)
+  {
+    // Recreate eye buffers if target size changed
+    VR_D3D_StopFramebuffer(this);
+    VR_D3D_StartFramebuffer(this);
+  }
 }
 
 void Gfx::CheckForSwapChainChanges()
