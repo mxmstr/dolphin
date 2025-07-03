@@ -285,6 +285,7 @@ struct VideoConfig final
   std::optional<GraphicsModGroupConfig> graphics_mod_config;
 
   // Hacks
+  bool bEnableProjectionHack = false;
   bool bEFBAccessEnable = false;
   bool bEFBAccessDeferInvalidation = false;
   bool bPerfQueriesEnable = false;
