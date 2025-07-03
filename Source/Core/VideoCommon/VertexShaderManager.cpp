@@ -29,6 +29,7 @@
 #include "VideoCommon/VideoConfig.h"
 #include "VideoCommon/XFMemory.h"
 #include "VideoCommon/XFStateManager.h"
+#include "Core/System.h"
 
 // For DEGREES_TO_RADIANS, etc.
 #include "Common/MathUtil.h"
@@ -644,6 +645,7 @@ bool VertexShaderManager::UseVertexDepthRange()
 void VertexShaderManager::SetConstants(const std::vector<std::string>& textures,
                                        XFStateManager& xf_state_manager)
 {
+  GeometryShaderManager geometry_shader_manager = Core::System::GetInstance().GetGeometryShaderManager();
   bool position_changed = xf_state_manager.DidPosNormalChange() || xf_state_manager.GetPerVertexTransformMatrixChanges()[0] >=0;
   bool skybox_changed = false;
 
@@ -774,14 +776,14 @@ void VertexShaderManager::SetConstants(const std::vector<std::string>& textures,
     if (bHide) {
       memset(constants.projection.data(), 0, sizeof(constants.projection));
       memset(constants_eye_projection, 0, sizeof(constants_eye_projection));
-      GeometryShaderManager::constants.stereoparams.Fill(0.0f);
+      geometry_shader_manager.constants.stereoparams = { 0.0f, 0.0f, 0.0f, 0.0f };
     } else if (g_viewport_type == ViewportType::VIEW_RENDER_TO_TEXTURE) {
       Common::Matrix44 correctedMtx = Common::Matrix44::FromArray(g_fProjectionMatrix);
       memcpy(constants.projection.data(), correctedMtx.data.data(), sizeof(float4) * 4);
       memcpy(constants_eye_projection[0], correctedMtx.data.data(), sizeof(float4) * 4);
       memcpy(constants_eye_projection[1], correctedMtx.data.data(), sizeof(float4) * 4);
-      GeometryShaderManager::constants.stereoparams.Fill(0.0f);
-    } else if (!VR::g_has_hmd || !g_ActiveConfig.bEnableVR) {
+      geometry_shader_manager.constants.stereoparams = { 0.0f, 0.0f, 0.0f, 0.0f };
+    } else if (!g_has_hmd || !g_ActiveConfig.bEnableVR) {
       auto corrected_matrix = LoadProjectionMatrix();
       GraphicsModActionData::Projection projection_mod_data{&corrected_matrix};
       for (const auto& action : projection_actions_vec) action->OnProjection(&projection_mod_data);
@@ -790,15 +792,15 @@ void VertexShaderManager::SetConstants(const std::vector<std::string>& textures,
       memcpy(constants_eye_projection[1], corrected_matrix.data.data(), sizeof(float4) * 4);
       if (g_ActiveConfig.stereo_mode != StereoMode::Off) {
         if (xfmem.projection.type == ProjectionType::Perspective) {
-          float offset = (g_ActiveConfig.iStereoDepth/1000.0f)*(g_ActiveConfig.iStereoDepthPercentage/100.0f);
-          GeometryShaderManager::constants.stereoparams[0] = (g_ActiveConfig.bStereoSwapEyes)?offset:-offset;
-          GeometryShaderManager::constants.stereoparams[1] = (g_ActiveConfig.bStereoSwapEyes)?-offset:offset;
+          float offset = (g_ActiveConfig.iStereoDepth/1000.0f)*(g_ActiveConfig.iStereoDepthPercentage / 100.0f);
+          Core::System::GetInstance().GetGeometryShaderManager().constants.stereoparams[0] = (g_ActiveConfig.bStereoSwapEyes)?offset:-offset;
+          geometry_shader_manager.constants.stereoparams[1] = (g_ActiveConfig.bStereoSwapEyes)?-offset:offset;
         } else {
-          GeometryShaderManager::constants.stereoparams[0]=0.0f; GeometryShaderManager::constants.stereoparams[1]=0.0f;
+          geometry_shader_manager.constants.stereoparams[0]=0.0f; geometry_shader_manager.constants.stereoparams[1]=0.0f;
         }
-        GeometryShaderManager::constants.stereoparams[2] = static_cast<float>(g_ActiveConfig.iStereoConvergence*(g_ActiveConfig.iStereoConvergencePercentage/100.0f));
-        GeometryShaderManager::constants.stereoparams[3]=0.0f;
-      } else { GeometryShaderManager::constants.stereoparams.Fill(0.0f); }
+        geometry_shader_manager.constants.stereoparams[2] = static_cast<float>(g_ActiveConfig.iStereoConvergence*(g_ActiveConfig.iStereoConvergencePercentage/100.0f));
+        geometry_shader_manager.constants.stereoparams[3]=0.0f;
+      } else { geometry_shader_manager.constants.stereoparams = { 0.0f, 0.0f, 0.0f, 0.0f }; }
     } else if (bFullscreenLayer) {
       Common::Matrix44 projMtx = Common::Matrix44::FromArray(g_fProjectionMatrix);
       projMtx.data[0] *= fWidthHack; projMtx.data[5] *= fHeightHack;
@@ -806,7 +808,7 @@ void VertexShaderManager::SetConstants(const std::vector<std::string>& textures,
       memcpy(constants.projection.data(), projMtx.data.data(), sizeof(float4) * 4);
       memcpy(constants_eye_projection[0], projMtx.data.data(), sizeof(float4) * 4);
       memcpy(constants_eye_projection[1], projMtx.data.data(), sizeof(float4) * 4);
-      GeometryShaderManager::constants.stereoparams.Fill(0.0f);
+      geometry_shader_manager.constants.stereoparams = { 0.0f, 0.0f, 0.0f, 0.0f };
     } else { // Main VR 3D HMD rendering path
       Common::Matrix44 final_matrix_left, final_matrix_right;
       CalculateVRProjectionViewMatrices(
@@ -814,14 +816,14 @@ void VertexShaderManager::SetConstants(const std::vector<std::string>& textures,
             bStuckToHead, bHideLeft, bHideRight, bNoForward, iTelescopeHack,
             fLeftWidthHack, fLeftHeightHack, fRightWidthHack, fRightHeightHack, fRightHack, fUpHack, bN64,
             final_matrix_left, final_matrix_right,
-            GeometryShaderManager::constants.stereoparams);
+            geometry_shader_manager.constants.stereoparams);
       memcpy(constants.projection.data(), final_matrix_left.data.data(), sizeof(float4) * 4);
       memcpy(constants_eye_projection[0], final_matrix_left.data.data(), sizeof(float4) * 4);
       memcpy(constants_eye_projection[1], final_matrix_right.data.data(), sizeof(float4) * 4);
     }
 
     if (!projection_actions_vec.empty()) {
-        Common::Matrix44 matrix_to_mod = Common::Matrix44::FromArray(constants.projection.data()->data());
+        Common::Matrix44 matrix_to_mod = Common::Matrix44::FromArray(constants.projection);
         GraphicsModActionData::Projection projection_mod_data{&matrix_to_mod};
         for (const auto& action : projection_actions_vec) action->OnProjection(&projection_mod_data);
         memcpy(constants.projection.data(), matrix_to_mod.data.data(), sizeof(float4) * 4);
