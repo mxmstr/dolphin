@@ -54,7 +54,7 @@ void UpdateActiveConfig()
   g_ActiveConfig = g_Config;
   g_ActiveConfig.bVSyncActive = IsVSyncActive(g_ActiveConfig.bVSync);
   if (g_has_hmd && g_ActiveConfig.bEnableVR) // Ported from VR-Hydra
-    g_ActiveConfig.bUseRealXFB = false; // RealXFB is generally not compatible with VR rendering paths
+    g_ActiveConfig.bSkipXFBCopyToRam = true; // RealXFB (bSkipXFBCopyToRam = false) is generally not compatible with VR rendering paths
 }
 
 
@@ -460,82 +460,101 @@ void VideoConfig::GameIniSave()
 {
   // Save game ini for VR settings
   // OSD::AddMessage("Saving VR GameINI", 5000); // For debugging
-  if (!Config::LayerExists(Config::LayerType::LocalGame))
+  std::shared_ptr<Config::Layer> local_game_layer = Config::GetLayer(Config::LayerType::LocalGame);
+  if (!local_game_layer) // Check if the layer exists/was loaded
     return;
 
-  Config::SaveIfNotDefault(Config::GFX_VR_DISABLE_3D);
-  Config::SaveIfNotDefault(Config::GFX_VR_UNITS_PER_METRE);
-  Config::SaveIfNotDefault(Config::GFX_VR_HUD_FULLSCREEN);
-  Config::SaveIfNotDefault(Config::GFX_VR_HUD_ON_TOP);
-  Config::SaveIfNotDefault(Config::GFX_VR_DONT_CLEAR_SCREEN);
-  Config::SaveIfNotDefault(Config::GFX_VR_CAN_READ_CAMERA_ANGLES);
-  Config::SaveIfNotDefault(Config::GFX_VR_DETECT_SKYBOX);
-  Config::SaveIfNotDefault(Config::GFX_VR_HUD_DISTANCE);
-  Config::SaveIfNotDefault(Config::GFX_VR_HUD_THICKNESS);
-  Config::SaveIfNotDefault(Config::GFX_VR_HUD_3D_CLOSER);
-  Config::SaveIfNotDefault(Config::GFX_VR_CAMERA_FORWARD);
-  Config::SaveIfNotDefault(Config::GFX_VR_CAMERA_PITCH);
-  Config::SaveIfNotDefault(Config::GFX_VR_AIM_DISTANCE);
-  Config::SaveIfNotDefault(Config::GFX_VR_MIN_FOV);
-  Config::SaveIfNotDefault(Config::GFX_VR_N64_FOV);
-  Config::SaveIfNotDefault(Config::GFX_VR_SCREEN_HEIGHT);
-  Config::SaveIfNotDefault(Config::GFX_VR_SCREEN_DISTANCE);
-  Config::SaveIfNotDefault(Config::GFX_VR_SCREEN_THICKNESS);
-  Config::SaveIfNotDefault(Config::GFX_VR_SCREEN_UP);
-  Config::SaveIfNotDefault(Config::GFX_VR_SCREEN_RIGHT);
-  Config::SaveIfNotDefault(Config::GFX_VR_SCREEN_PITCH);
-  Config::SaveIfNotDefault(Config::GFX_VR_READ_PITCH);
-  Config::SaveIfNotDefault(Config::GFX_VR_HUD_DESP_POSITION_0);
-  Config::SaveIfNotDefault(Config::GFX_VR_HUD_DESP_POSITION_1);
-  Config::SaveIfNotDefault(Config::GFX_VR_HUD_DESP_POSITION_2);
-  Config::SaveIfNotDefault(Config::GFX_VR_CAMERA_MIN_POLY);
-  Config::SaveIfNotDefault(Config::GFX_VR_METROID_PRIME); // Save game specific type
-  Config::SaveIfNotDefault(Config::GFX_VR_TELESCOPE_EYE);
-  Config::SaveIfNotDefault(Config::GFX_VR_TELESCOPE_MAX_FOV);
+  // Helper lambda to save or delete a setting based on whether it differs from global default
+  auto save_or_delete_if_not_default = [&](const auto& info, const auto& current_value) {
+    if (current_value != Config::GetBase(info))
+    {
+      Config::Set(Config::LayerType::LocalGame, info, current_value);
+    }
+    else
+    {
+      Config::DeleteKey(Config::LayerType::LocalGame, info);
+    }
+  };
 
-  Config::Layer* local = Config::GetLayer(Config::LayerType::LocalGame);
-  if (local)
-    local->Save();
-  Refresh(); // Refresh g_Config
+  save_or_delete_if_not_default(Config::GFX_VR_DISABLE_3D, g_Config.bDisable3D);
+  save_or_delete_if_not_default(Config::GFX_VR_UNITS_PER_METRE, g_Config.fUnitsPerMetre);
+  save_or_delete_if_not_default(Config::GFX_VR_HUD_FULLSCREEN, g_Config.bHudFullscreen);
+  save_or_delete_if_not_default(Config::GFX_VR_HUD_ON_TOP, g_Config.bHudOnTop);
+  save_or_delete_if_not_default(Config::GFX_VR_DONT_CLEAR_SCREEN, g_Config.bDontClearScreen);
+  save_or_delete_if_not_default(Config::GFX_VR_CAN_READ_CAMERA_ANGLES, g_Config.bCanReadCameraAngles);
+  save_or_delete_if_not_default(Config::GFX_VR_DETECT_SKYBOX, g_Config.bDetectSkybox);
+  save_or_delete_if_not_default(Config::GFX_VR_HUD_DISTANCE, g_Config.fHudDistance);
+  save_or_delete_if_not_default(Config::GFX_VR_HUD_THICKNESS, g_Config.fHudThickness);
+  save_or_delete_if_not_default(Config::GFX_VR_HUD_3D_CLOSER, g_Config.fHud3DCloser);
+  save_or_delete_if_not_default(Config::GFX_VR_CAMERA_FORWARD, g_Config.fCameraForward);
+  save_or_delete_if_not_default(Config::GFX_VR_CAMERA_PITCH, g_Config.fCameraPitch);
+  save_or_delete_if_not_default(Config::GFX_VR_AIM_DISTANCE, g_Config.fAimDistance);
+  save_or_delete_if_not_default(Config::GFX_VR_MIN_FOV, g_Config.fMinFOV);
+  save_or_delete_if_not_default(Config::GFX_VR_N64_FOV, g_Config.fN64FOV);
+  save_or_delete_if_not_default(Config::GFX_VR_SCREEN_HEIGHT, g_Config.fScreenHeight);
+  save_or_delete_if_not_default(Config::GFX_VR_SCREEN_DISTANCE, g_Config.fScreenDistance);
+  save_or_delete_if_not_default(Config::GFX_VR_SCREEN_THICKNESS, g_Config.fScreenThickness);
+  save_or_delete_if_not_default(Config::GFX_VR_SCREEN_UP, g_Config.fScreenUp);
+  save_or_delete_if_not_default(Config::GFX_VR_SCREEN_RIGHT, g_Config.fScreenRight);
+  save_or_delete_if_not_default(Config::GFX_VR_SCREEN_PITCH, g_Config.fScreenPitch);
+  save_or_delete_if_not_default(Config::GFX_VR_READ_PITCH, g_Config.fReadPitch);
+  save_or_delete_if_not_default(Config::GFX_VR_HUD_DESP_POSITION_0, g_Config.fHudDespPosition0);
+  save_or_delete_if_not_default(Config::GFX_VR_HUD_DESP_POSITION_1, g_Config.fHudDespPosition1);
+  save_or_delete_if_not_default(Config::GFX_VR_HUD_DESP_POSITION_2, g_Config.fHudDespPosition2);
+  save_or_delete_if_not_default(Config::GFX_VR_CAMERA_MIN_POLY, g_Config.iCameraMinPoly);
+  save_or_delete_if_not_default(Config::GFX_VR_METROID_PRIME, g_Config.iMetroidPrime);
+  save_or_delete_if_not_default(Config::GFX_VR_TELESCOPE_EYE, g_Config.iTelescopeEye);
+  save_or_delete_if_not_default(Config::GFX_VR_TELESCOPE_MAX_FOV, g_Config.fTelescopeMaxFOV);
+
+  local_game_layer->Save(); // Save the LocalGame layer to disk
+  Refresh(); // Refresh g_Config to pick up any changes that might have occurred due to saving/layer interactions
   g_SavedConfig = g_Config; // Update g_SavedConfig with the newly saved values
 }
 
 void VideoConfig::GameIniReset()
 {
   // OSD::AddMessage("Resetting VR GameINI", 5000); // For debugging
-  Config::ResetToGameDefault(Config::GFX_VR_DISABLE_3D);
-  Config::ResetToGameDefault(Config::GFX_VR_UNITS_PER_METRE);
-  Config::ResetToGameDefault(Config::GFX_VR_HUD_FULLSCREEN);
-  Config::ResetToGameDefault(Config::GFX_VR_HUD_ON_TOP);
-  Config::ResetToGameDefault(Config::GFX_VR_DONT_CLEAR_SCREEN);
-  Config::ResetToGameDefault(Config::GFX_VR_CAN_READ_CAMERA_ANGLES);
-  Config::ResetToGameDefault(Config::GFX_VR_DETECT_SKYBOX);
-  Config::ResetToGameDefault(Config::GFX_VR_HUD_DISTANCE);
-  Config::ResetToGameDefault(Config::GFX_VR_HUD_THICKNESS);
-  Config::ResetToGameDefault(Config::GFX_VR_HUD_3D_CLOSER);
-  Config::ResetToGameDefault(Config::GFX_VR_CAMERA_FORWARD);
-  Config::ResetToGameDefault(Config::GFX_VR_CAMERA_PITCH);
-  Config::ResetToGameDefault(Config::GFX_VR_AIM_DISTANCE);
-  Config::ResetToGameDefault(Config::GFX_VR_MIN_FOV);
-  Config::ResetToGameDefault(Config::GFX_VR_N64_FOV);
-  Config::ResetToGameDefault(Config::GFX_VR_SCREEN_HEIGHT);
-  Config::ResetToGameDefault(Config::GFX_VR_SCREEN_DISTANCE);
-  Config::ResetToGameDefault(Config::GFX_VR_SCREEN_THICKNESS);
-  Config::ResetToGameDefault(Config::GFX_VR_SCREEN_UP);
-  Config::ResetToGameDefault(Config::GFX_VR_SCREEN_RIGHT);
-  Config::ResetToGameDefault(Config::GFX_VR_SCREEN_PITCH);
-  Config::ResetToGameDefault(Config::GFX_VR_READ_PITCH);
-  Config::ResetToGameDefault(Config::GFX_VR_HUD_DESP_POSITION_0);
-  Config::ResetToGameDefault(Config::GFX_VR_HUD_DESP_POSITION_1);
-  Config::ResetToGameDefault(Config::GFX_VR_HUD_DESP_POSITION_2);
-  Config::ResetToGameDefault(Config::GFX_VR_CAMERA_MIN_POLY);
-  Config::ResetToGameDefault(Config::GFX_VR_METROID_PRIME);
-  Config::ResetToGameDefault(Config::GFX_VR_TELESCOPE_EYE);
-  Config::ResetToGameDefault(Config::GFX_VR_TELESCOPE_MAX_FOV);
+  Config::DeleteKey(Config::LayerType::LocalGame, Config::GFX_VR_DISABLE_3D);
+  Config::DeleteKey(Config::LayerType::LocalGame, Config::GFX_VR_UNITS_PER_METRE);
+  Config::DeleteKey(Config::LayerType::LocalGame, Config::GFX_VR_HUD_FULLSCREEN);
+  Config::DeleteKey(Config::LayerType::LocalGame, Config::GFX_VR_HUD_ON_TOP);
+  Config::DeleteKey(Config::LayerType::LocalGame, Config::GFX_VR_DONT_CLEAR_SCREEN);
+  Config::DeleteKey(Config::LayerType::LocalGame, Config::GFX_VR_CAN_READ_CAMERA_ANGLES);
+  Config::DeleteKey(Config::LayerType::LocalGame, Config::GFX_VR_DETECT_SKYBOX);
+  Config::DeleteKey(Config::LayerType::LocalGame, Config::GFX_VR_HUD_DISTANCE);
+  Config::DeleteKey(Config::LayerType::LocalGame, Config::GFX_VR_HUD_THICKNESS);
+  Config::DeleteKey(Config::LayerType::LocalGame, Config::GFX_VR_HUD_3D_CLOSER);
+  Config::DeleteKey(Config::LayerType::LocalGame, Config::GFX_VR_CAMERA_FORWARD);
+  Config::DeleteKey(Config::LayerType::LocalGame, Config::GFX_VR_CAMERA_PITCH);
+  Config::DeleteKey(Config::LayerType::LocalGame, Config::GFX_VR_AIM_DISTANCE);
+  Config::DeleteKey(Config::LayerType::LocalGame, Config::GFX_VR_MIN_FOV);
+  Config::DeleteKey(Config::LayerType::LocalGame, Config::GFX_VR_N64_FOV);
+  Config::DeleteKey(Config::LayerType::LocalGame, Config::GFX_VR_SCREEN_HEIGHT);
+  Config::DeleteKey(Config::LayerType::LocalGame, Config::GFX_VR_SCREEN_DISTANCE);
+  Config::DeleteKey(Config::LayerType::LocalGame, Config::GFX_VR_SCREEN_THICKNESS);
+  Config::DeleteKey(Config::LayerType::LocalGame, Config::GFX_VR_SCREEN_UP);
+  Config::DeleteKey(Config::LayerType::LocalGame, Config::GFX_VR_SCREEN_RIGHT);
+  Config::DeleteKey(Config::LayerType::LocalGame, Config::GFX_VR_SCREEN_PITCH);
+  Config::DeleteKey(Config::LayerType::LocalGame, Config::GFX_VR_READ_PITCH);
+  Config::DeleteKey(Config::LayerType::LocalGame, Config::GFX_VR_HUD_DESP_POSITION_0);
+  Config::DeleteKey(Config::LayerType::LocalGame, Config::GFX_VR_HUD_DESP_POSITION_1);
+  Config::DeleteKey(Config::LayerType::LocalGame, Config::GFX_VR_HUD_DESP_POSITION_2);
+  Config::DeleteKey(Config::LayerType::LocalGame, Config::GFX_VR_CAMERA_MIN_POLY);
+  Config::DeleteKey(Config::LayerType::LocalGame, Config::GFX_VR_METROID_PRIME);
+  Config::DeleteKey(Config::LayerType::LocalGame, Config::GFX_VR_TELESCOPE_EYE);
+  Config::DeleteKey(Config::LayerType::LocalGame, Config::GFX_VR_TELESCOPE_MAX_FOV);
 
-  Config::Save(); // Save the overall config after resetting game specific to their defaults
-  Refresh(); // Refresh g_Config
-  g_SavedConfig = g_Config; // Update g_SavedConfig
+  // Save the LocalGame layer to persist the deletions.
+  // Alternatively, Config::Save() could be used here if we want to ensure all potentially dirty layers are saved.
+  // Sticking with more targeted save for now.
+  std::shared_ptr<Config::Layer> local_game_layer = Config::GetLayer(Config::LayerType::LocalGame);
+  if (local_game_layer)
+  {
+    local_game_layer->Save();
+  }
+
+  Refresh(); // Refresh g_Config to load the new default values
+  g_SavedConfig = g_Config; // Update g_SavedConfig to reflect the reset state
 }
 
 bool VideoConfig::VRSettingsModified()
