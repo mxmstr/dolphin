@@ -627,7 +627,7 @@ void VertexShaderManager::SetProjectionMatrix(XFStateManager& xf_state_manager)
   {
     xf_state_manager.ResetProjection();
     auto corrected_matrix = LoadProjectionMatrix();
-    memcpy(constants.projection.data(), corrected_matrix.data.data(), 4 * sizeof(float4));
+    memcpy(constants.projection.data(), corrected_matrix.data.data(), 16 * sizeof(float));
   }
 }
 
@@ -774,12 +774,16 @@ void VertexShaderManager::SetConstants(const std::vector<std::string>& textures,
 
 
     if (bHide) {
-      memset(constants.projection.data(), 0, sizeof(constants.projection));
+      // constants.projection is std::array<float, 16>
+      memset(constants.projection.data(), 0, sizeof(constants.projection)); // Using sizeof the object itself
+      // constants_eye_projection is float4[2][4]
       memset(constants_eye_projection, 0, sizeof(constants_eye_projection));
       geometry_shader_manager.constants.stereoparams = { 0.0f, 0.0f, 0.0f, 0.0f };
     } else if (g_viewport_type == ViewportType::VIEW_RENDER_TO_TEXTURE) {
       Common::Matrix44 correctedMtx = Common::Matrix44::FromArray(g_fProjectionMatrix);
-      memcpy(constants.projection.data(), correctedMtx.data.data(), sizeof(float4) * 4);
+      // constants.projection is std::array<float, 16>
+      memcpy(constants.projection.data(), correctedMtx.data.data(), sizeof(float) * 16);
+      // constants_eye_projection is float4[2][4], so constants_eye_projection[0] is float4[4]
       memcpy(constants_eye_projection[0], correctedMtx.data.data(), sizeof(float4) * 4);
       memcpy(constants_eye_projection[1], correctedMtx.data.data(), sizeof(float4) * 4);
       geometry_shader_manager.constants.stereoparams = { 0.0f, 0.0f, 0.0f, 0.0f };
@@ -787,7 +791,9 @@ void VertexShaderManager::SetConstants(const std::vector<std::string>& textures,
       auto corrected_matrix = LoadProjectionMatrix();
       GraphicsModActionData::Projection projection_mod_data{&corrected_matrix};
       for (const auto& action : projection_actions_vec) action->OnProjection(&projection_mod_data);
-      memcpy(constants.projection.data(), corrected_matrix.data.data(), sizeof(float4) * 4);
+      // constants.projection is std::array<float, 16>
+      memcpy(constants.projection.data(), corrected_matrix.data.data(), sizeof(float) * 16);
+      // constants_eye_projection is float4[2][4]
       memcpy(constants_eye_projection[0], corrected_matrix.data.data(), sizeof(float4) * 4);
       memcpy(constants_eye_projection[1], corrected_matrix.data.data(), sizeof(float4) * 4);
       if (g_ActiveConfig.stereo_mode != StereoMode::Off) {
@@ -805,7 +811,8 @@ void VertexShaderManager::SetConstants(const std::vector<std::string>& textures,
       Common::Matrix44 projMtx = Common::Matrix44::FromArray(g_fProjectionMatrix);
       projMtx.data[0] *= fWidthHack; projMtx.data[5] *= fHeightHack;
       projMtx.data[12] += fRightHack; projMtx.data[13] += fUpHack;
-      memcpy(constants.projection.data(), projMtx.data.data(), sizeof(float4) * 4);
+      memcpy(constants.projection.data(), projMtx.data.data(), sizeof(float) * 16);
+      // constants_eye_projection is float4[2][4]
       memcpy(constants_eye_projection[0], projMtx.data.data(), sizeof(float4) * 4);
       memcpy(constants_eye_projection[1], projMtx.data.data(), sizeof(float4) * 4);
       geometry_shader_manager.constants.stereoparams = { 0.0f, 0.0f, 0.0f, 0.0f };
@@ -817,17 +824,22 @@ void VertexShaderManager::SetConstants(const std::vector<std::string>& textures,
             fLeftWidthHack, fLeftHeightHack, fRightWidthHack, fRightHeightHack, fRightHack, fUpHack, bN64,
             final_matrix_left, final_matrix_right,
             geometry_shader_manager.constants.stereoparams);
-      memcpy(constants.projection.data(), final_matrix_left.data.data(), sizeof(float4) * 4);
+      // constants.projection is std::array<float, 16>
+      memcpy(constants.projection.data(), final_matrix_left.data.data(), sizeof(float) * 16);
+      // constants_eye_projection is float4[2][4]
       memcpy(constants_eye_projection[0], final_matrix_left.data.data(), sizeof(float4) * 4);
       memcpy(constants_eye_projection[1], final_matrix_right.data.data(), sizeof(float4) * 4);
     }
 
     if (!projection_actions_vec.empty()) {
+        // constants.projection is now std::array<float, 16>, so FromArray works.
         Common::Matrix44 matrix_to_mod = Common::Matrix44::FromArray(constants.projection);
         GraphicsModActionData::Projection projection_mod_data{&matrix_to_mod};
         for (const auto& action : projection_actions_vec) action->OnProjection(&projection_mod_data);
-        memcpy(constants.projection.data(), matrix_to_mod.data.data(), sizeof(float4) * 4);
+        // constants.projection is std::array<float, 16>
+        memcpy(constants.projection.data(), matrix_to_mod.data.data(), sizeof(float) * 16);
         if (VR::g_has_hmd && g_ActiveConfig.bEnableVR) {
+            // constants_eye_projection is float4[2][4]
              memcpy(constants_eye_projection[0], matrix_to_mod.data.data(), sizeof(float4) * 4);
         }
     }
