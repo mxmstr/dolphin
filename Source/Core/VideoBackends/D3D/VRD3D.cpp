@@ -255,15 +255,15 @@ void VR_ConfigureHMD()
     cfg.D3D11.Header.Multisample = 0; // TODO: Use g_ActiveConfig.iMultisamples?
     cfg.D3D11.pDevice = D3D::device.Get();
     cfg.D3D11.pDeviceContext = D3D::context.Get();
-    if (g_renderer && g_renderer->GetSurfaceInfo().swap_chain)
-      cfg.D3D11.pSwapChain = static_cast<DX11::SwapChain*>(g_renderer->GetSurfaceInfo().swap_chain)->GetDXGISwapChain();
+    if (g_renderer && g_renderer->GetSwapChain())
+      cfg.D3D11.pSwapChain = static_cast<DX11::SwapChain*>(g_renderer->GetSwapChain())->GetDXGISwapChain();
     else
       cfg.D3D11.pSwapChain = nullptr;
 
     // GetBackBuffer is not available directly, need to go via swapchain framebuffer
-    if (g_renderer && g_renderer->GetSurfaceInfo().swap_chain)
+    if (g_renderer && g_renderer->GetSwapChain())
     {
-       DXFramebuffer* fb = static_cast<DX11::SwapChain*>(g_renderer->GetSurfaceInfo().swap_chain)->GetFramebuffer();
+       DXFramebuffer* fb = static_cast<DX11::SwapChain*>(g_renderer->GetSwapChain())->GetFramebuffer();
        if (fb && fb->GetRTVArray() && *fb->GetRTVArray())
           cfg.D3D11.pBackBufferRT = *fb->GetRTVArray();
        else
@@ -395,7 +395,7 @@ void VR_StartFramebuffer()
     // For OpenVR, we need to create two textures that will be submitted to the compositor.
     // These textures will be used as render targets.
     TextureConfig tex_config = TextureConfig(
-        FramebufferManager::GetEFBWidth(), FramebufferManager::GetEFBHeight(), 1, 1,
+        g_framebuffer_manager->GetEFBWidth(), g_framebuffer_manager->GetEFBHeight(), 1, 1,
         g_ActiveConfig.iMultisamples, AbstractTextureFormat::RGBA8,
         AbstractTextureFlag_RenderTarget, AbstractTextureType::Texture_2D);
 
@@ -609,10 +609,9 @@ void VR_PresentHMDFrame()
     // g_last_tracking_time = Common::Timer::NowMs() / 1000.0; // Timer::NowMs might not exist
 
     if (g_ActiveConfig.iMirrorStyle != VR_MIRROR_DISABLED &&
-        g_ActiveConfig.iMirrorPlayer != VR_PLAYER_NONE && g_renderer && g_renderer->GetSurfaceInfo().swap_chain)
+        g_ActiveConfig.iMirrorPlayer != VR_PLAYER_NONE && g_renderer && g_renderer->GetSwapChain())
     {
-      DX11::SwapChain* swap_chain = static_cast<DX11::SwapChain*>(g_renderer->GetSurfaceInfo().swap_chain);
-      const D3DCommon::SwapChainInfo& sc_info = swap_chain->GetSwapChainInfo();
+      DX11::SwapChain* swap_chain = static_cast<DX11::SwapChain*>(g_renderer->GetSwapChain());
       AbstractTexture* efb_resolved_tex = g_framebuffer_manager->GetEFBColorTexture(); // Or ResolveEFBColorTexture if MSAA
 
       if (efb_resolved_tex) // Ensure EFB texture is valid
@@ -625,7 +624,7 @@ void VR_PresentHMDFrame()
           if(backbuffer_fb)
             D3D::context->OMSetRenderTargets(backbuffer_fb->GetNumRTVs(), backbuffer_fb->GetRTVArray(), backbuffer_fb->GetDSV());
 
-          D3D11_VIEWPORT vp = CD3D11_VIEWPORT(0.0f, 0.0f, (float)sc_info.width, (float)sc_info.height);
+          D3D11_VIEWPORT vp = CD3D11_VIEWPORT(0.0f, 0.0f, (float)swap_chain->GetWidth(), (float)swap_chain->GetHeight());
 
           int eye_to_draw = 0; // Default to left eye or mono
           if (g_ActiveConfig.iMirrorStyle >= VR_MIRROR_WARPED) // Both eyes
@@ -690,7 +689,7 @@ void VR_PresentHMDFrame()
 
     HRESULT hr = D3D::device->CreateBlendState(&oculusBlendDesc, &pOculusRiftBlendState);
     if (FAILED(hr))
-      PanicAlertFmt(VR, "Failed to create blend state at {} {}\n", __FILE__, __LINE__);
+      PanicAlertFmt("Failed to create blend state at {} {}\n", __FILE__, __LINE__);
     // D3D::SetDebugObjectName(pOculusRiftBlendState.Get(), "blend state used to make sure rift draw call works");
 
     D3D::context->OMSetBlendState(pOculusRiftBlendState.Get(), nullptr, 0xFFFFFFFF);

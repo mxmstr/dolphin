@@ -74,6 +74,7 @@ public:
   void OnConfigChanged(u32 bits) override;
 
   SurfaceInfo GetSurfaceInfo() const override;
+  SwapChain* GetSwapChain() const { return m_swap_chain.get(); }
 
 private:
   void CheckForSwapChainChanges();
