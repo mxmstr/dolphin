@@ -306,7 +306,7 @@ static void BPWritten(PixelShaderManager& pixel_shader_manager, XFStateManager& 
       bool is_depth_copy = bpmem.zcontrol.pixel_format == PixelFormat::Z24;
       g_texture_cache->CopyRenderTargetToTexture(
           destAddr, PE_copy.tp_realFormat(), copy_width, copy_height, destStride, is_depth_copy,
-          srcRect, PE_copy.intensity_fmt && PE_copy.auto_conv, PE_copy.half_scale, 1.0f,
+          srcRect, srcRect, PE_copy.intensity_fmt && PE_copy.auto_conv, PE_copy.half_scale, 1.0f,
           s_gammaLUT[PE_copy.gamma], bpmem.triggerEFBCopy.clamp_top,
           bpmem.triggerEFBCopy.clamp_bottom, bpmem.copyfilter.GetCoefficients());
     }
@@ -336,7 +336,7 @@ static void BPWritten(PixelShaderManager& pixel_shader_manager, XFStateManager& 
       bool is_depth_copy = bpmem.zcontrol.pixel_format == PixelFormat::Z24;
       g_texture_cache->CopyRenderTargetToTexture(
           destAddr, EFBCopyFormat::XFB, copy_width, height, destStride, is_depth_copy, srcRect,
-          false, false, yScale, s_gammaLUT[PE_copy.gamma], bpmem.triggerEFBCopy.clamp_top,
+          srcRect, false, false, yScale, s_gammaLUT[PE_copy.gamma], bpmem.triggerEFBCopy.clamp_top,
           bpmem.triggerEFBCopy.clamp_bottom, bpmem.copyfilter.GetCoefficients());
 
       // This is as closest as we have to an "end of the frame"
@@ -379,7 +379,7 @@ static void BPWritten(PixelShaderManager& pixel_shader_manager, XFStateManager& 
     // Clear the rectangular region after copying it.
     if (PE_copy.clear)
     {
-      ClearScreen(srcRect);
+      ClearScreen(srcRect, false);
     }
 
     return;

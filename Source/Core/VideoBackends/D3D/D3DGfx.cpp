@@ -86,14 +86,13 @@ void Gfx::InitUtilityShaders()
   if (bytecode)
   {
     s_osvr_distortion_shader = static_cast<ID3D11PixelShader*>(
-        DXShader::CreateFromBytecode(ShaderStage::Pixel, std::move(*bytecode), "OSVRDistortion")
-            ->GetD3DShader());
+        DXShader::CreateFromBytecode(ShaderStage::Pixel, std::move(*bytecode), "OSVRDistortion")->GetD3DPixelShader());
     // The shader object is now owned by s_osvr_distortion_shader, no need to release the unique_ptr explicitly
     // as it goes out of scope. The underlying D3D resource is AddRef'd.
   }
   if (!s_osvr_distortion_shader)
   {
-    PanicAlert("Failed to compile OSVR distortion pixel shader.");
+    PanicAlertFmt("Failed to compile OSVR distortion pixel shader.");
   }
 }
 

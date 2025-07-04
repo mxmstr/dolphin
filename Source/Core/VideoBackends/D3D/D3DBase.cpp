@@ -25,10 +25,10 @@
 // This is a temporary shim. Ideally, VR.h provides these.
 static LUID* g_hmd_luid = nullptr;
 //static char g_hmd_device_name[256] = "";
-static bool g_has_hmd = false;
-static int g_hmd_window_width = 0;
-static int g_hmd_window_height = 0;
-static bool g_is_direct_mode = false; // Assuming default
+bool g_has_hmd = false;
+int g_hmd_window_width = 0;
+int g_hmd_window_height = 0;
+bool g_is_direct_mode = false; // Assuming default
 #endif
 
 
