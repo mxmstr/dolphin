@@ -62,15 +62,15 @@ public:
   static void RotateView(float x, float y);
   static void ResetView();
 
-  static DOLPHIN_FORCE_INLINE void UpdateValue(bool* dirty, u32* old_value, u32 new_value)
+  static DOLPHIN_FORCE_INLINE void UpdateValue(bool* pDirty, u32* old_value, u32 new_value)
   {
     if (*old_value == new_value)
       return;
     *old_value = new_value;
-    *dirty = true;
+    *pDirty = true;
   }
 
-  static DOLPHIN_FORCE_INLINE void UpdateOffset(bool* dirty, bool include_components,
+  static DOLPHIN_FORCE_INLINE void UpdateOffset(bool* pDirty, bool include_components,
                                                 u32* old_value, const AttributeFormat& attribute)
   {
     if (!attribute.enable)
@@ -78,16 +78,16 @@ public:
     u32 new_value = attribute.offset / 4;  // GPU uses uint offsets
     if (include_components)
       new_value |= attribute.components << 16;
-    UpdateValue(dirty, old_value, new_value);
+    UpdateValue(pDirty, old_value, new_value);
   }
 
   template <size_t N>
-  static DOLPHIN_FORCE_INLINE void UpdateOffsets(bool* dirty, bool include_components,
+  static DOLPHIN_FORCE_INLINE void UpdateOffsets(bool* pDirty, bool include_components,
                                                  std::array<u32, N>* old_value,
                                                  const std::array<AttributeFormat, N>& attribute)
   {
     for (size_t i = 0; i < N; i++)
-      UpdateOffset(dirty, include_components, &(*old_value)[i], attribute[i]);
+      UpdateOffset(pDirty, include_components, &(*old_value)[i], attribute[i]);
   }
 
   DOLPHIN_FORCE_INLINE void SetVertexFormat(u32 components, const PortableVertexDeclaration& format)

@@ -14,6 +14,13 @@
 #include "Common/HRWrap.h"
 #include "Common/WindowSystemInfo.h"
 
+#define SAFE_RELEASE(x)                                                                            \
+  {                                                                                                \
+    if (x)                                                                                         \
+      (x)->Release();                                                                              \
+    (x) = nullptr;                                                                                 \
+  }
+
 namespace DX11
 {
 using Microsoft::WRL::ComPtr;

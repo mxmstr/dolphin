@@ -18,6 +18,8 @@
 #include "VideoCommon/VideoConfig.h"
 #include "VideoCommon/VertexShaderManager.h" // Added for m_layer_on_top
 
+extern BPMemory bpmem;
+
 namespace DX11
 {
 namespace D3D
@@ -462,7 +464,7 @@ ID3D11DepthStencilState* StateCache::Get(DepthState state)
   // Assuming VertexShaderManager::m_layer_on_top will be made available.
   // This might need to be VR::IsHudMode() or similar if m_layer_on_top is not directly accessible or suitable.
   if (VertexShaderManager::m_layer_on_top)
-    state.func = ZMode::Function::Always;
+    state.func = bpmem.zmode.func;
 
   std::lock_guard<std::mutex> guard(m_lock);
   auto it = m_depth.find(state.hex);

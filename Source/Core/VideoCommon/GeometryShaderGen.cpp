@@ -441,12 +441,12 @@ ShaderCode GenerateAvatarGeometryShaderCode(PrimitiveType primitive_type, APITyp
   {
     if (host_config.backend_gs_instancing)
     {
-      out.Write("layout(%s, invocations = %d) in;\n", primitives_ogl[primitive_type_index], num_layers);
+      out.Write("layout(%s, invocations = %d) in;\n", primitives_ogl.data()[primitive_type_index], num_layers);
       out.Write("layout(%s_strip, max_vertices = %d) out;\n", wireframe ? "line" : "triangle", vertex_out);
     }
     else
     {
-      out.Write("layout(%s) in;\n", primitives_ogl[primitive_type_index]);
+      out.Write("layout(%s) in;\n", primitives_ogl.data()[primitive_type_index]);
       out.Write("layout(%s_strip, max_vertices = %d) out;\n", wireframe ? "line" : "triangle", vertex_out * num_layers);
     }
   }
@@ -515,13 +515,13 @@ ShaderCode GenerateAvatarGeometryShaderCode(PrimitiveType primitive_type, APITyp
     {
       out.Write("[maxvertexcount(%d)]\n[instance(%d)]\n", vertex_out, num_layers);
       out.Write("void main(%s VS_OUTPUT o[%d], inout %sStream<VertexData> output, in uint InstanceID : SV_GSInstanceID)\n{\n",
-                primitives_d3d[primitive_type_index], vertex_in, wireframe ? "Line" : "Triangle");
+                primitives_d3d.data()[primitive_type_index], vertex_in, wireframe ? "Line" : "Triangle");
     }
     else
     {
       out.Write("[maxvertexcount(%d)]\n", vertex_out * num_layers);
       out.Write("void main(%s VS_OUTPUT o[%d], inout %sStream<VertexData> output)\n{\n",
-                primitives_d3d[primitive_type_index], vertex_in, wireframe ? "Line" : "Triangle");
+                primitives_d3d.data()[primitive_type_index], vertex_in, wireframe ? "Line" : "Triangle");
     }
     out.Write("\tVertexData ps;\n");
   }

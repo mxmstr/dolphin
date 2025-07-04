@@ -27,6 +27,7 @@
 #include "VideoBackends/D3D/DXShader.h"
 #include "VideoBackends/D3D/DXTexture.h"
 #include "VideoBackends/D3D/VRD3D.h"
+#include "VideoBackends/D3DCommon/D3DCommon.h"
 
 #include "VideoCommon/BPFunctions.h"
 #include "VideoCommon/FramebufferManager.h"
@@ -133,6 +134,8 @@ Gfx::Gfx(std::unique_ptr<SwapChain> swap_chain, float backbuffer_scale)
 Gfx::~Gfx()
 {
   ShutdownUtilityShaders(); // Shutdown utility shaders
+  D3DCommon::ShutdownD3DCommonResources(); // Shutdown shaders for DrawVideoQuad
+
   if (g_ActiveConfig.bEnableVR && g_has_hmd)
   {
     VR_StopFramebuffer(); // From VRD3D.cpp - releases eye textures
@@ -263,11 +266,6 @@ bool Gfx::BindBackbuffer(const ClearColor& clear_color)
 
 void Gfx::PresentBackbuffer()
 {
-  m_swap_chain->Present();
-}
-
-void Gfx::PresentBackbuffer()
-{
   if (g_ActiveConfig.bEnableVR && g_has_hmd && m_stereo3d)
   {
     // VR Rendering Path
@@ -291,8 +289,8 @@ void Gfx::PresentBackbuffer()
 
     // Define EFB source rectangle (full EFB)
     D3D11_RECT efb_source_rect = CD3D11_RECT(0, 0, efb_dx_texture->GetWidth(), efb_dx_texture->GetHeight());
-    UINT efb_source_width = efb_dx_texture->GetWidth();
-    UINT efb_source_height = efb_dx_texture->GetHeight();
+    //UINT efb_source_width = efb_dx_texture->GetWidth();
+    //UINT efb_source_height = efb_dx_texture->GetHeight();
 
     // TODO: AvatarDrawer would be drawn here if ported and active, likely before eye loops or per-eye.
     // s_avatarDrawer.Draw(); // From Hydra
@@ -302,10 +300,20 @@ void Gfx::PresentBackbuffer()
       DX11::VR_RenderToEyebuffer(eye);
 
       // TODO: Set up viewport for this eye texture if it's different from EFB size
-      // For now, assume eye buffer is same size as EFB for direct blit.
+      // Get eye texture dimensions for viewport and destination size
+      UINT eye_tex_width = 0;
+      UINT eye_tex_height = 0;
+      DX11::GetEyeTextureDimensions(eye, &eye_tex_width, &eye_tex_height);
+
+      if (eye_tex_width == 0 || eye_tex_height == 0)
+      {
+          ERROR_LOG_FMT(VR, "Failed to get dimensions for eye {} texture. Skipping render for this eye.", eye);
+          continue; // Skip rendering for this eye if dimensions are invalid
+      }
+
       D3D11_VIEWPORT eye_viewport = CD3D11_VIEWPORT(0.0f, 0.0f,
-                                                 (float)m_frontBuffer[eye]->GetWidth(),
-                                                 (float)m_frontBuffer[eye]->GetHeight(),
+                                                 (float)eye_tex_width,
+                                                 (float)eye_tex_height,
                                                  0.0f, 1.0f);
       D3D::context->RSSetViewports(1, &eye_viewport);
 
@@ -325,18 +333,18 @@ void Gfx::PresentBackbuffer()
       // For now, this is a conceptual blit.
       D3DCommon::DrawVideoQuad(efb_dx_texture->GetD3DSRV(),
                                efb_source_rect,
-                               m_frontBuffer[eye]->GetWidth(), m_frontBuffer[eye]->GetHeight(),
+                               (float)eye_tex_width, (float)eye_tex_height,
                                0.0f, // sx_scale
                                0.0f, // sy_scale
                                1.0f, // Gamma,
-                               0,    // slice for array textures, or eye index for stereo shaders
+                               eye,  // Pass the current eye index
                                D3DCommon::MONO_VIDEO_QUAD); // Shader type - needs a stereo/VR version or parameter
 
       // TODO: Draw OSD messages per eye if needed
       // OSD::DrawMessages(); // This would need to be adapted for VR context
     }
 
-    VR_PresentHMDFrame(); // Submits m_frontBuffer[0] and m_frontBuffer[1]
+    VR_PresentHMDFrame(); // Submits DX11::m_frontBuffer[0] and DX11::m_frontBuffer[1] (implicitly)
 
     // Synchronous Timewarp
     if (g_ActiveConfig.bSynchronousTimewarp)
@@ -356,16 +364,18 @@ void Gfx::PresentBackbuffer()
 
         for (int i = 0; i < extra_timewarp_frames; ++i)
         {
-            bool should_recenter, should_quit;
-            VR_CheckStatus(&should_recenter, &should_quit);
+            bool should_recenter = false; // Initialize to avoid uninitialized read
+            bool should_quit = false;    // Initialize to avoid uninitialized read
+            VR_CheckStatus(&should_recenter, &should_quit); // Call VR_CheckStatus
 
-            if (!should_quit)
+            if (should_quit) // Check should_quit to break loop
             {
-                VR_GetEyePoses(); // Update poses for timewarp
-                VR_DrawTimewarpFrame();
-            } else {
                 break;
             }
+            // TODO: Handle should_recenter if necessary (e.g., by calling VR_RecenterPose())
+
+            VR_GetEyePoses(); // Update poses for timewarp
+            VR_DrawTimewarpFrame(); // Call VR_DrawTimewarpFrame
         }
     }
     // End of VR Rendering Path

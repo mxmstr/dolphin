@@ -223,6 +223,7 @@ int mirror_width = 0, mirror_height = 0;
 #endif // OVR_MAJOR_VERSION
 
 #ifdef HAVE_OPENVR
+// These are defined as globals within this CPP file for OpenVR eye textures
 ComPtr<ID3D11Texture2D> m_left_texture = nullptr;
 ComPtr<ID3D11Texture2D> m_right_texture = nullptr;
 // We need RTVs for these textures to render to them
@@ -230,6 +231,62 @@ ComPtr<ID3D11RenderTargetView> m_left_texture_rtv = nullptr;
 ComPtr<ID3D11RenderTargetView> m_right_texture_rtv = nullptr;
 
 #endif
+
+
+void GetEyeTextureDimensions(int eye, UINT* width, UINT* height)
+{
+    if (!width || !height)
+    {
+        ERROR_LOG_FMT(VR, "GetEyeTextureDimensions: width or height pointer is null");
+        return;
+    }
+    *width = 0; *height = 0;
+
+#ifdef HAVE_OPENVR
+    if (g_has_openvr)
+    {
+        ID3D11Texture2D* pTexture = nullptr;
+        if (eye == 0 && m_left_texture) pTexture = m_left_texture.Get();
+        else if (eye == 1 && m_right_texture) pTexture = m_right_texture.Get();
+
+        if (pTexture)
+        {
+            D3D11_TEXTURE2D_DESC desc;
+            pTexture->GetDesc(&desc);
+            *width = desc.Width;
+            *height = desc.Height;
+            return;
+        }
+    }
+#endif
+#ifdef OVR_MAJOR_VERSION
+    if (g_has_rift && hmd) // Check hmd to be safe
+    {
+        // For Oculus, dimensions might come from pEyeRenderTexture or eyeRenderViewport
+        // This path assumes modern Oculus SDK (>= 0.6) where pEyeRenderTexture is used
+        if (pEyeRenderTexture[eye] && eyeRenderViewport[eye].Size.w > 0) {
+            *width = eyeRenderViewport[eye].Size.w;
+            *height = eyeRenderViewport[eye].Size.h;
+            return;
+        }
+        // Fallback for older SDKs or if above fails
+        if (hmdDesc.DefaultEyeFov[eye].UpTan != 0) // Check if hmdDesc is valid
+        {
+            ovrSizei idealSize = ovr_GetFovTextureSize(hmd, (ovrEyeType)eye, hmdDesc.DefaultEyeFov[eye], 1.0f);
+            *width = idealSize.w;
+            *height = idealSize.h;
+            return;
+        }
+    }
+#endif
+    // Fallback if no VR system provided dimensions
+    if (*width == 0 || *height == 0) {
+        WARN_LOG_FMT(VR, "GetEyeTextureDimensions: Could not determine dimensions for eye {}. Defaulting to EFB size.", eye);
+        *width = FramebufferManager::GetEFBWidth();
+        *height = FramebufferManager::GetEFBHeight();
+    }
+}
+
 
 void VR_ConfigureHMD()
 {
