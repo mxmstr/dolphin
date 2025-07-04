@@ -197,7 +197,7 @@ struct ProjectionHackConfig final
 // NEVER inherit from this class.
 struct VideoConfig final
 {
-  VideoConfig() = default;
+  VideoConfig();// = default;
   void Refresh();
   void VerifyValidity();
   static void Shutdown();

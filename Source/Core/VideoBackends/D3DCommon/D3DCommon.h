@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include <d3d11.h>
 #include <d3dcompiler.h>
 #include <dxgiformat.h>
 #include <string>
@@ -17,6 +18,26 @@ enum class AbstractTextureFormat : u32;
 
 namespace D3DCommon
 {
+enum VideoQuadType
+{
+  MONO_VIDEO_QUAD,
+  // Add STEREO_VIDEO_QUAD or other types as needed later
+};
+
+void DrawVideoQuad(
+    ID3D11ShaderResourceView* texture_srv,
+    const D3D11_RECT& source_rect, // Source rectangle in texture pixels
+    float dest_width,              // Destination width in screen pixels
+    float dest_height,             // Destination height in screen pixels
+    float sx_scale,                // Texture coordinate X scale (typically 1.0 or for sub-regions)
+    float sy_scale,                // Texture coordinate Y scale (typically 1.0 or for sub-regions)
+    float gamma,                   // Gamma correction value
+    int eye,                       // Eye index (0 for left, 1 for right) or slice for texture arrays
+    VideoQuadType type             // Shader type to use
+);
+
+void ShutdownD3DCommonResources();
+
 // Loading dxgi.dll and d3dcompiler.dll
 bool LoadLibraries();
 void UnloadLibraries();

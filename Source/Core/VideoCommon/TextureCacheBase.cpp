@@ -2375,7 +2375,7 @@ void TextureCacheBase::CopyRenderTargetToTexture(
       entry->may_have_overlapping_textures = false;
       entry->is_custom_tex = false;
 
-      CopyEFBToCacheEntry(entry, is_depth_copy, srcRect, scaleByHalf, linear_filter, dstFormat,
+      CopyEFBToCacheEntry(entry, is_depth_copy, effective_efb_source_rect, scaleByHalf, linear_filter, dstFormat,
                           isIntensity, gamma, clamp_top, clamp_bottom,
                           GetVRAMCopyFilterCoefficients(filter_coefficients));
 
@@ -2426,7 +2426,7 @@ void TextureCacheBase::CopyRenderTargetToTexture(
     std::unique_ptr<AbstractStagingTexture> staging_texture = GetEFBCopyStagingTexture();
     if (staging_texture)
     {
-      CopyEFB(staging_texture.get(), format, tex_w, bytes_per_row, num_blocks_y, dstStride, srcRect,
+      CopyEFB(staging_texture.get(), format, tex_w, bytes_per_row, num_blocks_y, dstStride, effective_efb_source_rect,
               scaleByHalf, linear_filter, y_scale, gamma, clamp_top, clamp_bottom, coefficients);
 
       // We can't defer if there is no VRAM copy (since we need to update the hash).
@@ -2668,7 +2668,7 @@ void TextureCacheBase::CopyEFBToCacheEntry(RcTcacheEntry& entry, bool is_depth_c
 
   // This is the crucial change: Resolve the EFB based on effective_efb_source_rect (which might be ourSrcRect)
   // but the actual_game_src_rect tells us what portion of that resolved EFB we care about.
-  const auto full_efb_rect_scaled = g_framebuffer_manager->ConvertEFBRectangle(effective_efb_source_rect);
+  const auto full_efb_rect_scaled = g_framebuffer_manager->ConvertEFBRectangle(actual_game_src_rect);
   const auto full_efb_framebuffer_rect = g_gfx->ConvertFramebufferRectangle(
       full_efb_rect_scaled, g_framebuffer_manager->GetEFBFramebuffer());
   AbstractTexture* src_texture =
@@ -2772,7 +2772,7 @@ void TextureCacheBase::CopyEFB(AbstractStagingTexture* dst, const EFBCopyParams&
   // Resolve EFB based on effective_efb_source_rect (which is global here, or should be passed if different from gameSrcRect for this call)
   // For CopyEFB (to RAM), the srcRect parameter has always been the game's intended source.
   // If VR implies a different EFB layout, effective_efb_source_rect should be used for resolving.
-  const auto full_efb_rect_scaled = g_framebuffer_manager->ConvertEFBRectangle(effective_efb_source_rect);
+  const auto full_efb_rect_scaled = g_framebuffer_manager->ConvertEFBRectangle(actual_game_src_rect);
   const auto full_efb_framebuffer_rect = g_gfx->ConvertFramebufferRectangle(
       full_efb_rect_scaled, g_framebuffer_manager->GetEFBFramebuffer());
   AbstractTexture* src_texture =

@@ -20,7 +20,12 @@
 
 namespace DX11
 {
+// Forward declare DXTexture
+// class DXTexture;  // Not needed if m_frontBuffer is removed
+// extern DXTexture* m_frontBuffer[2]; // Removed, m_frontBuffer is not the OpenVR eye texture array
+
 void VR_ConfigureHMD();
+void GetEyeTextureDimensions(int eye, UINT* width, UINT* height);
 void VR_StartFramebuffer();
 void VR_StopFramebuffer();
 void VR_RenderToEyebuffer(int eye, int hmd_number = 0);

@@ -2,6 +2,9 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include "VideoBackends/D3DCommon/D3DCommon.h"
+#include "VideoBackends/D3D/D3DBase.h"
+#include "VideoBackends/D3D/D3DState.h"
+#include "VideoBackends/D3D/DXShader.h"
 
 #include <d3d11_4.h>
 #include <d3d12.h>
@@ -16,6 +19,47 @@
 
 #include "VideoCommon/TextureConfig.h"
 #include "VideoCommon/VideoConfig.h"
+#include "VideoCommon/AbstractShader.h"
+
+// Simple pass-through vertex shader (HLSL)
+static const char* s_simple_vs_code = R"(
+struct VS_INPUT
+{
+    float4 Pos : POSITION;
+    float2 Tex : TEXCOORD0;
+};
+
+struct PS_INPUT
+{
+    float4 Pos : SV_POSITION;
+    float2 Tex : TEXCOORD0;
+};
+
+PS_INPUT Main(VS_INPUT input)
+{
+    PS_INPUT output;
+    output.Pos = input.Pos;
+    output.Tex = input.Tex;
+    return output;
+}
+)";
+
+// Simple texture sampling pixel shader (HLSL)
+static const char* s_simple_ps_code = R"(
+Texture2D g_texture : register(t0);
+SamplerState g_sampler : register(s0);
+
+struct PS_INPUT
+{
+    float4 Pos : SV_POSITION;
+    float2 Tex : TEXCOORD0;
+};
+
+float4 Main(PS_INPUT input) : SV_Target
+{
+    return g_texture.Sample(g_sampler, input.Tex);
+}
+)";
 
 namespace D3DCommon
 {
@@ -24,6 +68,13 @@ pD3DCompile d3d_compile;
 static Common::DynamicLibrary s_dxgi_library;
 static Common::DynamicLibrary s_d3dcompiler_library;
 static bool s_libraries_loaded = false;
+
+static std::unique_ptr<AbstractShader> s_simple_vs_abs_shader;
+static std::unique_ptr<AbstractShader> s_simple_ps_abs_shader;
+static ID3D11VertexShader* s_simple_d3d_vs = nullptr;
+static ID3D11PixelShader* s_simple_d3d_ps = nullptr;
+static ID3D11InputLayout* s_simple_input_layout = nullptr;
+static ID3D11SamplerState* s_linear_sampler = nullptr;
 
 static HRESULT (*create_dxgi_factory)(REFIID riid, _COM_Outptr_ void** ppFactory);
 static HRESULT (*create_dxgi_factory2)(UINT Flags, REFIID riid, void** ppFactory);
@@ -307,5 +358,182 @@ void SetDebugObjectName(IUnknown* resource, std::string_view name)
     child12->SetPrivateData(WKPDID_D3DDebugObjectName, static_cast<UINT>(name.length()),
                             name.data());
   }
+}
+
+static void InitializeSimpleShaders()
+{
+    if (s_simple_d3d_vs && s_simple_d3d_ps && s_simple_input_layout && s_linear_sampler)
+        return;
+
+    // Compile Vertex Shader
+    auto vs_bytecode_opt = DX11::DXShader::CompileShader(DX11::D3D::feature_level, ShaderStage::Vertex, s_simple_vs_code);
+    if (vs_bytecode_opt)
+    {
+        s_simple_vs_abs_shader = DX11::DXShader::CreateFromBytecode(ShaderStage::Vertex, std::move(*vs_bytecode_opt), "SimpleVS_D3DCommon");
+    }
+    if (!s_simple_vs_abs_shader)
+    {
+        ERROR_LOG_FMT(VIDEO, "Failed to compile/create simple vertex shader for D3DCommon::DrawVideoQuad");
+        return;
+    }
+    s_simple_d3d_vs = static_cast<DX11::DXShader*>(s_simple_vs_abs_shader.get())->GetD3DVertexShader();
+
+    // Create Input Layout
+    const D3D11_INPUT_ELEMENT_DESC input_elements[] = {
+        {"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0},
+        {"TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 12, D3D11_INPUT_PER_VERTEX_DATA, 0},
+    };
+    auto* dx_vs = static_cast<DX11::DXShader*>(s_simple_vs_abs_shader.get());
+    HRESULT hr = DX11::D3D::device->CreateInputLayout(input_elements, ARRAYSIZE(input_elements),
+                                dx_vs->GetByteCode().data(),
+                                dx_vs->GetByteCode().size(),
+                                &s_simple_input_layout);
+    if (FAILED(hr))
+    {
+        ERROR_LOG_FMT(VIDEO, "Failed to create input layout for D3DCommon::DrawVideoQuad: %08x", hr);
+        s_simple_vs_abs_shader.reset();
+        s_simple_d3d_vs = nullptr;
+        return;
+    }
+    
+    // Compile Pixel Shader
+    auto ps_bytecode_opt = DX11::DXShader::CompileShader(DX11::D3D::feature_level, ShaderStage::Pixel, s_simple_ps_code);
+    if (ps_bytecode_opt)
+    {
+        s_simple_ps_abs_shader = DX11::DXShader::CreateFromBytecode(ShaderStage::Pixel, std::move(*ps_bytecode_opt), "SimplePS_D3DCommon");
+    }
+    if (!s_simple_ps_abs_shader)
+    {
+        ERROR_LOG_FMT(VIDEO, "Failed to compile/create simple pixel shader for D3DCommon::DrawVideoQuad");
+        s_simple_vs_abs_shader.reset();
+        s_simple_d3d_vs = nullptr;
+        SAFE_RELEASE(s_simple_input_layout); // s_simple_input_layout is a COM object
+        return;
+    }
+    s_simple_d3d_ps = static_cast<DX11::DXShader*>(s_simple_ps_abs_shader.get())->GetD3DPixelShader();
+
+    // Create Sampler State
+    D3D11_SAMPLER_DESC samp_desc = {};
+    samp_desc.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
+    samp_desc.AddressU = D3D11_TEXTURE_ADDRESS_CLAMP;
+    samp_desc.AddressV = D3D11_TEXTURE_ADDRESS_CLAMP;
+    samp_desc.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
+    samp_desc.ComparisonFunc = D3D11_COMPARISON_NEVER;
+    samp_desc.MinLOD = 0;
+    samp_desc.MaxLOD = D3D11_FLOAT32_MAX;
+    hr = DX11::D3D::device->CreateSamplerState(&samp_desc, &s_linear_sampler);
+    if (FAILED(hr))
+    {
+        ERROR_LOG_FMT(VIDEO, "Failed to create sampler state for D3DCommon::DrawVideoQuad: {}", hr);
+        s_simple_vs_abs_shader.reset();
+        s_simple_ps_abs_shader.reset();
+        s_simple_d3d_vs = nullptr;
+        s_simple_d3d_ps = nullptr;
+        SAFE_RELEASE(s_simple_input_layout);
+        // s_linear_sampler will be nullptr here, SAFE_RELEASE is fine
+    }
+}
+
+static void ShutdownSimpleShaders()
+{
+    s_simple_vs_abs_shader.reset();
+    s_simple_ps_abs_shader.reset();
+    s_simple_d3d_vs = nullptr; 
+    s_simple_d3d_ps = nullptr;
+    SAFE_RELEASE(s_simple_input_layout);
+    SAFE_RELEASE(s_linear_sampler);
+}
+
+
+void DrawVideoQuad(
+    ID3D11ShaderResourceView* texture_srv,
+    const D3D11_RECT& source_rect, // Source rectangle in texture pixels
+    float dest_width,              // Destination width in screen pixels
+    float dest_height,             // Destination height in screen pixels
+    float sx_scale,                // Texture coordinate X scale (typically 1.0 or for sub-regions)
+    float sy_scale,                // Texture coordinate Y scale (typically 1.0 or for sub-regions)
+    float gamma,                   // Gamma correction value
+    int eye,                       // Eye index (0 for left, 1 for right) or slice for texture arrays
+    VideoQuadType type             // Shader type to use
+)
+{
+    InitializeSimpleShaders();
+    if (!s_simple_d3d_vs || !s_simple_d3d_ps || !s_simple_input_layout || !s_linear_sampler)
+    {
+        ERROR_LOG_FMT(VIDEO, "Cannot DrawVideoQuad, simple shaders not initialized properly.");
+        return;
+    }
+
+    DX11::D3D::stateman->SetVertexShader(s_simple_d3d_vs);
+    DX11::D3D::stateman->SetPixelShader(s_simple_d3d_ps);
+    DX11::D3D::stateman->SetInputLayout(s_simple_input_layout);
+    DX11::D3D::stateman->SetSampler(0, s_linear_sampler); // Assuming sampler at slot 0
+    DX11::D3D::stateman->SetTexture(0, texture_srv);     // Assuming texture at slot 0
+
+    struct Vertex
+    {
+        float x, y, z;
+        float u, v;
+    };
+
+    // Simple screen quad, texcoords assume full texture [0,1] range.
+    // source_rect, sx_scale, sy_scale would be used to adjust these UVs.
+    Vertex vertices[] = {
+        {-1.0f,  1.0f, 0.0f, 0.0f, 0.0f}, // Top-left
+        { 1.0f,  1.0f, 0.0f, 1.0f, 0.0f}, // Top-right
+        {-1.0f, -1.0f, 0.0f, 0.0f, 1.0f}, // Bottom-left
+        { 1.0f, -1.0f, 0.0f, 1.0f, 1.0f}, // Bottom-right
+    };
+
+    u16 indices[] = {0, 1, 2, 2, 1, 3};
+
+    ID3D11Buffer* vertex_buffer = nullptr;
+    D3D11_SUBRESOURCE_DATA vb_data = {vertices, 0, 0};
+    CD3D11_BUFFER_DESC vb_desc(sizeof(vertices), D3D11_BIND_VERTEX_BUFFER, D3D11_USAGE_IMMUTABLE);
+    HRESULT hr = DX11::D3D::device->CreateBuffer(&vb_desc, &vb_data, &vertex_buffer);
+     if (FAILED(hr)) {
+        ERROR_LOG_FMT(VIDEO, "Failed to create vertex buffer for DrawVideoQuad: {}", hr);
+        DX11::D3D::stateman->SetPixelShader(nullptr);
+        DX11::D3D::stateman->SetVertexShader(nullptr);
+        DX11::D3D::stateman->SetInputLayout(nullptr);
+        DX11::D3D::stateman->SetSampler(0, nullptr);
+        return;
+    }
+
+    ID3D11Buffer* index_buffer = nullptr;
+    D3D11_SUBRESOURCE_DATA ib_data = {indices, 0, 0};
+    CD3D11_BUFFER_DESC ib_desc(sizeof(indices), D3D11_BIND_INDEX_BUFFER, D3D11_USAGE_IMMUTABLE);
+    hr = DX11::D3D::device->CreateBuffer(&ib_desc, &ib_data, &index_buffer);
+    if (FAILED(hr)) {
+        ERROR_LOG_FMT(VIDEO, "Failed to create index buffer for DrawVideoQuad: {}", hr);
+        SAFE_RELEASE(vertex_buffer);
+        DX11::D3D::stateman->SetPixelShader(nullptr);
+        DX11::D3D::stateman->SetVertexShader(nullptr);
+        DX11::D3D::stateman->SetInputLayout(nullptr);
+        DX11::D3D::stateman->SetSampler(0, nullptr);
+        return;
+    }
+    
+    UINT stride = sizeof(Vertex);
+    UINT offset = 0;
+    DX11::D3D::context->IASetVertexBuffers(0, 1, &vertex_buffer, &stride, &offset);
+    DX11::D3D::context->IASetIndexBuffer(index_buffer, DXGI_FORMAT_R16_UINT, 0);
+    DX11::D3D::context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+
+    DX11::D3D::stateman->Apply();
+    DX11::D3D::context->DrawIndexed(ARRAYSIZE(indices), 0, 0);
+
+    SAFE_RELEASE(vertex_buffer);
+    SAFE_RELEASE(index_buffer);
+
+    DX11::D3D::stateman->SetPixelShader(nullptr);
+    DX11::D3D::stateman->SetVertexShader(nullptr);
+    DX11::D3D::stateman->SetInputLayout(nullptr);
+    DX11::D3D::stateman->SetSampler(0, nullptr);
+}
+
+void ShutdownD3DCommonResources()
+{
+    ShutdownSimpleShaders();
 }
 }  // namespace D3DCommon
