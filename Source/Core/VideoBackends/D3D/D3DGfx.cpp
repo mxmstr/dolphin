@@ -26,6 +26,7 @@
 #include "VideoBackends/D3D/DXPipeline.h"
 #include "VideoBackends/D3D/DXShader.h"
 #include "VideoBackends/D3D/DXTexture.h"
+#include "VideoBackends/D3D/VRD3D.h"
 
 #include "VideoCommon/BPFunctions.h"
 #include "VideoCommon/FramebufferManager.h"
@@ -281,7 +282,7 @@ void Gfx::PresentBackbuffer()
     DXTexture* efb_dx_texture = static_cast<DXTexture*>(efb_abstract_texture);
     if (!efb_dx_texture || !efb_dx_texture->GetD3DSRV())
     {
-      ERROR_LOG(VR_D3D, "Failed to get EFB texture for VR rendering.");
+      ERROR_LOG_FMT(VR, "Failed to get EFB texture for VR rendering.");
       // Fallback to normal presentation or error out? For now, try to present to screen.
       if (m_swap_chain)
         m_swap_chain->Present();
@@ -298,7 +299,7 @@ void Gfx::PresentBackbuffer()
 
     for (int eye = 0; eye < m_eye_count; ++eye)
     {
-      VR_D3D_RenderToEyeBuffer(this, eye);
+      DX11::VR_RenderToEyebuffer(eye);
 
       // TODO: Set up viewport for this eye texture if it's different from EFB size
       // For now, assume eye buffer is same size as EFB for direct blit.
@@ -335,7 +336,7 @@ void Gfx::PresentBackbuffer()
       // OSD::DrawMessages(); // This would need to be adapted for VR context
     }
 
-    VR_D3D_SubmitFrameToHMD(); // Submits m_frontBuffer[0] and m_frontBuffer[1]
+    VR_PresentHMDFrame(); // Submits m_frontBuffer[0] and m_frontBuffer[1]
 
     // Synchronous Timewarp
     if (g_ActiveConfig.bSynchronousTimewarp)
@@ -355,10 +356,13 @@ void Gfx::PresentBackbuffer()
 
         for (int i = 0; i < extra_timewarp_frames; ++i)
         {
-            if (!VR_GetShouldQuit()) // VR_GetShouldQuit from VideoCommon/VR.h
+            bool should_recenter, should_quit;
+            VR_CheckStatus(&should_recenter, &should_quit);
+
+            if (!should_quit)
             {
                 VR_GetEyePoses(); // Update poses for timewarp
-                VR_D3D_DrawTimewarpFrame(this);
+                VR_DrawTimewarpFrame();
             } else {
                 break;
             }
@@ -389,12 +393,12 @@ void Gfx::OnConfigChanged(u32 bits)
         if(g_has_hmd){
             m_stereo3d = true;
             m_eye_count = 2;
-            VR_D3D_ConfigureHMD();
-            VR_D3D_StartFramebuffer(this);
+            VR_ConfigureHMD();
+            VR_StartFramebuffer();
         }
     } else if (!g_ActiveConfig.bEnableVR && m_stereo3d) { // VR just got disabled
         if(g_has_hmd){
-            VR_D3D_StopFramebuffer(this);
+            VR_StopFramebuffer();
             VR_StopRendering(); // Generic
             VR_Shutdown(); // Generic
         }
@@ -409,8 +413,8 @@ void Gfx::OnConfigChanged(u32 bits)
   if (bits & CONFIG_CHANGE_BIT_TARGET_SIZE && g_ActiveConfig.bEnableVR && m_stereo3d && g_has_hmd)
   {
     // Recreate eye buffers if target size changed
-    VR_D3D_StopFramebuffer(this);
-    VR_D3D_StartFramebuffer(this);
+    VR_StopFramebuffer();
+    VR_StartFramebuffer();
   }
 }
 
