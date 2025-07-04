@@ -36,6 +36,13 @@
 
 namespace VertexLoaderManager
 {
+BitSet8 g_main_vat_dirty;
+BitSet8 g_preprocess_vat_dirty;
+bool g_bases_dirty;  // Main only
+std::array<VertexLoaderBase*, CP_NUM_VAT_REG> g_main_vertex_loaders;
+std::array<VertexLoaderBase*, CP_NUM_VAT_REG> g_preprocess_vertex_loaders;
+bool g_needs_cp_xf_consistency_check;
+
 // Used by zfreeze
 std::array<u32, 3> position_matrix_index_cache;
 // 3 vertices, 4 floats each to allow SIMD overwrite

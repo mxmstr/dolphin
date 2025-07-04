@@ -390,7 +390,7 @@ static void InitializeSimpleShaders()
                                 &s_simple_input_layout);
     if (FAILED(hr))
     {
-        ERROR_LOG_FMT(VIDEO, "Failed to create input layout for D3DCommon::DrawVideoQuad: %08x", hr);
+        ERROR_LOG_FMT(VIDEO, "Failed to create input layout for D3DCommon::DrawVideoQuad: {}", hr);
         s_simple_vs_abs_shader.reset();
         s_simple_d3d_vs = nullptr;
         return;

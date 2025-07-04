@@ -361,7 +361,7 @@ void VideoConfig::Refresh()
   bEnableVR = Config::Get(Config::GLOBAL_VR_ENABLE_VR);
   bLowPersistence = Config::Get(Config::GLOBAL_VR_LOW_PERSISTENCE);
   bDynamicPrediction = Config::Get(Config::GLOBAL_VR_DYNAMIC_PREDICTION);
-  bool bNoMirrorToWindow = Config::Get(Config::GLOBAL_VR_NO_MIRROR_TO_WINDOW); // Temp variable for logic below
+  //bool bNoMirrorToWindow = Config::Get(Config::GLOBAL_VR_NO_MIRROR_TO_WINDOW); // Temp variable for logic below
   bOrientationTracking = Config::Get(Config::GLOBAL_VR_ORIENTATION_TRACKING);
   bMagYawCorrection = Config::Get(Config::GLOBAL_VR_MAG_YAW_CORRECTION);
   bPositionTracking = Config::Get(Config::GLOBAL_VR_POSITION_TRACKING);

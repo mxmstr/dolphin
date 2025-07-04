@@ -182,7 +182,7 @@ typedef struct ALIGN_TO_EIGHT_BYTE_BOUNDARY
 typedef struct
 {
   unsigned Flags, RequestedMinorVersion;
-  ovrLogCallback LogCallback;
+  //ovrLogCallback LogCallback;
   unsigned ConnectionTimeoutMS;
 } ovrInitParams;
 

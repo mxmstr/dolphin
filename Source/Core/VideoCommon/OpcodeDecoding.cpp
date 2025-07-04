@@ -33,11 +33,11 @@
 #include "VideoCommon/VideoConfig.h" // For g_ActiveConfig for GLOBAL_VR_NUM_EXTRA_VIDEO_LOOPS_DIVIDER
 
 // Define global variables for Opcode Replay
-bool g_opcode_replay_enabled = false;
-bool g_opcode_replay_frame = false;
-bool g_opcode_replay_log_frame = false;
-int skipped_opcode_replay_count = 0;
-std::vector<TimewarpLogEntry> timewarp_logentries;
+//bool g_opcode_replay_enabled = false;
+//bool g_opcode_replay_frame = false;
+//bool g_opcode_replay_log_frame = false;
+//int skipped_opcode_replay_count = 0;
+//std::vector<TimewarpLogEntry> timewarp_logentries;
 
 namespace OpcodeDecoder
 {

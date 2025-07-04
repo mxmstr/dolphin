@@ -441,26 +441,26 @@ ShaderCode GenerateAvatarGeometryShaderCode(PrimitiveType primitive_type, APITyp
   {
     if (host_config.backend_gs_instancing)
     {
-      out.Write("layout(%s, invocations = %d) in;\n", primitives_ogl.data()[primitive_type_index], num_layers);
-      out.Write("layout(%s_strip, max_vertices = %d) out;\n", wireframe ? "line" : "triangle", vertex_out);
+      out.Write(FMT_STRING("layout({}, invocations = {}) in;\n"), primitives_ogl.data()[primitive_type_index], num_layers);
+      out.Write(FMT_STRING("layout({}_strip, max_vertices = {}) out;\n"), wireframe ? "line" : "triangle", vertex_out);
     }
     else
     {
-      out.Write("layout(%s) in;\n", primitives_ogl.data()[primitive_type_index]);
-      out.Write("layout(%s_strip, max_vertices = %d) out;\n", wireframe ? "line" : "triangle", vertex_out * num_layers);
+      out.Write(FMT_STRING("layout({}) in;\n"), primitives_ogl.data()[primitive_type_index]);
+      out.Write(FMT_STRING("layout({}_strip, max_vertices = {}) out;\n"), wireframe ? "line" : "triangle", vertex_out * num_layers);
     }
   }
 
   // Uniforms (GSBlock is already defined with I_STEREOPARAMS etc. via s_geometry_shader_uniforms)
   if (api_type == APIType::OpenGL || api_type == APIType::Vulkan)
-    out.Write("UBO_BINDING(std140, 4) uniform GSBlock {\n");
+    out.Write("UBO_BINDING(std140, 4) uniform GSBlock {{\n");
   else
-    out.Write("cbuffer GSBlock {\n");
-  out.Write("%s", s_geometry_shader_uniforms); // This now includes I_STEREOPARAMS
-  out.Write("};\n");
+    out.Write("cbuffer GSBlock {{\n");
+  out.Write(FMT_STRING("{}"), s_geometry_shader_uniforms); // This now includes I_STEREOPARAMS
+  out.Write("}};\n");
 
   // Simplified VS_OUTPUT for avatars (pos, one color, one texcoord)
-  out.Write("struct VS_OUTPUT {\n");
+  out.Write("struct VS_OUTPUT {{\n");
   out.Write("\tfloat4 pos;\n");
   out.Write("\tfloat4 colors_0;\n"); // Assuming one color attribute
   out.Write("\tfloat3 tex0;\n");    // Assuming one texture coordinate
@@ -469,58 +469,58 @@ ShaderCode GenerateAvatarGeometryShaderCode(PrimitiveType primitive_type, APITyp
     out.Write("\tfloat clipDist0;\n");
     out.Write("\tfloat clipDist1;\n");
   }
-  out.Write("};\n");
+  out.Write("}};\n");
 
   if (api_type == APIType::OpenGL || api_type == APIType::Vulkan)
   {
     if (host_config.backend_gs_instancing)
       out.Write("#define InstanceID gl_InvocationID\n");
 
-    out.Write("VARYING_LOCATION(0) in VertexData {\n");
-    out.Write("\t%s float4 pos;\n", GetInterpolationQualifier(host_config.msaa, host_config.ssaa, true, true));
-    out.Write("\t%s float4 colors_0;\n", GetInterpolationQualifier(host_config.msaa, host_config.ssaa, true, true));
-    out.Write("\t%s float3 tex0;\n", GetInterpolationQualifier(host_config.msaa, host_config.ssaa, true, true));
+    out.Write("VARYING_LOCATION(0) in VertexData {{\n");
+    out.Write(FMT_STRING("\t{} float4 pos;\n"), GetInterpolationQualifier(host_config.msaa, host_config.ssaa, true, true));
+    out.Write(FMT_STRING("\t{} float4 colors_0;\n"), GetInterpolationQualifier(host_config.msaa, host_config.ssaa, true, true));
+    out.Write(FMT_STRING("\t{} float3 tex0;\n"), GetInterpolationQualifier(host_config.msaa, host_config.ssaa, true, true));
     if (host_config.backend_depth_clamp && DriverDetails::HasBug(DriverDetails::BUG_BROKEN_CLIP_DISTANCE))
     {
        out.Write("\tfloat clipDist0;\n"); // Match VS_OUTPUT members
        out.Write("\tfloat clipDist1;\n");
     }
-    out.Write("} vs[%d];\n", vertex_in);
+    out.Write(FMT_STRING("}} vs[{}];\n"), vertex_in);
 
-    out.Write("VARYING_LOCATION(0) out VertexData {\n");
-    out.Write("\t%s float4 pos;\n", GetInterpolationQualifier(host_config.msaa, host_config.ssaa, true, false));
-    out.Write("\t%s float4 colors_0;\n", GetInterpolationQualifier(host_config.msaa, host_config.ssaa, true, false));
-    out.Write("\t%s float3 tex0;\n", GetInterpolationQualifier(host_config.msaa, host_config.ssaa, true, false));
+    out.Write("VARYING_LOCATION(0) out VertexData {{\n");
+    out.Write(FMT_STRING("\t{} float4 pos;\n"), GetInterpolationQualifier(host_config.msaa, host_config.ssaa, true, false));
+    out.Write(FMT_STRING("\t{} float4 colors_0;\n"), GetInterpolationQualifier(host_config.msaa, host_config.ssaa, true, false));
+    out.Write(FMT_STRING("\t{} float3 tex0;\n"), GetInterpolationQualifier(host_config.msaa, host_config.ssaa, true, false));
      if (host_config.backend_depth_clamp) // Match VS_OUTPUT members
     {
        out.Write("\tfloat clipDist0;\n");
        out.Write("\tfloat clipDist1;\n");
     }
-    out.Write("} ps;\n");
+    out.Write("}} ps;\n");
     if ((vr || stereo) && !host_config.backend_gl_layer_in_fs)
        out.Write("flat out int layer;\n");
 
-    out.Write("void main()\n{\n");
+    out.Write("void main()\n{{\n");
   }
   else  // D3D
   {
-    out.Write("struct VertexData {\n");
+    out.Write("struct VertexData {{\n");
     out.Write("\tVS_OUTPUT o;\n");
     if (vr || stereo) // Use num_layers logic here
       out.Write("\tuint layer : SV_RenderTargetArrayIndex;\n");
     out.Write("\tfloat4 posout : SV_Position;\n");
-    out.Write("};\n");
+    out.Write("}};\n");
 
     if (host_config.backend_gs_instancing)
     {
-      out.Write("[maxvertexcount(%d)]\n[instance(%d)]\n", vertex_out, num_layers);
-      out.Write("void main(%s VS_OUTPUT o[%d], inout %sStream<VertexData> output, in uint InstanceID : SV_GSInstanceID)\n{\n",
+      out.Write(FMT_STRING("[maxvertexcount({})]\n[instance({})]\n"), vertex_out, num_layers);
+      out.Write(FMT_STRING("void main({} VS_OUTPUT o[{}], inout {}Stream<VertexData> output, in uint InstanceID : SV_GSInstanceID)\n{{\n"),
                 primitives_d3d.data()[primitive_type_index], vertex_in, wireframe ? "Line" : "Triangle");
     }
     else
     {
-      out.Write("[maxvertexcount(%d)]\n", vertex_out * num_layers);
-      out.Write("void main(%s VS_OUTPUT o[%d], inout %sStream<VertexData> output)\n{\n",
+      out.Write(FMT_STRING("[maxvertexcount({})]\n"), vertex_out * num_layers);
+      out.Write(FMT_STRING("void main({} VS_OUTPUT o[{}], inout {}Stream<VertexData> output)\n{{\n"),
                 primitives_d3d.data()[primitive_type_index], vertex_in, wireframe ? "Line" : "Triangle");
     }
     out.Write("\tVertexData ps;\n");
@@ -535,14 +535,14 @@ ShaderCode GenerateAvatarGeometryShaderCode(PrimitiveType primitive_type, APITyp
     if (host_config.backend_gs_instancing)
       out.Write("\tint eye = InstanceID;\n");
     else
-      out.Write("\tfor (int eye = 0; eye < %d; ++eye) {\n", num_layers);
+      out.Write(FMT_STRING("\tfor (int eye = 0; eye < {}; ++eye) {{\n"), num_layers);
   }
 
   if (wireframe)
     out.Write("\tVS_OUTPUT first;\n");
 
   if (vertex_in > 1)
-    out.Write("\tfor (int i = 0; i < %d; ++i) {\n", vertex_in);
+    out.Write(FMT_STRING("\tfor (int i = 0; i < {}; ++i) {{\n"), vertex_in);
   else
     out.Write("\tint i = 0;\n");
 
@@ -621,14 +621,14 @@ ShaderCode GenerateAvatarGeometryShaderCode(PrimitiveType primitive_type, APITyp
   // End simplified EmitVertex for avatars
 
   if (vertex_in > 1)
-    out.Write("\t}\n"); // End for (int i = 0; ...
+    out.Write("\t}}\n"); // End for (int i = 0; ...
 
   EndPrimitive(out, host_config, &avatar_uid_data, api_type, wireframe, (stereo || vr));
 
   if ((vr || stereo) && !host_config.backend_gs_instancing)
-    out.Write("\t}\n"); // End for (int eye = 0; ...
+    out.Write("\t}}\n"); // End for (int eye = 0; ...
 
-  out.Write("}\n"); // End main
+  out.Write("}}\n"); // End main
   return out;
 }
 // --- End of GenerateAvatarGeometryShaderCode ---

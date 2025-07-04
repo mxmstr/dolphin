@@ -35,7 +35,7 @@ namespace DX11
 {
 class Gfx;
 }
-extern std::unique_ptr<DX11::Gfx> g_renderer;
+extern std::unique_ptr<AbstractGfx> g_gfx;
 
 // Temporary stand-ins for Gfx members until a proper solution is found
 // bool g_is_stereo = false; // To be updated based on g_ActiveConfig.stereo_mode
@@ -259,37 +259,39 @@ void GetEyeTextureDimensions(int eye, UINT* width, UINT* height)
         }
     }
 #endif
-#ifdef OVR_MAJOR_VERSION
-    if (g_has_rift && hmd) // Check hmd to be safe
-    {
-        // For Oculus, dimensions might come from pEyeRenderTexture or eyeRenderViewport
-        // This path assumes modern Oculus SDK (>= 0.6) where pEyeRenderTexture is used
-        if (pEyeRenderTexture[eye] && eyeRenderViewport[eye].Size.w > 0) {
-            *width = eyeRenderViewport[eye].Size.w;
-            *height = eyeRenderViewport[eye].Size.h;
-            return;
-        }
-        // Fallback for older SDKs or if above fails
-        if (hmdDesc.DefaultEyeFov[eye].UpTan != 0) // Check if hmdDesc is valid
-        {
-            ovrSizei idealSize = ovr_GetFovTextureSize(hmd, (ovrEyeType)eye, hmdDesc.DefaultEyeFov[eye], 1.0f);
-            *width = idealSize.w;
-            *height = idealSize.h;
-            return;
-        }
-    }
-#endif
+//#ifdef OVR_MAJOR_VERSION
+//    if (g_has_rift && hmd) // Check hmd to be safe
+//    {
+//        // For Oculus, dimensions might come from pEyeRenderTexture or eyeRenderViewport
+//        // This path assumes modern Oculus SDK (>= 0.6) where pEyeRenderTexture is used
+//        if (pEyeRenderTexture[eye] && eyeRenderViewport[eye].Size.w > 0) {
+//            *width = eyeRenderViewport[eye].Size.w;
+//            *height = eyeRenderViewport[eye].Size.h;
+//            return;
+//        }
+//        // Fallback for older SDKs or if above fails
+//        if (hmdDesc.DefaultEyeFov[eye].UpTan != 0) // Check if hmdDesc is valid
+//        {
+//            ovrSizei idealSize = ovr_GetFovTextureSize(hmd, (ovrEyeType)eye, hmdDesc.DefaultEyeFov[eye], 1.0f);
+//            *width = idealSize.w;
+//            *height = idealSize.h;
+//            return;
+//        }
+//    }
+//#endif
     // Fallback if no VR system provided dimensions
     if (*width == 0 || *height == 0) {
         WARN_LOG_FMT(VR, "GetEyeTextureDimensions: Could not determine dimensions for eye {}. Defaulting to EFB size.", eye);
-        *width = FramebufferManager::GetEFBWidth();
-        *height = FramebufferManager::GetEFBHeight();
+        *width = g_framebuffer_manager->GetEFBWidth();
+        *height = g_framebuffer_manager->GetEFBHeight();
     }
 }
 
 
 void VR_ConfigureHMD()
 {
+  DX11::Gfx* g_gfx_dx11 = static_cast<DX11::Gfx*>(g_gfx.get());
+
 #ifdef HAVE_OPENVR
   if (g_has_openvr && m_pCompositor)
   {
@@ -312,15 +314,15 @@ void VR_ConfigureHMD()
     cfg.D3D11.Header.Multisample = 0; // TODO: Use g_ActiveConfig.iMultisamples?
     cfg.D3D11.pDevice = D3D::device.Get();
     cfg.D3D11.pDeviceContext = D3D::context.Get();
-    if (g_renderer && g_renderer->GetSwapChain())
-      cfg.D3D11.pSwapChain = static_cast<DX11::SwapChain*>(g_renderer->GetSwapChain())->GetDXGISwapChain();
+    if (g_gfx_dx11 && g_gfx_dx11->GetSwapChain())
+      cfg.D3D11.pSwapChain = static_cast<DX11::SwapChain*>(g_gfx_dx11->GetSwapChain())->GetDXGISwapChain();
     else
       cfg.D3D11.pSwapChain = nullptr;
 
     // GetBackBuffer is not available directly, need to go via swapchain framebuffer
-    if (g_renderer && g_renderer->GetSwapChain())
+    if (g_gfx_dx11 && g_gfx_dx11->GetSwapChain())
     {
-       DXFramebuffer* fb = static_cast<DX11::SwapChain*>(g_renderer->GetSwapChain())->GetFramebuffer();
+       DXFramebuffer* fb = static_cast<DX11::SwapChain*>(g_gfx_dx11->GetSwapChain())->GetFramebuffer();
        if (fb && fb->GetRTVArray() && *fb->GetRTVArray())
           cfg.D3D11.pBackBufferRT = *fb->GetRTVArray();
        else
@@ -651,6 +653,8 @@ void VR_RenderToEyebuffer(int eye, int hmd_number)
 
 void VR_PresentHMDFrame()
 {
+  DX11::Gfx* g_gfx_dx11 = static_cast<DX11::Gfx*>(g_gfx.get());
+
 #ifdef HAVE_OPENVR
   if (g_has_openvr && m_pCompositor && m_left_texture && m_right_texture)
   {
@@ -666,9 +670,9 @@ void VR_PresentHMDFrame()
     // g_last_tracking_time = Common::Timer::NowMs() / 1000.0; // Timer::NowMs might not exist
 
     if (g_ActiveConfig.iMirrorStyle != VR_MIRROR_DISABLED &&
-        g_ActiveConfig.iMirrorPlayer != VR_PLAYER_NONE && g_renderer && g_renderer->GetSwapChain())
+        g_ActiveConfig.iMirrorPlayer != VR_PLAYER_NONE && g_gfx_dx11 && g_gfx_dx11->GetSwapChain())
     {
-      DX11::SwapChain* swap_chain = static_cast<DX11::SwapChain*>(g_renderer->GetSwapChain());
+      DX11::SwapChain* swap_chain = static_cast<DX11::SwapChain*>(g_gfx_dx11->GetSwapChain());
       AbstractTexture* efb_resolved_tex = g_framebuffer_manager->GetEFBColorTexture(); // Or ResolveEFBColorTexture if MSAA
 
       if (efb_resolved_tex) // Ensure EFB texture is valid
@@ -691,7 +695,7 @@ void VR_PresentHMDFrame()
 
           D3D::context->RSSetViewports(1, &vp);
 
-          ID3D11ShaderResourceView* srv_to_draw = (eye_to_draw == 0) ? static_cast<DXTexture*>(g_framebuffer_manager->GetEFBColorTexture())->GetD3DSRV() : static_cast<DXTexture*>(g_framebuffer_manager->GetEFBColorTexture())->GetD3DSRV(); // Placeholder for actual eye SRVs
+          //ID3D11ShaderResourceView* srv_to_draw = (eye_to_draw == 0) ? static_cast<DXTexture*>(g_framebuffer_manager->GetEFBColorTexture())->GetD3DSRV() : static_cast<DXTexture*>(g_framebuffer_manager->GetEFBColorTexture())->GetD3DSRV(); // Placeholder for actual eye SRVs
           // This needs to use the SRV from m_left_texture or m_right_texture if mirroring those
           // For now, let's assume we are mirroring the EFB content, which might be one of the eyes already.
           // If we want to mirror the submitted textures:

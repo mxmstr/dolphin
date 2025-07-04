@@ -45,15 +45,15 @@ ViewportType g_viewport_type = ViewportType::VIEW_FULLSCREEN;
 ViewportType g_old_viewport_type = ViewportType::VIEW_FULLSCREEN;
 
 // VR statistics / state tracking globals
-float vr_widest_3d_HFOV = 0.0f;
-float vr_widest_3d_VFOV = 0.0f;
-float vr_widest_3d_zNear = 0.0f;
-float vr_widest_3d_zFar = 0.0f;
+//float vr_widest_3d_HFOV = 0.0f;
+//float vr_widest_3d_VFOV = 0.0f;
+//float vr_widest_3d_zNear = 0.0f;
+//float vr_widest_3d_zFar = 0.0f;
 // int vr_widest_3d_projNum = -1; // If debug logging with projNum is ported
 
 // Game camera stabilization globals (set by CheckOrientationConstants)
-Common::Matrix44 g_game_camera_rotmat = Common::Matrix44::Identity();
-float g_game_camera_pos[3] = {0.0f, 0.0f, 0.0f};
+//Common::Matrix44 g_game_camera_rotmat = Common::Matrix44::Identity();
+//float g_game_camera_pos[3] = {0.0f, 0.0f, 0.0f};
 extern bool g_vr_had_3D_already;
 
 namespace // Anonymous namespace for VR helpers and related statics
@@ -142,9 +142,9 @@ void ScaleRequestedToRendered(const MathUtil::Rectangle<int>& requested, MathUti
 }
 
 // Logging stubs
-static void ClearDebugProj() { /* Stub */ }
-static void DoLogViewport(int j, const Viewport& v, ViewportType type) { /* Stub */ }
-static void DoLogProj(int j, const float p[], const char* layer_name_str, ProjectionType proj_type) { /* Stub */ }
+//static void ClearDebugProj() { /* Stub */ }
+//static void DoLogViewport(int j, const Viewport& v, ViewportType type) { /* Stub */ }
+//static void DoLogProj(int j, const float p[], const char* layer_name_str, ProjectionType proj_type) { /* Stub */ }
 
 static void LogProj(const float p[], ProjectionType proj_type) {
     // TODO: Port game-specific layer detection (e.g., VR::GetGameSpecificLayerInfo) if used.
@@ -764,7 +764,7 @@ void VertexShaderManager::SetConstants(const std::vector<std::string>& textures,
         }
         g_fProjectionMatrix[12]=0.0f; g_fProjectionMatrix[13]=0.0f; g_fProjectionMatrix[14]=0.0f; g_fProjectionMatrix[15]=1.0f;
         break;
-      default: ERROR_LOG_FMT(VIDEO, "Unknown projection type: %d", xfmem.projection.type);
+      default: ERROR_LOG_FMT(VIDEO, "Unknown projection type: {}", xfmem.projection.type);
     }
     LogProj(rawProjection.data(), xfmem.projection.type); // Update VR stats like widest FOV
 

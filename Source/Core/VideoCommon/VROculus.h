@@ -14,7 +14,7 @@
 #endif
 
 #ifdef HAVE_OCULUSSDK
-#include "OVR_Version.h"
+//#include "OVR_Version.h"
 #ifndef OVR_PRODUCT_VERSION
 #define OVR_PRODUCT_VERSION 0
 #endif
@@ -27,16 +27,16 @@ typedef ovrSession ovrHmd;
 #include "Extras/OVR_Math.h"
 #else
 #if OVR_MAJOR_VERSION <= 4
-#include "Kernel/OVR_Types.h"
+//#include "Kernel/OVR_Types.h"
 #else
 #define OCULUSSDK044ORABOVE
 #define OVR_DLL_BUILD
 #endif
-#include "OVR_CAPI.h"
+//#include "OVR_CAPI.h"
 #if OVR_MAJOR_VERSION >= 5
-#include "Extras/OVR_Math.h"
+//#include "Extras/OVR_Math.h"
 #else
-#include "Kernel/OVR_Math.h"
+//#include "Kernel/OVR_Math.h"
 
 // Detect which version of the Oculus SDK we are using
 #if OVR_MINOR_VERSION >= 4
@@ -48,12 +48,12 @@ typedef ovrSession ovrHmd;
 #define OCULUSSDK042
 #endif
 #else
-Error, Oculus SDK 0.3.x is no longer supported
+//Error, Oculus SDK 0.3.x is no longer supported
 #endif
 
-extern "C" {
-void ovrhmd_EnableHSWDisplaySDKRender(ovrHmd hmd, ovrBool enabled);
-}
+//extern "C" {
+//void ovrhmd_EnableHSWDisplaySDKRender(ovrHmd hmd, ovrBool enabled);
+//}
 #endif
 #endif
 

@@ -23,12 +23,12 @@
 // Forward declare HMD LUID if not available through VR.h (adjust as necessary)
 #if !defined(G_HMD_LUID) && !defined(g_hmd_luid)
 // This is a temporary shim. Ideally, VR.h provides these.
-static LUID* g_hmd_luid = nullptr;
+extern LUID* g_hmd_luid;
 //static char g_hmd_device_name[256] = "";
-bool g_has_hmd = false;
-int g_hmd_window_width = 0;
-int g_hmd_window_height = 0;
-bool g_is_direct_mode = false; // Assuming default
+extern bool g_has_hmd;
+extern int g_hmd_window_width;
+extern int g_hmd_window_height;
+extern bool g_is_direct_mode; // Assuming default
 #endif
 
 
@@ -161,7 +161,8 @@ bool Create(const WindowSystemInfo& wsi, u32 adapter_index, bool enable_debug_la
       WARN_LOG_FMT(VIDEO, "Adapter {} not found, using default adapter: {}", adapter_index, DX11HRWrap(hr));
       hr = dxgi_factory->EnumAdapters(0, adapter.GetAddressOf()); // Default adapter
       if(FAILED(hr)){
-        PanicAlertFmtT("Failed to get default adapter: {}", DX11HRWrap(hr));
+        ERROR_LOG_FMT(VIDEO, "Failed to get default adapter: {}",  DX11HRWrap(hr));
+        //PanicAlertFmtT("Failed to get default adapter: {}", hr);
         dxgi_factory.Reset();
         D3DCommon::UnloadLibraries();
         s_d3d11_library.Close();
@@ -277,10 +278,14 @@ bool Create(const WindowSystemInfo& wsi, u32 adapter_index, bool enable_debug_la
 
   if (FAILED(hr))
   {
-    PanicAlertFmtT("Failed to create Direct3D device (VR path: {}, Non-VR path: {}).\nMake sure "
+    ERROR_LOG_FMT(VIDEO, "Failed to create Direct3D device (VR path: {}, Non-VR path: {}).\nMake sure "
+      "your video card supports at least D3D 10.0\n{}",
+      (g_has_hmd&& pfnD3D11CreateDeviceAndSwapChain),
+      !(g_has_hmd&& pfnD3D11CreateDeviceAndSwapChain), DX11HRWrap(hr));
+    /*PanicAlertFmtT("Failed to create Direct3D device (VR path: {0}, Non-VR path: {1}).\nMake sure "
                    "your video card supports at least D3D 10.0\n{}",
                    (g_has_hmd && pfnD3D11CreateDeviceAndSwapChain),
-                   !(g_has_hmd && pfnD3D11CreateDeviceAndSwapChain), DX11HRWrap(hr));
+                   !(g_has_hmd && pfnD3D11CreateDeviceAndSwapChain), DX11HRWrap(hr));*/
     dxgi_factory.Reset();
     D3DCommon::UnloadLibraries();
     s_d3d11_library.Close();

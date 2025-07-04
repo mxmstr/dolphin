@@ -185,7 +185,7 @@ void VR_NewVRFrame()
   }
   g_vr_had_3D_already = false;
   skip_objects_count = 0;
-  ClearDebugProj();
+  //ClearDebugProj();
 
   // Prevent motion sickness: estimate how fast we are moving, and reduce the FOV if we are moving
   // fast
@@ -283,7 +283,7 @@ bool BInitCompositor()
   {
     m_pCompositor = nullptr;
 
-    NOTICE_LOG_FMT(VR, "Compositor initialization failed with error: %s: %s\n",
+    NOTICE_LOG_FMT(VR, "Compositor initialization failed with error: {}: {}\n",
                vr::VR_GetVRInitErrorAsSymbol(peError),
                vr::VR_GetVRInitErrorAsEnglishDescription(peError));
     return false;
@@ -396,7 +396,7 @@ bool InitOpenVR()
       {
         if (!BInitCompositor())
         {
-          ERROR_LOG_FMT(VR, "%s - Failed to initialize OpenVR Compositor!\n", __FUNCTION__);
+          ERROR_LOG_FMT(VR, "{} - Failed to initialize OpenVR Compositor!\n", __FUNCTION__);
           g_has_openvr = false;
         }
       }
@@ -871,23 +871,23 @@ void ProcessVREvent(const vr::VREvent_t& event)
   case vr::VREvent_TrackedDeviceActivated:
   {
     // SetupRenderModelForTrackedDevice(event.trackedDeviceIndex);
-    NOTICE_LOG_FMT(VR, "Device %u attached. Setting up render model.\n", event.trackedDeviceIndex);
+    NOTICE_LOG_FMT(VR, "Device {} attached. Setting up render model.\n", event.trackedDeviceIndex);
     break;
   }
   case vr::VREvent_TrackedDeviceDeactivated:
   {
-    NOTICE_LOG_FMT(VR, "Device %u detached.\n", event.trackedDeviceIndex);
+    NOTICE_LOG_FMT(VR, "Device {} detached.\n", event.trackedDeviceIndex);
     break;
   }
   case vr::VREvent_TrackedDeviceUpdated:
   {
-    NOTICE_LOG_FMT(VR, "Device %u updated.\n", event.trackedDeviceIndex);
+    NOTICE_LOG_FMT(VR, "Device {} updated.\n", event.trackedDeviceIndex);
     break;
   }
   case vr::VREvent_IpdChanged:
   {
     g_openvr_ipd = event.data.ipd.ipdMeters;
-    NOTICE_LOG_FMT(VR, "IPD changed to %fm", g_openvr_ipd);
+    NOTICE_LOG_FMT(VR, "IPD changed to {}", g_openvr_ipd);
   }
   }
 }
@@ -2403,35 +2403,35 @@ void OpcodeReplayBuffer()
         ++extra_video_loops_count;
         skipped_opcode_replay_count = 0;
 
-        for (TimewarpLogEntry& entry : timewarp_logentries)
-        {
-          // VertexManager::s_pCurBufferPointer = s_pCurBufferPointer_log.at(i);
-          // VertexManager::s_pEndBufferPointer = s_pEndBufferPointer_log.at(i);
-          // VertexManager::s_pBaseBufferPointer = s_pBaseBufferPointer_log.at(i);
+        //for (TimewarpLogEntry& entry : timewarp_logentries)
+        //{
+        //  // VertexManager::s_pCurBufferPointer = s_pCurBufferPointer_log.at(i);
+        //  // VertexManager::s_pEndBufferPointer = s_pEndBufferPointer_log.at(i);
+        //  // VertexManager::s_pBaseBufferPointer = s_pBaseBufferPointer_log.at(i);
 
-          // if (i == 0)
-          //{
-          // SCPFifoStruct &fifo = CommandProcessor::fifo;
+        //  // if (i == 0)
+        //  //{
+        //  // SCPFifoStruct &fifo = CommandProcessor::fifo;
 
-          // fifo.CPBase = CPBase_log.at(i);
-          // fifo.CPEnd = CPEnd_log.at(i);
-          // fifo.CPHiWatermark = CPHiWatermark_log.at(i);
-          // fifo.CPLoWatermark = CPLoWatermark_log.at(i);
-          // fifo.CPReadWriteDistance = CPReadWriteDistance_log.at(i);
-          // fifo.CPWritePointer = CPWritePointer_log.at(i);
-          // fifo.CPReadPointer = CPReadPointer_log.at(i);
-          // fifo.CPBreakpoint = CPBreakpoint_log.at(i);
-          //}
+        //  // fifo.CPBase = CPBase_log.at(i);
+        //  // fifo.CPEnd = CPEnd_log.at(i);
+        //  // fifo.CPHiWatermark = CPHiWatermark_log.at(i);
+        //  // fifo.CPLoWatermark = CPLoWatermark_log.at(i);
+        //  // fifo.CPReadWriteDistance = CPReadWriteDistance_log.at(i);
+        //  // fifo.CPWritePointer = CPWritePointer_log.at(i);
+        //  // fifo.CPReadPointer = CPReadPointer_log.at(i);
+        //  // fifo.CPBreakpoint = CPBreakpoint_log.at(i);
+        //  //}
 
-          /*if (entry.is_preprocess_log)
-          {
-            OpcodeDecoder::Run<true>(entry.timewarp_log, nullptr, false);
-          }
-          else
-          {
-            OpcodeDecoder::Run<false>(entry.timewarp_log, nullptr, false);
-          }*/
-        }
+        //  /*if (entry.is_preprocess_log)
+        //  {
+        //    OpcodeDecoder::Run<true>(entry.timewarp_log, nullptr, false);
+        //  }
+        //  else
+        //  {
+        //    OpcodeDecoder::Run<false>(entry.timewarp_log, nullptr, false);
+        //  }*/
+        //}
       }
       else
       {
@@ -2497,7 +2497,7 @@ void OpcodeReplayBufferInline()
       if (real_framerate != old_rate)
       {
         // MessageBeep(MB_ICONASTERISK);
-        WARN_LOG_FMT(VR, "new FPS = %d", real_framerate);
+        WARN_LOG_FMT(VR, "new FPS = {}", real_framerate);
         replay_count = 0;
         old_rate = real_framerate;
       }
@@ -2601,20 +2601,20 @@ void OpcodeReplayBufferInline()
     g_opcode_replay_frame = true;
     skipped_opcode_replay_count = 0;
 
-    for (int num_extra_frames = 0; num_extra_frames < extra_video_loops; ++num_extra_frames)
-    {
-      for (TimewarpLogEntry& entry : timewarp_logentries)
-      {
-        /*if (entry.is_preprocess_log)
-        {
-          OpcodeDecoder::Run<true>(entry.timewarp_log, nullptr, false);
-        }
-        else
-        {
-          OpcodeDecoder::Run<false>(entry.timewarp_log, nullptr, false);
-        }*/
-      }
-    }
+    //for (int num_extra_frames = 0; num_extra_frames < extra_video_loops; ++num_extra_frames)
+    //{
+    //  for (TimewarpLogEntry& entry : timewarp_logentries)
+    //  {
+    //    /*if (entry.is_preprocess_log)
+    //    {
+    //      OpcodeDecoder::Run<true>(entry.timewarp_log, nullptr, false);
+    //    }
+    //    else
+    //    {
+    //      OpcodeDecoder::Run<false>(entry.timewarp_log, nullptr, false);
+    //    }*/
+    //  }
+    //}
     timewarp_logentries.clear();
     timewarp_logentries.resize(0);
     g_opcode_replay_frame = false;

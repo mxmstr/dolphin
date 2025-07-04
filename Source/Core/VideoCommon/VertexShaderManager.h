@@ -26,7 +26,7 @@ enum ViewportType
   VIEW_OFFSCREEN,
   VIEW_RENDER_TO_TEXTURE,
 };
-ViewportType g_viewport_type, g_old_viewport_type;
+extern ViewportType g_viewport_type, g_old_viewport_type;// = ViewportType::VIEW_FULLSCREEN;
 
 class PointerWrap;
 struct PortableVertexDeclaration;
