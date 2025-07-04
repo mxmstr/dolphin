@@ -32,32 +32,6 @@ const int DEFAULT_VR_EXTRA_VIDEO_LOOPS_DIVIDER = 0;
 #define VR_MIRROR_WARPED 3
 #define VR_MIRROR_BOTH 4
 
-#define OCULUS_BUTTON_A 1
-#define OCULUS_BUTTON_B 2
-#define OCULUS_BUTTON_RTHUMB 4
-#define OCULUS_BUTTON_RSHOULDER 8
-#define OCULUS_BUTTON_RTRIGGER 0x10
-#define OCULUS_BUTTON_RPOINT 0x20
-#define OCULUS_BUTTON_RTHUMBUP 0x40
-
-#define OCULUS_BUTTON_X 0x100
-#define OCULUS_BUTTON_Y 0x200
-#define OCULUS_BUTTON_LTHUMB 0x400
-#define OCULUS_BUTTON_LSHOULDER 0x800
-#define OCULUS_BUTTON_LTRIGGER 0x1000
-#define OCULUS_BUTTON_LPOINT 0x2000
-#define OCULUS_BUTTON_LTHUMBUP 0x4000
-
-#define OCULUS_BUTTON_UP 0x10000
-#define OCULUS_BUTTON_DOWN 0x20000
-#define OCULUS_BUTTON_LEFT 0x40000
-#define OCULUS_BUTTON_RIGHT 0x80000
-#define OCULUS_BUTTON_ENTER 0x100000
-#define OCULUS_BUTTON_BACK 0x200000
-#define OCULUS_BUTTON_PLUS 0x400000
-#define OCULUS_BUTTON_MINUS 0x800000
-#define OCULUS_BUTTON_HOME 0x1000000
-
 #define VIVE_BUTTON_LEFT_SYSTEM 0x01
 #define VIVE_BUTTON_LEFT_MENU 0x02
 #define VIVE_BUTTON_LEFT_GRIP 0x04
@@ -176,10 +150,6 @@ void VR_GetFovTextureSize(int* width, int* height);
 
 std::wstring VR_GetAudioDeviceId();
 
-bool VR_GetRemoteButtons(u32* buttons);
-bool VR_GetTouchButtons(u32* buttons, u32* touches, float m_triggers[], float m_axes[]);
-bool VR_SetTouchVibration(int hands, float freq, float amplitude);
-bool VR_GetHMDGestures(u32* gestures);
 bool VR_GetViveButtons(u32* buttons, u32* touches, u64* specials, float triggers[], float axes[]);
 bool VR_ViveHapticPulse(int hands, int microseconds);
 bool VR_GetAccel(int index, bool sideways, bool has_extension, float* gx, float* gy, float* gz);
@@ -198,12 +168,12 @@ void OpcodeReplayBuffer();
 void OpcodeReplayBufferInline();
 
 // HMD description and capabilities
-extern bool g_force_vr, g_prefer_openvr, g_one_hmd;
-extern bool g_has_hmd, g_has_two_hmds, g_has_rift, g_has_vr920, g_has_openvr, g_openvr_is_vive, g_openvr_is_rift;
-extern bool g_is_direct_mode, g_is_nes;
+extern bool g_force_vr; // User option to force VR mode.
+extern bool g_has_hmd, g_has_openvr, g_openvr_is_vive; // OpenVR related flags.
+extern bool g_is_nes; // This seems unrelated to VR SDK, keeping for now.
+// The following flags' default values might need adjustment in VR.cpp for an OpenVR-only setup.
 extern bool g_vr_cant_motion_blur, g_vr_must_motion_blur;
-extern bool g_vr_needs_endframe, g_vr_needs_DXGIFactory1, g_vr_can_disable_hsw,
-    g_vr_supports_extended;
+extern bool g_vr_needs_endframe, g_vr_needs_DXGIFactory1, g_vr_can_disable_hsw;
 extern bool g_vr_has_dynamic_predict, g_vr_has_configure_rendering, g_vr_has_hq_distortion;
 extern bool g_vr_has_configure_tracking, g_vr_has_timewarp_tweak, g_vr_has_asynchronous_timewarp;
 extern bool g_vr_should_swap_buffers, g_vr_dont_vsync;
@@ -271,5 +241,3 @@ extern std::atomic<u32> g_drawn_vr;
 }
 
 extern bool debug_nextScene;
-
-extern int g_ovr_frameindex;
