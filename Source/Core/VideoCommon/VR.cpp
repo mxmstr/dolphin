@@ -273,7 +273,8 @@ bool InitOpenVR()
   // g_hmd_window_x and g_hmd_window_y are not typically set by OpenVR this way.
 
 #ifdef _WIN32
-  if (m_pHMD->GetDXGIOutputInfo((int32_t*)&g_hmd_luid) && g_hmd_luid != nullptr)
+  m_pHMD->GetDXGIOutputInfo((int32_t*)&g_hmd_luid);
+  if (g_hmd_luid != nullptr)
   {
     // Successfully got LUID. This can be used by D3D backend to select the correct adapter.
     // The VR-Hydra reference did this for Oculus. It might be useful for OpenVR too in some cases.
@@ -281,7 +282,7 @@ bool InitOpenVR()
   }
 #endif
 
-  NOTICE_LOG_FMT(VR, "OpenVR Initialized Successfully. HMD: {}, IPD: {:.4f}m, Refresh: {}Hz, Rec Target: {}x{}",
+  NOTICE_LOG_FMT(VR, "OpenVR Initialized Successfully. HMD: {}, IPD: {}m, Refresh: {}Hz, Rec Target: {}x{}",
     m_strDisplay, g_openvr_ipd, g_hmd_refresh_rate, g_hmd_window_width, g_hmd_window_height);
 
   return true;
@@ -312,8 +313,8 @@ void VR_Init()
   // Update window settings if OpenVR provided them (done in InitOpenVR)
   if (g_has_hmd && g_hmd_window_width > 0 && g_hmd_window_height > 0)
   {
-    SConfig::GetInstance().iRenderWindowWidth = g_hmd_window_width;
-    SConfig::GetInstance().iRenderWindowHeight = g_hmd_window_height;
+    Config::SetCurrent(Config::MAIN_RENDER_WINDOW_WIDTH, g_hmd_window_width);
+    Config::SetCurrent(Config::MAIN_RENDER_WINDOW_HEIGHT, g_hmd_window_height);
     // Note: Setting fullscreen resolution or window position might conflict with OpenVR's direct mode.
     // It's usually best to let OpenVR manage the HMD display.
     // SConfig::GetInstance().strFullscreenResolution = StringFromFormat("%dx%d", g_hmd_window_width, g_hmd_window_height);
@@ -437,7 +438,7 @@ void UpdateOpenVRHeadTracking()
 
   g_older_tracking_time = g_old_tracking_time;
   g_old_tracking_time = g_last_tracking_time;
-  g_last_tracking_time = Common::Timer::GetTimeMs() / 1000.0; // Ensure Timer::GetTimeMs exists and is appropriate
+  g_last_tracking_time = Common::Timer::NowMs() / 1000.0; // Ensure Timer::GetTimeMs exists and is appropriate
 
   m_iValidPoseCount = 0;
   if (m_rTrackedDevicePose[vr::k_unTrackedDeviceIndex_Hmd].bPoseIsValid)
@@ -475,10 +476,10 @@ void UpdateOpenVRHeadTracking()
     rot_matrix.data[3] = mat.m[0][1]; rot_matrix.data[4] = mat.m[1][1]; rot_matrix.data[5] = mat.m[2][1];
     rot_matrix.data[6] = mat.m[0][2]; rot_matrix.data[7] = mat.m[1][2]; rot_matrix.data[8] = mat.m[2][2];
 
-    g_head_tracking_matrix = Common::Matrix44(rot_matrix);
+    g_head_tracking_matrix = Common::Matrix44::FromMatrix33(rot_matrix);
     // The translation part of the view matrix is -R^T * T_world
     Common::Vec3 transformed_pos = rot_matrix * g_head_tracking_position;
-    g_head_tracking_matrix.SetTranslate(Common::Vec3(-transformed_pos.x, -transformed_pos.y, -transformed_pos.z));
+    g_head_tracking_matrix *= Common::Matrix44::Translate(Common::Vec3(-transformed_pos.x, -transformed_pos.y, -transformed_pos.z));
 
   }
 }
@@ -600,10 +601,10 @@ std::wstring VR_GetAudioDeviceId()
   {
     char audio_device_id[vr::k_unMaxPropertyStringSize];
     vr::TrackedPropertyError error;
-    m_pHMD->GetStringTrackedDeviceProperty(vr::k_unTrackedDeviceIndex_Hmd, vr::Prop_AudioOut_AudioDevice_String, audio_device_id, sizeof(audio_device_id), &error);
+    m_pHMD->GetStringTrackedDeviceProperty(vr::k_unTrackedDeviceIndex_Hmd, vr::Prop_Audio_DefaultPlaybackDeviceId_String, audio_device_id, sizeof(audio_device_id), &error);
     if (error == vr::TrackedProp_Success && audio_device_id[0] != '\0')
     {
-        return Common::UTF8ToUTF16(audio_device_id);
+        return UTF8ToWString(std::string(audio_device_id));
     }
     else if (error != vr::TrackedProp_Success && error != vr::TrackedProp_ValueNotProvidedByDevice && error != vr::TrackedProp_UnknownProperty)
     {
@@ -807,7 +808,7 @@ bool VR_GetViveButtons(u32* buttons, u32* touches, u64* specials, float triggers
          (left_hand != vr::k_unTrackedDeviceIndexInvalid && !m_rTrackedDevicePose[left_hand].bPoseIsValid) ||
          (right_hand != vr::k_unTrackedDeviceIndexInvalid && !m_rTrackedDevicePose[right_hand].bPoseIsValid)))
     {
-      double t = Common::Timer::GetTimeMs() / 1000.0;
+      double t = Common::Timer::NowMs() / 1000.0;
       if (t - last_good_tracking_time > 1.0)
       {
         VR_PairViveControllers();
@@ -816,7 +817,7 @@ bool VR_GetViveButtons(u32* buttons, u32* touches, u64* specials, float triggers
     }
     else
     {
-      last_good_tracking_time = Common::Timer::GetTimeMs() / 1000.0;
+      last_good_tracking_time = Common::Timer::NowMs() / 1000.0;
     }
 
     vr::VRControllerState_t states[2];

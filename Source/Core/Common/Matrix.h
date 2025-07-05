@@ -390,7 +390,8 @@ public:
   // set result = a x b
   static void Multiply(const Matrix33& a, const Matrix33& b, Matrix33* result);
   static void Multiply(const Matrix33& a, const Vec3& vec, Vec3* result);
-
+  
+  Matrix33 Transposed() const;
   Matrix33 Inverted() const;
   float Determinant() const;
 

@@ -22,6 +22,7 @@
 #include "VideoCommon/VertexShaderManager.h"
 #include "VideoCommon/VideoConfig.h"
 #include "VideoCommon/VR.h"
+#include <openvr.h>
 // VROculus.h and OculusSystemLibraryHeader.h includes are already removed from VR.h
 // VROpenVR.h is included via VR.h if HAVE_OPENVR is defined
 
@@ -171,9 +172,15 @@ void VR_RenderToEyebuffer(int eye, int hmd_number /*= 0 This param is no longer 
       // Assuming a global or EFB depth buffer is used.
       // If each eye texture needs its own depth buffer, it should be created in VR_StartFramebuffer
       // and bound here.
-      ID3D11DepthStencilView* dsv = FramebufferManager::GetEFBDepthTexture() ?
-                                    FramebufferManager::GetEFBDepthTexture()->GetDSV() : nullptr;
-      D3D::context->OMSetRenderTargets(1, &rtv, dsv);
+      /*auto* dx_tex = static_cast<DXTexture*>(g_framebuffer_manager->GetEFBDepthTexture());
+      ID3D11DepthStencilView* dsv = dx_tex ?
+                                    dx_tex->GetDSV() : nullptr;
+      D3D::context->OMSetRenderTargets(1, &rtv, dsv);*/
+      if (g_framebuffer_manager->GetEFBFramebuffer())
+       {
+         auto* dx_fb = static_cast<DXFramebuffer*>(g_framebuffer_manager->GetEFBFramebuffer());
+         D3D::context->OMSetRenderTargets(1, &rtv, dx_fb->GetDSV());
+       }
     }
     else
     {
@@ -201,12 +208,12 @@ void VR_PresentHMDFrame()
     vr::Texture_t leftEyeTexture = {m_left_texture.Get(), vr::TextureType_DirectX, vr::ColorSpace_Gamma};
     vr::EVRCompositorError eErrorLeft = vr::VRCompositor()->Submit(vr::Eye_Left, &leftEyeTexture);
     if (eErrorLeft != vr::VRCompositorError_None)
-        WARN_LOG_FMT(VR, "Failed to submit left eye to OpenVR: {}", vr::VRCompositor()->GetCompositorErrorNameFromEnum(eErrorLeft));
+        WARN_LOG_FMT(VR, "Failed to submit left eye to OpenVR: {}", eErrorLeft);
 
     vr::Texture_t rightEyeTexture = {m_right_texture.Get(), vr::TextureType_DirectX, vr::ColorSpace_Gamma};
     vr::EVRCompositorError eErrorRight = vr::VRCompositor()->Submit(vr::Eye_Right, &rightEyeTexture);
      if (eErrorRight != vr::VRCompositorError_None)
-        WARN_LOG_FMT(VR, "Failed to submit right eye to OpenVR: {}", vr::VRCompositor()->GetCompositorErrorNameFromEnum(eErrorRight));
+        WARN_LOG_FMT(VR, "Failed to submit right eye to OpenVR: {}", eErrorRight);
 
     // Mirroring logic
     if (g_ActiveConfig.iMirrorStyle != VR_MIRROR_DISABLED &&
