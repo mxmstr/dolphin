@@ -66,6 +66,10 @@
 #include "VideoCommon/Widescreen.h"
 #include "VideoCommon/XFStateManager.h"
 
+#include "VideoCommon/FreeLookCamera.h"
+
+extern FreeLookCamera g_freelook_camera;
+
 VideoBackendBase* g_video_backend = nullptr;
 
 #ifdef _WIN32
@@ -296,6 +300,11 @@ bool VideoBackendBase::InitializeShared(std::unique_ptr<AbstractGfx> gfx,
   g_perf_query = std::move(perf_query);
   g_bounding_box = std::move(bounding_box);
 
+  // Ensure g_freelook_camera is in a known good state after potential VR init side effects
+  // from g_gfx constructor. Re-setting its control type reconstructs the internal controller.
+  if (g_ActiveConfig.bEnableVR) // Only do this if VR is a factor, as it's a workaround for VR init issues
+    g_freelook_camera.SetControlType(FreeLook::ControlType::SixAxis); // Or its current configured type if accessible
+
   // Null and Software Backends supply their own derived EFBInterface and TextureCache
   g_texture_cache = std::move(texture_cache);
   g_efb_interface = std::move(efb_interface);
@@ -308,8 +317,8 @@ bool VideoBackendBase::InitializeShared(std::unique_ptr<AbstractGfx> gfx,
   g_widescreen = std::make_unique<WidescreenManager>();
 
   if (!g_vertex_manager->Initialize() || !g_shader_cache->Initialize() ||
-      !g_perf_query->Initialize() || !g_presenter->Initialize() ||
-      !g_framebuffer_manager->Initialize() || !g_texture_cache->Initialize() ||
+      !g_perf_query->Initialize() || !g_framebuffer_manager->Initialize() ||
+      !g_presenter->Initialize() || !g_texture_cache->Initialize() ||
       (g_backend_info.bSupportsBBox && !g_bounding_box->Initialize()) ||
       !g_graphics_mod_manager->Initialize())
   {

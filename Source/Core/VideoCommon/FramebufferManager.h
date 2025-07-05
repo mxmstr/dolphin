@@ -10,6 +10,7 @@
 
 #include "Common/CommonTypes.h"
 #include "Common/EnumFormatter.h"
+#include "Common/Logging/Log.h"
 
 #include "VideoCommon/AbstractFramebuffer.h"
 #include "VideoCommon/AbstractPipeline.h"
@@ -66,7 +67,15 @@ public:
   u32 GetEFBHeight() const { return m_efb_color_texture->GetHeight(); }
   u32 GetEFBLayers() const { return m_efb_color_texture->GetLayers(); }
   u32 GetEFBSamples() const { return m_efb_color_texture->GetSamples(); }
-  bool IsEFBMultisampled() const { return m_efb_color_texture->IsMultisampled(); }
+  bool IsEFBMultisampled() const {
+    if (!m_efb_color_texture) {
+      ERROR_LOG_FMT(VR, "m_efb_color_texture is null in FramebufferManager::IsEFBMultisampled");
+      // Potentially return a default value or handle error, though crashing is likely
+      // if this condition is met, as further operations will also fail.
+      // For now, let it proceed to crash to confirm this is the path.
+    }
+    return m_efb_color_texture->IsMultisampled();
+  }
   bool IsEFBStereo() const { return m_efb_color_texture->GetLayers() > 1; }
   FramebufferState GetEFBFramebufferState() const;
 

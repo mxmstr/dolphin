@@ -484,16 +484,58 @@ void VertexShaderManager::RotateView(float x_rad, float y_rad)
 
 void VertexShaderManager::ResetView()
 {
-  // Attempting to replace g_freelook_camera.Reset() due to persistent compile error.
-  // Replicating the logic from FreeLookCamera::Reset() here.
-  if (g_freelook_camera.GetController() && g_freelook_camera.GetController()->SupportsInput())
+  // Original code:
+// if (g_freelook_camera.GetController() && g_freelook_camera.GetController()->SupportsInput())
+// {
+//   // CameraControllerInput has a virtual Reset method.
+//   if (auto* input_controller = dynamic_cast<CameraControllerInput*>(g_freelook_camera.GetController()))
+//   {
+//     input_controller->Reset();
+//   }
+// }
+
+// New code with logging:
+  CameraController* controller = g_freelook_camera.GetController();
+  INFO_LOG_FMT(VR, "VertexShaderManager::ResetView(): g_freelook_camera.GetController() returned {}", static_cast<void*>(controller));
+
+  if (controller)
   {
-    // CameraControllerInput has a virtual Reset method.
-    if (auto* input_controller = dynamic_cast<CameraControllerInput*>(g_freelook_camera.GetController()))
+    bool supports_input = controller->SupportsInput();
+    INFO_LOG_FMT(VR, "VertexShaderManager::ResetView(): controller->SupportsInput() returned {}", supports_input ? "true" : "false");
+
+    if (supports_input)
     {
-      input_controller->Reset();
+      // Log type information before attempting dynamic_cast
+      try
+      {
+        INFO_LOG_FMT(VR, "VertexShaderManager::ResetView(): RTTI type name for controller {}: {}", static_cast<void*>(controller), typeid(*controller).name());
+      }
+      catch (const std::bad_typeid& e)
+      {
+        ERROR_LOG_FMT(VR, "VertexShaderManager::ResetView(): std::bad_typeid caught for controller {}: {}", static_cast<void*>(controller), e.what());
+      }
+      catch (...)
+      {
+        ERROR_LOG_FMT(VR, "VertexShaderManager::ResetView(): Unknown exception caught during typeid for controller {}", static_cast<void*>(controller));
+      }
+
+      INFO_LOG_FMT(VR, "VertexShaderManager::ResetView(): Attempting dynamic_cast to CameraControllerInput* for controller {}", static_cast<void*>(controller));
+      if (auto* input_controller = dynamic_cast<CameraControllerInput*>(controller))
+      {
+        INFO_LOG_FMT(VR, "VertexShaderManager::ResetView(): dynamic_cast successful, input_controller is {}. Calling Reset().", static_cast<void*>(input_controller));
+        input_controller->Reset();
+      }
+      else
+      {
+        ERROR_LOG_FMT(VR, "VertexShaderManager::ResetView(): dynamic_cast to CameraControllerInput* FAILED for controller {}", static_cast<void*>(controller));
+      }
     }
   }
+  else
+  {
+    WARN_LOG_FMT(VR, "VertexShaderManager::ResetView(): g_freelook_camera.GetController() returned NULL");
+  }
+
   // VR-Hydra also reset VRTracker::ResetView();
   // This would be VR::VR_ResetTrackerView(); or similar if such a function exists.
   // VR::VR_RecenterView() is a placeholder for the actual function name from VR.h/cpp
