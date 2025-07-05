@@ -12,11 +12,9 @@
 
 #include "d3d11.h"
 
-#ifdef HAVE_OCULUSSDK
-#include "OVR_CAPI_D3D.h"
-#else
-#include "OculusSystemLibraryHeaderD3D11.h"
-#endif
+// OpenVR D3D support is usually handled by including openvr.h
+// and then using vr::Texture_t with D3D11 texture pointers.
+// No specific OpenVR D3D header is typically needed here beyond what's in openvr.h (included via VR.h).
 
 namespace DX11
 {

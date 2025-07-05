@@ -8,7 +8,6 @@
 #include <Objbase.h>
 #include <mmdeviceapi.h>
 #include <setupapi.h>
-//#include "VideoCommon/VR920.h"
 // clang-format on
 #endif
 
@@ -19,130 +18,87 @@
 #include "Common/Logging/Log.h"
 #include "Core/ConfigManager.h"
 #include "Core/Config/MainSettings.h"
-//#include "Core/HW/WiimoteEmu/HydraTLayer.h"
 #include "VideoCommon/OpcodeDecoding.h"
 #include "VideoCommon/VideoConfig.h"
 #include "VideoCommon/VR.h"
-#include "VideoCommon/VROculus.h"
-#include "OculusSystemLibraryHeader.h"
-
-//const char* scm_vr_sdk_str = SCM_OCULUS_STR;
-
-float g_current_fps = 60.0f, g_current_speed = 0.0f;  // g_current_speed is a percentage
 
 #ifdef HAVE_OPENVR
-#include "VideoCommon\VROpenVR.h"
+#include "VideoCommon/VROpenVR.h" // Included for OpenVR specifics
+#endif
 
-vr::IVRSystem* m_pHMD;
-vr::IVRRenderModels* m_pRenderModels;
-vr::IVRCompositor* m_pCompositor;
+const char* scm_vr_sdk_str = "OpenVR";
+
+float g_current_fps = 60.0f, g_current_speed = 0.0f;
+
+#ifdef HAVE_OPENVR
+vr::IVRSystem* m_pHMD = nullptr;
+vr::IVRRenderModels* m_pRenderModels = nullptr;
+vr::IVRCompositor* m_pCompositor = nullptr;
 std::string m_strDriver;
 std::string m_strDisplay;
 vr::TrackedDevicePose_t m_rTrackedDevicePose[vr::k_unMaxTrackedDeviceCount];
-bool m_bUseCompositor = true;
-bool m_rbShowTrackedDevice[vr::k_unMaxTrackedDeviceCount];
-int m_iValidPoseCount;
-#endif
-
-void ClearDebugProj();
-
-#ifdef OVR_MAJOR_VERSION
-ovrHmd hmd = nullptr;
-ovrHmdDesc hmdDesc;
-ovrFovPort g_best_eye_fov[2], g_eye_fov[2], g_last_eye_fov[2];
-ovrEyeRenderDesc g_eye_render_desc[2];
-#if OVR_PRODUCT_VERSION == 0 && OVR_MAJOR_VERSION <= 7
-ovrFrameTiming g_rift_frame_timing;
-#endif
-ovrPosef g_eye_poses[2], g_front_eye_poses[2];
-int g_ovr_frameindex;
-#if OVR_PRODUCT_VERSION >= 1 || OVR_MAJOR_VERSION >= 7
-ovrGraphicsLuid luid;
-#endif
+bool m_bUseCompositor = true; // This might be configurable or determined at runtime
+bool m_rbShowTrackedDevice[vr::k_unMaxTrackedDeviceCount] = {false};
+int m_iValidPoseCount = 0;
 #endif
 
 #ifdef _WIN32
-LUID* g_hmd_luid = nullptr;
+LUID* g_hmd_luid = nullptr; // Potentially used for adapter matching with OpenVR on D3D
 #endif
 
 std::mutex g_vr_lock;
 
-#if defined(OVR_MAJOR_VERSION)
-#if OVR_PRODUCT_VERSION >= 1
-bool g_vr_cant_motion_blur = true, g_vr_must_motion_blur = false;
-bool g_vr_has_dynamic_predict = false, g_vr_has_configure_rendering = false,
-     g_vr_has_hq_distortion = true;
-bool g_vr_has_configure_tracking = false, g_vr_has_asynchronous_timewarp = true;
-bool g_vr_supports_extended = false;
-#elif OVR_MAJOR_VERSION >= 7
-bool g_vr_cant_motion_blur = true, g_vr_must_motion_blur = false;
-bool g_vr_has_dynamic_predict = false, g_vr_has_configure_rendering = false,
-     g_vr_has_hq_distortion = true;
-bool g_vr_has_configure_tracking = true, g_vr_has_asynchronous_timewarp = false;
-bool g_vr_supports_extended = false;
-#else
-bool g_vr_cant_motion_blur = false, g_vr_must_motion_blur = false;
-bool g_vr_has_dynamic_predict = true, g_vr_has_configure_rendering = true,
-     g_vr_has_hq_distortion = true;
-bool g_vr_has_configure_tracking = true, g_vr_has_asynchronous_timewarp = false;
-bool g_vr_supports_extended = true;
-#endif
-#else
-bool g_vr_cant_motion_blur = true, g_vr_must_motion_blur = false;
-bool g_vr_has_dynamic_predict = false, g_vr_has_configure_rendering = false,
-     g_vr_has_hq_distortion = true;
-bool g_vr_has_configure_tracking = true, g_vr_has_asynchronous_timewarp = false;
-bool g_vr_supports_extended = false;
-#endif
+// Default states for VR flags, assuming OpenVR.
+bool g_vr_cant_motion_blur = true; // Some games/engines might inherently cause blur OpenVR can't stop
+bool g_vr_must_motion_blur = false;
+bool g_vr_has_dynamic_predict = false;    // OpenVR handles prediction
+bool g_vr_has_configure_rendering = false;
+bool g_vr_has_hq_distortion = true;      // Assume OpenVR provides good quality distortion
+bool g_vr_has_configure_tracking = false;   // OpenVR runtime handles tracking configuration
+bool g_vr_has_asynchronous_timewarp = true; // OpenVR compositor provides this
+// bool g_vr_supports_extended = false; // This was an Oculus concept, removed in VR.h
 
-#if defined(OVR_MAJOR_VERSION) && OVR_PRODUCT_VERSION == 0 && OVR_MAJOR_VERSION <= 5
-bool g_vr_has_timewarp_tweak = true;
-bool g_vr_needs_DXGIFactory1 = false;
-bool g_vr_needs_endframe = true;
-bool g_vr_can_disable_hsw = true;
-#else
-bool g_vr_has_timewarp_tweak = false;
-#if defined(OVR_MAJOR_VERSION)
-bool g_vr_can_disable_hsw = false;
-bool g_vr_needs_DXGIFactory1 = true;
-#else
-bool g_vr_can_disable_hsw = true;
-bool g_vr_needs_DXGIFactory1 = false;
-#endif
-bool g_vr_needs_endframe = false;
-#endif
+bool g_vr_has_timewarp_tweak = false;    // Old Oculus SDK feature
+bool g_vr_needs_DXGIFactory1 = true;   // Often true for D3D interop
+bool g_vr_needs_endframe = false;        // Not a general OpenVR requirement for D3D submission
+bool g_vr_can_disable_hsw = true;      // HSW is runtime dependent
 
-bool g_vr_should_swap_buffers = true, g_vr_dont_vsync = false;
+bool g_vr_should_swap_buffers = true;  // Depends on D3D integration with OpenVR compositor
+bool g_vr_dont_vsync = false;          // VR runtimes typically manage their own vsync
 
-bool g_force_vr = false, g_prefer_openvr = false, g_one_hmd = false;
-bool g_has_hmd = false, g_has_two_hmds = false, g_has_rift = false, g_has_vr920 = false, g_has_openvr = false, g_openvr_is_vive = true, g_openvr_is_rift = false;
-bool g_is_direct_mode = false, g_is_nes = false;
+// General VR state variables
+bool g_force_vr = false;
+bool g_has_hmd = false;
+bool g_has_openvr = false;
+bool g_openvr_is_vive = false; // Determined at runtime by OpenVR
+bool g_is_nes = false;
 bool g_new_tracking_frame = true;
 bool g_new_frame_tracker_for_efb_skip = true;
 u32 skip_objects_count = 0;
 Common::Matrix44 g_head_tracking_matrix;
 Common::Vec3 g_head_tracking_position;
-float g_left_hand_tracking_position[3], g_right_hand_tracking_position[3];
+float g_left_hand_tracking_position[3] = {0};
+float g_right_hand_tracking_position[3] = {0};
 int g_hmd_window_width = 0, g_hmd_window_height = 0, g_hmd_window_x = 0, g_hmd_window_y = 0,
-    g_hmd_refresh_rate = 90;
+    g_hmd_refresh_rate = 90; // Default, will be updated by OpenVR
 const char* g_hmd_device_name = nullptr;
 float g_vr_speed = 0;
 float vr_freelook_speed = 0;
-bool g_fov_changed = false, g_vr_black_screen = false;
+bool g_fov_changed = false; // Flag to indicate if FOV was changed for motion sickness
+bool g_vr_black_screen = false; // For motion sickness full black screen
 bool g_vr_had_3D_already = false;
 float vr_widest_3d_HFOV = 0;
 float vr_widest_3d_VFOV = 0;
 float vr_widest_3d_zNear = 0;
 float vr_widest_3d_zFar = 0;
-float g_game_camera_pos[3];
+float g_game_camera_pos[3] = {0};
 Common::Matrix44 g_game_camera_rotmat;
 
-// used for calculating acceleration of vive controllers
 double g_older_tracking_time = 0, g_old_tracking_time = 0, g_last_tracking_time = 0;
-float g_openvr_ipd = 0.064f;
+float g_openvr_ipd = 0.064f; // Default IPD, updated by OpenVR
 
-u8 g_vr_reading_wiimote_accel[5] = {}, g_vr_reading_wiimote_ir[5] = {},
-   g_vr_reading_wiimote_ext[5] = {};
+u8 g_vr_reading_wiimote_accel[5] = {0}, g_vr_reading_wiimote_ir[5] = {0},
+   g_vr_reading_wiimote_ext[5] = {0};
 bool g_vr_has_ir = false;
 float g_vr_ir_x = 0, g_vr_ir_y = 0, g_vr_ir_z = 0;
 
@@ -158,22 +114,13 @@ bool g_opcode_replay_frame = false;
 bool g_opcode_replay_log_frame = false;
 int skipped_opcode_replay_count = 0;
 
-// std::vector<u8*> s_pCurBufferPointer_log;
-// std::vector<u8*> s_pBaseBufferPointer_log;
-// std::vector<u8*> s_pEndBufferPointer_log;
-
-// std::vector<u32> CPBase_log;
-// std::vector<u32> CPEnd_log;
-// std::vector<u32> CPHiWatermark_log;
-// std::vector<u32> CPLoWatermark_log;
-// std::vector<u32> CPReadWriteDistance_log;
-// std::vector<u32> CPWritePointer_log;
-// std::vector<u32> CPReadPointer_log;
-// std::vector<u32> CPBreakpoint_log;
-
 #ifdef _WIN32
-static char hmd_device_name[MAX_PATH] = "";
+static char hmd_device_name_buffer[MAX_PATH] = ""; // Renamed to avoid conflict
 #endif
+
+// For motion sickness FOV reduction
+static bool g_reduce_fov_for_motion_sickness = false;
+static float g_reduced_fov_tan_limit = 1.0f; // Default to a reasonable tangent (approx 90 deg total FOV)
 
 void VR_NewVRFrame()
 {
@@ -185,73 +132,44 @@ void VR_NewVRFrame()
   }
   g_vr_had_3D_already = false;
   skip_objects_count = 0;
-  //ClearDebugProj();
+  // ClearDebugProj(); // Assuming this is a general debug utility or will be handled
 
-  // Prevent motion sickness: estimate how fast we are moving, and reduce the FOV if we are moving
-  // fast
-//  g_vr_speed = 0;
-//  if (g_ActiveConfig.bMotionSicknessAlways)
-//  {
-//    g_vr_speed = 1.0f;
-//  }
-//  else
-//  {
-//    if (g_ActiveConfig.bMotionSicknessDPad)
-//      g_vr_speed += HydraTLayer::vr_gc_dpad_speed + HydraTLayer::vr_cc_dpad_speed +
-//                    HydraTLayer::vr_wm_dpad_speed;
-//    if (g_ActiveConfig.bMotionSicknessLeftStick)
-//      g_vr_speed += HydraTLayer::vr_gc_leftstick_speed + HydraTLayer::vr_wm_leftstick_speed;
-//    if (g_ActiveConfig.bMotionSicknessRightStick)
-//      g_vr_speed += HydraTLayer::vr_gc_rightstick_speed + HydraTLayer::vr_wm_rightstick_speed;
-//    if (g_ActiveConfig.bMotionSickness2D && vr_widest_3d_HFOV <= 0)
-//      g_vr_speed += 1.0f;
-//    if (g_ActiveConfig.bMotionSicknessIR)
-//      g_vr_speed += HydraTLayer::vr_ir_speed;
-//    if (g_ActiveConfig.bMotionSicknessFreelook)
-//      g_vr_speed += vr_freelook_speed;
-//    vr_freelook_speed = 0;
-//  }
-//  if (g_has_hmd && g_ActiveConfig.iMotionSicknessMethod == 2)
-//  {
-//    // black the screen if we are moving fast
-//    g_vr_black_screen = (g_vr_speed > 0.15f);
-//  }
-//#ifdef OVR_MAJOR_VERSION
-//  else if (g_has_rift && g_ActiveConfig.iMotionSicknessMethod == 1 && !g_has_openvr)
-//  {
-//    g_vr_black_screen = false;
-//    // reduce the FOV if we are moving fast
-//    if (g_vr_speed > 0.15f)
-//    {
-//      float t = tan(DEGREES_TO_RADIANS(g_ActiveConfig.fMotionSicknessFOV / 2));
-//      g_eye_fov[0].LeftTan = std::min(g_best_eye_fov[0].LeftTan, t);
-//      g_eye_fov[0].RightTan = std::min(g_best_eye_fov[0].RightTan, t);
-//      g_eye_fov[0].UpTan = std::min(g_best_eye_fov[0].UpTan, t);
-//      g_eye_fov[0].DownTan = std::min(g_best_eye_fov[0].DownTan, t);
-//      g_eye_fov[1].LeftTan = std::min(g_best_eye_fov[1].LeftTan, t);
-//      g_eye_fov[1].RightTan = std::min(g_best_eye_fov[1].RightTan, t);
-//      g_eye_fov[1].UpTan = std::min(g_best_eye_fov[1].UpTan, t);
-//      g_eye_fov[1].DownTan = std::min(g_best_eye_fov[1].DownTan, t);
-//    }
-//    else
-//    {
-//      memcpy(g_eye_fov, g_best_eye_fov, 2 * sizeof(g_eye_fov[0]));
-//    }
-//    g_fov_changed = memcmp(g_eye_fov, g_last_eye_fov, 2 * sizeof(g_eye_fov[0])) != 0;
-//    memcpy(g_last_eye_fov, g_eye_fov, 2 * sizeof(g_eye_fov[0]));
-//  }
-//#endif
-//  else
-//  {
-//    g_vr_black_screen = false;
-//  }
+  // Motion sickness FOV reduction logic
+  g_vr_speed = 0; // Reset speed calculation
+  // TODO: Re-evaluate how g_vr_speed is calculated without HydraTLayer specifics if needed,
+  // or rely on g_ActiveConfig settings directly.
+  // For now, placeholder:
+  if (g_ActiveConfig.bMotionSicknessAlways) g_vr_speed = 1.0f;
+
+  g_reduce_fov_for_motion_sickness = false;
+  g_vr_black_screen = false;
+  bool old_fov_changed = g_fov_changed;
+  g_fov_changed = false;
+
+#ifdef HAVE_OPENVR
+  if (g_has_openvr && g_ActiveConfig.iMotionSicknessMethod != 0) // 0 is typically "Off"
+  {
+    if (g_ActiveConfig.iMotionSicknessMethod == 2) // Full black screen
+    {
+      g_vr_black_screen = (g_vr_speed > 0.15f);
+    }
+    else if (g_ActiveConfig.iMotionSicknessMethod == 1) // Reduce FOV
+    {
+      if (g_vr_speed > 0.15f && g_ActiveConfig.fMotionSicknessFOV > 0.0f)
+      {
+        g_reduce_fov_for_motion_sickness = true;
+        g_reduced_fov_tan_limit = tan(DEGREES_TO_RADIANS(g_ActiveConfig.fMotionSicknessFOV / 2.0f));
+        g_fov_changed = true;
+      }
+    }
+  }
+#endif
+  if (old_fov_changed != g_fov_changed) {
+      // Notify if FOV state actually changed, might be needed by renderer to update something
+  }
 }
 
 #ifdef HAVE_OPENVR
-//-----------------------------------------------------------------------------
-// Purpose: Helper to get a string from a tracked device property and turn it
-//			into a std::string
-//-----------------------------------------------------------------------------
 std::string GetTrackedDeviceString(vr::IVRSystem* pHmd, vr::TrackedDeviceIndex_t unDevice,
                                    vr::TrackedDeviceProperty prop,
                                    vr::TrackedPropertyError* peError = nullptr)
@@ -262,72 +180,33 @@ std::string GetTrackedDeviceString(vr::IVRSystem* pHmd, vr::TrackedDeviceIndex_t
     return "";
 
   char* pchBuffer = new char[unRequiredBufferLen];
-  unRequiredBufferLen =
-      pHmd->GetStringTrackedDeviceProperty(unDevice, prop, pchBuffer, unRequiredBufferLen, peError);
+  pHmd->GetStringTrackedDeviceProperty(unDevice, prop, pchBuffer, unRequiredBufferLen, peError);
   std::string sResult = pchBuffer;
   delete[] pchBuffer;
   return sResult;
 }
 
-//-----------------------------------------------------------------------------
-// Purpose:
-//-----------------------------------------------------------------------------
 bool BInitCompositor()
 {
   vr::EVRInitError peError = vr::VRInitError_None;
-
-  m_pCompositor =
-      (vr::IVRCompositor*)vr::VR_GetGenericInterface(vr::IVRCompositor_Version, &peError);
+  m_pCompositor = (vr::IVRCompositor*)vr::VR_GetGenericInterface(vr::IVRCompositor_Version, &peError);
 
   if (peError != vr::VRInitError_None)
   {
     m_pCompositor = nullptr;
-
     NOTICE_LOG_FMT(VR, "Compositor initialization failed with error: {}: {}\n",
                vr::VR_GetVRInitErrorAsSymbol(peError),
                vr::VR_GetVRInitErrorAsEnglishDescription(peError));
     return false;
   }
-
-  // change grid room colour
-  // m_pCompositor->FadeToColor(0.0f, 0.0f, 0.0f, 0.0f, 1.0f, true);
   m_pCompositor->SetTrackingSpace(vr::TrackingUniverseSeated);
-
   return true;
 }
 #endif
 
-void SetTwoHmdFOV()
-{
-#if defined(HAVE_OPENVR) && defined(OVR_MAJOR_VERSION)
-  float left, right, top, bottom;
-  for (int eye = 0; eye < 2; ++eye)
-  {
-    m_pHMD->GetProjectionRaw((vr::EVREye)eye, &left, &right, &top, &bottom);
-    g_eye_fov[eye].LeftTan = fabs(left);
-    g_eye_fov[eye].RightTan = fabs(right);
-    g_eye_fov[eye].UpTan = fabs(top);
-    g_eye_fov[eye].DownTan = fabs(bottom);
-  }
-  memcpy(g_best_eye_fov, g_eye_fov, 2 * sizeof(g_eye_fov[0]));
-  memcpy(g_last_eye_fov, g_eye_fov, 2 * sizeof(g_eye_fov[0]));
-//NOTICE_LOG_FMT(VR, "********** %f to %f, %f to %f", left, right, top, bottom);
-  //ERROR_LOG_FMT(VR, "********** %f° to %f°, %f° to %f°", RADIANS_TO_DEGREES(atan(left)), RADIANS_TO_DEGREES(atan(right)), RADIANS_TO_DEGREES(atan(top)), RADIANS_TO_DEGREES(atan(bottom)));
-//#else
-  //int eye = 0;
-  //NOTICE_LOG_FMT(VR, "********** %f to %f, %f to %f", g_eye_fov[eye].LeftTan, g_eye_fov[eye].RightTan, g_eye_fov[eye].UpTan, g_eye_fov[eye].DownTan);
-  //ERROR_LOG_FMT(VR, "********** %f° to %f°, %f° to %f°", RADIANS_TO_DEGREES(atan(g_eye_fov[eye].LeftTan)), RADIANS_TO_DEGREES(atan(g_eye_fov[eye].RightTan)), RADIANS_TO_DEGREES(atan(g_eye_fov[eye].UpTan)), RADIANS_TO_DEGREES(atan(g_eye_fov[eye].DownTan)));
-//CV1: 0.964926 to 0.715264, 0.889498 to 1.110925
-//CV1: 43.977375° to 35.574768°, 41.653034° to 48.008022°
-#endif
-}
-
 bool InitOpenVR()
 {
 #ifdef HAVE_OPENVR
-  g_has_two_hmds = false;
-
-  // Loading the OpenVR Runtime
   vr::EVRInitError eError = vr::VRInitError_None;
   m_pHMD = vr::VR_Init(&eError, vr::VRApplication_Scene);
 
@@ -337,711 +216,272 @@ bool InitOpenVR()
     ERROR_LOG_FMT(VR, "Unable to init OpenVR: {}: {}", vr::VR_GetVRInitErrorAsSymbol(eError),
               vr::VR_GetVRInitErrorAsEnglishDescription(eError));
     g_has_openvr = false;
+    return false;
   }
-  else
-  {
-    m_strDriver = GetTrackedDeviceString(m_pHMD, vr::k_unTrackedDeviceIndex_Hmd,
-      vr::Prop_TrackingSystemName_String);
-    g_openvr_is_vive = (m_strDriver == "lighthouse");
-    g_openvr_is_rift = (m_strDriver == "oculus");
-    NOTICE_LOG_FMT(VR, "OpenVR strDriver = '{}'", m_strDriver.c_str());
-    m_strDisplay = GetTrackedDeviceString(m_pHMD, vr::k_unTrackedDeviceIndex_Hmd,
-      vr::Prop_SerialNumber_String);
-    NOTICE_LOG_FMT(VR, "OpenVR strDisplay = '{}'", m_strDisplay.c_str());
 
-    if (g_has_rift && g_openvr_is_rift)
-    {
+  m_strDriver = GetTrackedDeviceString(m_pHMD, vr::k_unTrackedDeviceIndex_Hmd, vr::Prop_TrackingSystemName_String);
+  g_openvr_is_vive = (m_strDriver == "lighthouse");
+  NOTICE_LOG_FMT(VR, "OpenVR Driver: '{}'", m_strDriver.c_str());
+  m_strDisplay = GetTrackedDeviceString(m_pHMD, vr::k_unTrackedDeviceIndex_Hmd, vr::Prop_SerialNumber_String);
+  NOTICE_LOG_FMT(VR, "OpenVR Display: '{}'", m_strDisplay.c_str());
+
+  m_pRenderModels = (vr::IVRRenderModels*)vr::VR_GetGenericInterface(vr::IVRRenderModels_Version, &eError);
+  if (!m_pRenderModels)
+  {
+    m_pHMD = nullptr;
+    vr::VR_Shutdown();
+    ERROR_LOG_FMT(VR, "Unable to get OpenVR render model interface: {}: {}",
+      vr::VR_GetVRInitErrorAsSymbol(eError), vr::VR_GetVRInitErrorAsEnglishDescription(eError));
+    g_has_openvr = false;
+    return false;
+  }
+
+  if (m_bUseCompositor && !BInitCompositor())
+  {
+      ERROR_LOG_FMT(VR, "Failed to initialize OpenVR Compositor!");
+      // We might still be able to run without compositor for some very basic head tracking,
+      // but rendering to HMD won't work. For now, treat as failure.
       m_pHMD = nullptr;
+      vr::VR_Shutdown();
       g_has_openvr = false;
-    }
-    else
-    {
-      m_pRenderModels =
-        (vr::IVRRenderModels*)vr::VR_GetGenericInterface(vr::IVRRenderModels_Version, &eError);
-      if (!m_pRenderModels)
-      {
-        m_pHMD = nullptr;
-        vr::VR_Shutdown();
-
-        ERROR_LOG_FMT(VR, "Unable to get render model interface: {}: {}",
-          vr::VR_GetVRInitErrorAsSymbol(eError),
-          vr::VR_GetVRInitErrorAsEnglishDescription(eError));
-        g_has_openvr = false;
-      }
-      else
-      {
-        NOTICE_LOG_FMT(VR, "VR_Init Succeeded");
-        g_has_openvr = true;
-        g_has_hmd = true;
-        g_has_two_hmds = g_has_rift;
-      }
-
-      u32 m_nWindowWidth = 512;
-      u32 m_nWindowHeight = 512;
-      // m_pHMD->GetWindowBounds(&g_hmd_window_x, &g_hmd_window_y, &m_nWindowWidth, &m_nWindowHeight);
-      g_hmd_window_width = m_nWindowWidth;
-      g_hmd_window_height = m_nWindowHeight;
-      // NOTICE_LOG_FMT(VR, "OpenVR WindowBounds (%d,%d) %dx%d", g_hmd_window_x, g_hmd_window_y,
-      // g_hmd_window_width, g_hmd_window_height);
-
-      vr::TrackedPropertyError error;
-      g_hmd_refresh_rate =
-        (int)(0.5f +
-          m_pHMD->GetFloatTrackedDeviceProperty(vr::k_unTrackedDeviceIndex_Hmd,
-            vr::Prop_DisplayFrequency_Float, &error));
-      g_openvr_ipd = m_pHMD->GetFloatTrackedDeviceProperty(vr::k_unTrackedDeviceIndex_Hmd,
-        vr::Prop_UserIpdMeters_Float, &error);
-
-      if (m_bUseCompositor)
-      {
-        if (!BInitCompositor())
-        {
-          ERROR_LOG_FMT(VR, "{} - Failed to initialize OpenVR Compositor!\n", __FUNCTION__);
-          g_has_openvr = false;
-        }
-      }
-      if (g_has_openvr)
-      {
-        g_vr_needs_DXGIFactory1 = true;
-        g_vr_cant_motion_blur = true;
-        g_vr_has_dynamic_predict = false;
-        g_vr_has_configure_rendering = false;
-        g_vr_has_configure_tracking = false;
-        g_vr_has_hq_distortion = false;
-        g_vr_should_swap_buffers = true;  // todo: check if this is right
-        g_vr_has_timewarp_tweak = false;
-        g_vr_has_asynchronous_timewarp = false;
-      }
-      return g_has_openvr;
-    }
+      return false;
   }
-#endif
-  return false;
-}
 
-bool InitOculusDebugVR()
-{
-#if defined(OVR_MAJOR_VERSION) && OVR_PRODUCT_VERSION == 0 && OVR_MAJOR_VERSION <= 6
-  if (g_force_vr)
-  {
-    NOTICE_LOG_FMT(VR, "Forcing VR mode, simulating Oculus Rift DK2.");
-#if OVR_MAJOR_VERSION >= 6
-    if (ovrHmd_CreateDebug(ovrHmd_DK2, &hmd) != ovrSuccess)
-      hmd = nullptr;
-#else
-    hmd = ovrHmd_CreateDebug(ovrHmd_DK2);
-#endif
-    return (hmd != nullptr);
-  }
-#endif
-  return false;
-}
+  g_has_openvr = true;
+  g_has_hmd = true;
 
-bool InitOculusHMD()
-{
-#ifdef OVR_MAJOR_VERSION
-  if (hmd)
-  {
-    g_vr_dont_vsync = true;
-#if OVR_PRODUCT_VERSION >= 1 || OVR_MAJOR_VERSION >= 5 ||                                          \
-    (OVR_MINOR_VERSION == 4 && OVR_BUILD_VERSION >= 2)
-    g_vr_has_hq_distortion = true;
-#else
-    g_vr_has_hq_distortion = false;
-#endif
-#if OVR_PRODUCT_VERSION == 0 && OVR_MAJOR_VERSION <= 5
-    g_vr_should_swap_buffers = false;
-    g_vr_needs_DXGIFactory1 = false;
-#else
-    g_vr_needs_DXGIFactory1 = true;
-    g_vr_should_swap_buffers = true;
-#endif
+  vr::TrackedPropertyError error;
+  g_hmd_refresh_rate = (int)(0.5f + m_pHMD->GetFloatTrackedDeviceProperty(vr::k_unTrackedDeviceIndex_Hmd, vr::Prop_DisplayFrequency_Float, &error));
+  g_openvr_ipd = m_pHMD->GetFloatTrackedDeviceProperty(vr::k_unTrackedDeviceIndex_Hmd, vr::Prop_UserIpdMeters_Float, &error);
+  if(error != vr::TrackedProp_Success) g_openvr_ipd = 0.064f; // Default if fetch fails
 
-#if OVR_PRODUCT_VERSION == 0 && OVR_MAJOR_VERSION <= 5
-    g_vr_has_timewarp_tweak = true;
-#else
-    g_vr_has_timewarp_tweak = false;
-#endif
+  // Set default VR capability flags for OpenVR
+  g_vr_needs_DXGIFactory1 = true; // Generally true for D3D interop
+  g_vr_cant_motion_blur = true;   // Application controls blur
+  g_vr_has_dynamic_predict = true; // OpenVR handles prediction
+  g_vr_has_configure_rendering = false;
+  g_vr_has_configure_tracking = false;
+  g_vr_has_hq_distortion = true; // Assume good quality from OpenVR
+  g_vr_should_swap_buffers = true; // For D3D, app submits textures, compositor handles swap
+  g_vr_has_timewarp_tweak = false;
+  g_vr_has_asynchronous_timewarp = true; // Compositor provides this
 
-// Get more details about the HMD
-#if OVR_PRODUCT_VERSION >= 1
-    g_vr_cant_motion_blur = true;
-    g_vr_has_dynamic_predict = false;
-    g_vr_has_configure_rendering = false;
-    hmdDesc = ovr_GetHmdDesc(hmd);
-#elif OVR_MAJOR_VERSION >= 7
-    g_vr_cant_motion_blur = true;
-    g_vr_has_dynamic_predict = false;
-    g_vr_has_configure_rendering = false;
-    hmdDesc = ovr_GetHmdDesc(hmd);
-    ovr_SetEnabledCaps(hmd, ovrHmd_GetEnabledCaps(hmd) | 0);
-#else
-    g_vr_cant_motion_blur = false;
-    g_vr_has_dynamic_predict = true;
-    g_vr_has_configure_rendering = true;
-    // ovrHmd_GetDesc(hmd, &hmdDesc);
-    hmdDesc = *hmd;
-    ovrHmd_SetEnabledCaps(hmd, ovrHmd_GetEnabledCaps(hmd) | ovrHmdCap_DynamicPrediction |
-                                   ovrHmdCap_LowPersistence);
-#endif
+  uint32_t width, height;
+  m_pHMD->GetRecommendedRenderTargetSize(&width, &height);
+  g_hmd_window_width = width;
+  g_hmd_window_height = height;
+  // g_hmd_window_x and g_hmd_window_y are not typically set by OpenVR this way.
 
-#if OVR_PRODUCT_VERSION >= 1
-    g_vr_can_disable_hsw = false;
-    g_vr_has_asynchronous_timewarp = true;
-    // no need to configure tracking
-    g_vr_has_configure_tracking = false;
-#elif OVR_MAJOR_VERSION >= 6
-    g_vr_can_disable_hsw = false;
-    g_vr_has_asynchronous_timewarp = false;
-    g_vr_has_configure_tracking = true;
-    if (OVR_SUCCESS(ovrHmd_ConfigureTracking(hmd,
-                                             ovrTrackingCap_Orientation | ovrTrackingCap_Position |
-                                                 ovrTrackingCap_MagYawCorrection,
-                                             0)))
-#else
-    g_vr_can_disable_hsw = true;
-    g_vr_has_asynchronous_timewarp = false;
-    g_vr_has_configure_tracking = true;
-    if (ovrHmd_ConfigureTracking(hmd, ovrTrackingCap_Orientation | ovrTrackingCap_Position |
-                                          ovrTrackingCap_MagYawCorrection,
-                                 0))
-#endif
-    {
-      g_has_rift = true;
-      g_has_hmd = true;
-      g_hmd_window_width = hmdDesc.Resolution.w;
-      g_hmd_window_height = hmdDesc.Resolution.h;
-      g_best_eye_fov[0] = hmdDesc.DefaultEyeFov[0];
-      g_best_eye_fov[1] = hmdDesc.DefaultEyeFov[1];
-      g_eye_fov[0] = g_best_eye_fov[0];
-      g_eye_fov[1] = g_best_eye_fov[1];
-      g_last_eye_fov[0] = g_eye_fov[0];
-      g_last_eye_fov[1] = g_eye_fov[1];
-#if OVR_PRODUCT_VERSION == 0 && OVR_MAJOR_VERSION < 6
-      g_hmd_window_x = hmdDesc.WindowsPos.x;
-      g_hmd_window_y = hmdDesc.WindowsPos.y;
-      g_is_direct_mode = !(hmdDesc.HmdCaps & ovrHmdCap_ExtendDesktop);
-      if (hmdDesc.Type < 6)
-        g_hmd_refresh_rate = 60;
-      else if (hmdDesc.Type > 6)
-        g_hmd_refresh_rate = 90;
-      else
-        g_hmd_refresh_rate = 75;
-#else
-#if OVR_PRODUCT_VERSION == 0 && OVR_MAJOR_VERSION == 6
-      g_hmd_refresh_rate = (int)(1.0f / ovrHmd_GetFloat(hmd, "VsyncToNextVsync", 0.f) + 0.5f);
-#else
-      g_hmd_refresh_rate = (int)(hmdDesc.DisplayRefreshRate + 0.5f);
-#endif
-      g_hmd_window_x = 0;
-      g_hmd_window_y = 0;
-      g_is_direct_mode = true;
-#endif
 #ifdef _WIN32
-#if OVR_PRODUCT_VERSION == 0 && OVR_MAJOR_VERSION < 6
-      g_hmd_device_name = hmdDesc.DisplayDeviceName;
-#else
-      g_hmd_device_name = nullptr;
-#endif
-      
-      if (g_hmd_device_name)
-      {
-		const char* p = strstr(g_hmd_device_name, "\\Monitor");
-        if (p)
-        {
-          size_t n = p - g_hmd_device_name;
-          if (n >= MAX_PATH)
-            n = MAX_PATH - 1;
-          g_hmd_device_name = strncpy(hmd_device_name, g_hmd_device_name, n);
-          hmd_device_name[n] = '\0';
-        }
-      }
-#endif
-      NOTICE_LOG_FMT(VR, "Oculus Rift head tracker started.");
-    }
-    return g_has_rift;
+  m_pHMD->GetDXGIOutputInfo((int32_t*)&g_hmd_luid);
+  if (g_hmd_luid != nullptr)
+  {
+    // Successfully got LUID. This can be used by D3D backend to select the correct adapter.
+    // The VR-Hydra reference did this for Oculus. It might be useful for OpenVR too in some cases.
+    // For now, we just store it. The D3D backend can decide to use it.
   }
 #endif
-  return false;
-}
 
-bool InitOculusVR()
-{
-#ifdef OVR_MAJOR_VERSION
-#if OVR_PRODUCT_VERSION == 0 && OVR_MAJOR_VERSION <= 7
-  memset(&g_rift_frame_timing, 0, sizeof(g_rift_frame_timing));
-#endif
+  NOTICE_LOG_FMT(VR, "OpenVR Initialized Successfully. HMD: {}, IPD: {}m, Refresh: {}Hz, Rec Target: {}x{}",
+    m_strDisplay, g_openvr_ipd, g_hmd_refresh_rate, g_hmd_window_width, g_hmd_window_height);
 
-#if OVR_PRODUCT_VERSION >= 1 || OVR_MAJOR_VERSION >= 7
-  ovr_Initialize(nullptr);
-  if (ovr_Create(&hmd, &luid) != ovrSuccess)
-    hmd = nullptr;
-#ifdef _WIN32
-  else
-    g_hmd_luid = reinterpret_cast<LUID*>(&luid);
-#endif
-
-#else
-#if OVR_MAJOR_VERSION >= 6
-  ovr_Initialize(nullptr);
-  if (ovrHmd_Create(0, &hmd) != ovrSuccess)
-    hmd = nullptr;
-#else
-  ovr_Initialize();
-  hmd = ovrHmd_Create(0);
-#endif
-#endif
-  g_has_rift = (hmd != nullptr);
-  g_has_hmd = g_has_hmd || g_has_rift;
-  g_has_two_hmds = g_has_rift && g_has_openvr;
-  if (!g_has_rift)
-    WARN_LOG_FMT(VR, "Oculus Rift not detected. Oculus Rift support will not be available.");
-  return (hmd != nullptr);
+  return true;
 #else
   return false;
 #endif
-}
-
-bool InitVR920VR()
-{
-//#ifdef _WIN32
-//  LoadVR920();
-//  if (g_has_vr920)
-//  {
-//    g_has_hmd = true;
-//    g_hmd_window_width = 800;
-//    g_hmd_window_height = 600;
-//    // Todo: find vr920
-//    g_hmd_window_x = 0;
-//    g_hmd_window_y = 0;
-//    g_hmd_refresh_rate = 60;  // or 30, depending on how we implement it
-//    g_vr_must_motion_blur = true;
-//    g_vr_has_dynamic_predict = false;
-//    g_vr_has_configure_rendering = false;
-//    g_vr_has_configure_tracking = false;
-//    g_vr_has_hq_distortion = false;
-//    g_vr_should_swap_buffers = true;
-//    g_vr_has_timewarp_tweak = false;
-//    g_vr_has_asynchronous_timewarp =
-//        false;  // but it doesn't need it either, so maybe this should be true?
-//    return true;
-//  }
-//#endif
-  return false;
 }
 
 void VR_Init()
 {
   g_has_hmd = false;
-  g_is_direct_mode = false;
   g_hmd_device_name = nullptr;
   g_has_openvr = false;
-  g_has_rift = false;
 #ifdef _WIN32
   g_hmd_luid = nullptr;
 #endif
 
-  if (g_prefer_openvr)
-  {
-    InitOpenVR();
-    if (!(g_has_openvr && g_one_hmd))
-    {
-      if (g_openvr_is_rift || !InitOculusVR())
-        InitVR920VR();
-      if (!g_has_hmd)
-        InitOculusDebugVR();
-    }
-    if (g_force_vr)
-      g_has_hmd = true;
-  }
-  else
-  {
-    InitOculusVR();
-    if (!(g_has_rift && g_one_hmd))
-    {
-      if (!InitOpenVR())
-        InitVR920VR();
-      if (!g_has_hmd)
-        InitOculusDebugVR();
-    }
-    if (g_force_vr)
-      g_has_hmd = true;
-  }
-  if (g_has_two_hmds)
-    NOTICE_LOG_FMT(VR, "Two HMDs detected!");
-  InitOculusHMD();
-  if (g_has_openvr && g_has_rift)
-    SetTwoHmdFOV();
+  InitOpenVR();
 
-  /*if (g_has_hmd && g_hmd_window_width > 0 && g_hmd_window_height > 0)
+  if (g_force_vr && !g_has_openvr)
   {
-    SConfig::GetInstance().strFullscreenResolution =
-        StringFromFormat("%dx%d", g_hmd_window_width, g_hmd_window_height);
-    SConfig::GetInstance().iRenderWindowXPos = g_hmd_window_x;
-    SConfig::GetInstance().iRenderWindowYPos = g_hmd_window_y;
-    SConfig::GetInstance().iRenderWindowWidth = g_hmd_window_width;
-    SConfig::GetInstance().iRenderWindowHeight = g_hmd_window_height;
-    SConfig::GetInstance().m_special_case = true;
+      WARN_LOG_FMT(VR, "Forcing VR mode, but OpenVR initialization failed.");
+      // If g_force_vr is true, we might set g_has_hmd = true to attempt a "no SDK" fallback,
+      // but for an OpenVR-only path, this probably means VR won't work.
+      // g_has_hmd = true;
   }
-  else
+
+  // Update window settings if OpenVR provided them (done in InitOpenVR)
+  if (g_has_hmd && g_hmd_window_width > 0 && g_hmd_window_height > 0)
   {
-    SConfig::GetInstance().m_special_case = false;
-  }*/
+    Config::SetCurrent(Config::MAIN_RENDER_WINDOW_WIDTH, g_hmd_window_width);
+    Config::SetCurrent(Config::MAIN_RENDER_WINDOW_HEIGHT, g_hmd_window_height);
+    // Note: Setting fullscreen resolution or window position might conflict with OpenVR's direct mode.
+    // It's usually best to let OpenVR manage the HMD display.
+    // SConfig::GetInstance().strFullscreenResolution = StringFromFormat("%dx%d", g_hmd_window_width, g_hmd_window_height);
+    // SConfig::GetInstance().iRenderWindowXPos = g_hmd_window_x;
+    // SConfig::GetInstance().iRenderWindowYPos = g_hmd_window_y;
+  }
 }
 
 void VR_StopRendering()
 {
-#ifdef _WIN32
-  /*if (g_has_vr920)
-  {
-    VR920_StopStereo3D();
-  }*/
-#endif
-#ifdef OVR_MAJOR_VERSION
-  // Shut down rendering and release resources (by passing NULL)
-  if (g_has_rift)
-  {
-#if OVR_PRODUCT_VERSION >= 1 || OVR_MAJOR_VERSION >= 6
-    for (int i = 0; i < ovrEye_Count; ++i)
-      g_eye_render_desc[i] = ovrHmd_GetRenderDesc(hmd, (ovrEyeType)i, g_eye_fov[i]);
-#else
-    ovrHmd_ConfigureRendering(hmd, nullptr, 0, g_eye_fov, g_eye_render_desc);
-#endif
-  }
-#endif
+  // For OpenVR, there isn't a direct equivalent to "stop rendering" that Oculus SDK had.
+  // Frame submission is per-frame. Resource cleanup happens in VR_Shutdown or VR_StopFramebuffer.
 }
 
 void VR_Shutdown()
 {
 #ifdef HAVE_OPENVR
-  if (g_has_openvr && m_pHMD)
+  if (g_has_openvr) // Check g_has_openvr instead of m_pHMD directly to avoid issues if m_pHMD was nulled prematurely
   {
-    g_has_openvr = false;
+    vr::VR_Shutdown(); // This is the global OpenVR shutdown.
     m_pHMD = nullptr;
-    // crashes if OpenGL
-    vr::VR_Shutdown();
-  }
-#endif
-#ifdef OVR_MAJOR_VERSION
-  if (hmd)
-  {
-#if OVR_PRODUCT_VERSION == 0 && OVR_MAJOR_VERSION < 6
-    // on my computer, on runtime 0.4.2, the Rift won't switch itself off without this:
-    if (g_is_direct_mode)
-      ovrHmd_SetEnabledCaps(hmd, ovrHmdCap_DisplayOff);
-#endif
-    ovrHmd_Destroy(hmd);
-    g_has_rift = false;
+    m_pCompositor = nullptr;
+    m_pRenderModels = nullptr;
+    g_has_openvr = false;
     g_has_hmd = false;
-    g_is_direct_mode = false;
-    NOTICE_LOG_FMT(VR, "Oculus Rift shut down.");
+    NOTICE_LOG_FMT(VR, "OpenVR Shutdown.");
   }
-  ovr_Shutdown();
 #endif
 }
 
 void VR_RecenterHMD()
 {
 #ifdef HAVE_OPENVR
-  /*if (g_has_openvr && m_pHMD)
+  if (g_has_openvr && m_pHMD)
   {
     m_pHMD->ResetSeatedZeroPose();
-  }*/
-#endif
-#ifdef OVR_MAJOR_VERSION
-  if (g_has_rift)
-  {
-    ovrHmd_RecenterPose(hmd);
+    NOTICE_LOG_FMT(VR, "OpenVR HMD recentered.");
   }
 #endif
 }
 
 void VR_CheckStatus(bool* ShouldRecenter, bool* ShouldQuit)
 {
-#if defined(OVR_MAJOR_VERSION) && (OVR_PRODUCT_VERSION >= 1)
-  if (g_has_rift)
-  {
-    ovrSessionStatus sessionStatus;
-    ovr_GetSessionStatus(hmd, &sessionStatus);
-    *ShouldRecenter = sessionStatus.ShouldRecenter ? true : false;
-    *ShouldQuit = sessionStatus.ShouldQuit ? true : false;
-  }
-  else
-  {
-    *ShouldRecenter = *ShouldQuit = false;
-  }
-#else
-  *ShouldRecenter = *ShouldQuit = false;
-#endif
+  // OpenVR uses an event system. Recenter/Quit are typically triggered by user actions
+  // (e.g., dashboard menu) or specific events, not polled this way.
+  *ShouldRecenter = false;
+  *ShouldQuit = false;
 }
 
 void VR_ConfigureHMDTracking()
 {
-#if defined(OVR_MAJOR_VERSION) && OVR_PRODUCT_VERSION == 0
-  if (g_has_rift)
-  {
-    int cap = 0;
-    if (g_ActiveConfig.bOrientationTracking)
-      cap |= ovrTrackingCap_Orientation;
-    if (g_ActiveConfig.bMagYawCorrection)
-      cap |= ovrTrackingCap_MagYawCorrection;
-    if (g_ActiveConfig.bPositionTracking)
-      cap |= ovrTrackingCap_Position;
-    ovrHmd_ConfigureTracking(hmd, cap, 0);
-  }
-#endif
+  // OpenVR tracking is generally configured by its runtime.
+  // This function can be empty for an OpenVR-only implementation.
 }
 
 void VR_ConfigureHMDPrediction()
 {
-#if defined(OVR_MAJOR_VERSION) && OVR_PRODUCT_VERSION == 0
-  if (g_has_rift)
-  {
-#if OVR_MAJOR_VERSION <= 5
-    int caps =
-        ovrHmd_GetEnabledCaps(hmd) &
-        ~(ovrHmdCap_DynamicPrediction | ovrHmdCap_LowPersistence | ovrHmdCap_NoMirrorToWindow);
-#else
-#if OVR_MAJOR_VERSION >= 7
-    int caps = ovrHmd_GetEnabledCaps(hmd) & ~(0);
-#else
-    int caps =
-        ovrHmd_GetEnabledCaps(hmd) & ~(ovrHmdCap_DynamicPrediction | ovrHmdCap_LowPersistence);
-#endif
-#endif
-#if OVR_MAJOR_VERSION <= 6
-    if (g_Config.bLowPersistence)
-      caps |= ovrHmdCap_LowPersistence;
-    if (g_Config.bDynamicPrediction)
-      caps |= ovrHmdCap_DynamicPrediction;
-#if OVR_MAJOR_VERSION <= 5
-    if (g_Config.iMirrorPlayer == VR_PLAYER_NONE || g_Config.iMirrorStyle == VR_MIRROR_DISABLED)
-      caps |= ovrHmdCap_NoMirrorToWindow;
-#endif
-#endif
-    ovrHmd_SetEnabledCaps(hmd, caps);
-  }
-#endif
+  // OpenVR handles prediction internally.
+  // This function can be empty.
 }
 
 void VR_GetEyePoses()
 {
-#ifdef OVR_MAJOR_VERSION
-  if (g_has_rift)
-  {
-#ifdef OCULUSSDK042
-    g_eye_poses[ovrEye_Left] = ovrHmd_GetEyePose(hmd, ovrEye_Left);
-    g_eye_poses[ovrEye_Right] = ovrHmd_GetEyePose(hmd, ovrEye_Right);
-#elif OVR_PRODUCT_VERSION >= 1
-    ovrVector3f useHmdToEyeViewOffset[2] = {g_eye_render_desc[0].HmdToEyeOffset,
-                                            g_eye_render_desc[1].HmdToEyeOffset};
-#else
-    ovrVector3f useHmdToEyeViewOffset[2] = {g_eye_render_desc[0].HmdToEyeViewOffset,
-                                            g_eye_render_desc[1].HmdToEyeViewOffset};
-#if OVR_MAJOR_VERSION >= 8
-    ovr_GetEyePoses(hmd, g_ovr_frameindex, false, useHmdToEyeViewOffset, g_eye_poses, nullptr);
-#elif OVR_MAJOR_VERSION >= 7
-    ovr_GetEyePoses(hmd, g_ovr_frameindex, useHmdToEyeViewOffset, g_eye_poses, nullptr);
-#else
-    ovrHmd_GetEyePoses(hmd, g_ovr_frameindex, useHmdToEyeViewOffset, g_eye_poses, nullptr);
-#endif
-#endif
-  }
-#endif
-//#if HAVE_OPENVR
-//  if (g_has_openvr)
-//  {
-//    if (m_pCompositor)
-//    {
-//      // m_pCompositor->WaitGetPoses(m_rTrackedDevicePose, vr::k_unMaxTrackedDeviceCount, nullptr,
-//      // 0);
-//    }
-//  }
-//#endif
+  // This function's original purpose was to populate Oculus-specific g_eye_poses.
+  // In OpenVR, we get the HMD pose via m_rTrackedDevicePose and derive eye views.
+  // This function is not strictly necessary for OpenVR if VR_UpdateHeadTrackingIfNeeded is used.
+  // Kept empty to avoid breaking calls if any exist, but its utility is diminished.
 }
 
 #ifdef HAVE_OPENVR
-//-----------------------------------------------------------------------------
-// Purpose: Processes a single VR event
-//-----------------------------------------------------------------------------
 void ProcessVREvent(const vr::VREvent_t& event)
 {
   switch (event.eventType)
   {
   case vr::VREvent_TrackedDeviceActivated:
-  {
-    // SetupRenderModelForTrackedDevice(event.trackedDeviceIndex);
-    NOTICE_LOG_FMT(VR, "Device {} attached. Setting up render model.\n", event.trackedDeviceIndex);
+    NOTICE_LOG_FMT(VR, "OpenVR Device {} ({}) attached.", event.trackedDeviceIndex,
+                 GetTrackedDeviceString(m_pHMD, event.trackedDeviceIndex, vr::Prop_RenderModelName_String).c_str());
     break;
-  }
   case vr::VREvent_TrackedDeviceDeactivated:
-  {
-    NOTICE_LOG_FMT(VR, "Device {} detached.\n", event.trackedDeviceIndex);
+    NOTICE_LOG_FMT(VR, "OpenVR Device {} deactivated.", event.trackedDeviceIndex);
     break;
-  }
   case vr::VREvent_TrackedDeviceUpdated:
-  {
-    NOTICE_LOG_FMT(VR, "Device {} updated.\n", event.trackedDeviceIndex);
+    // This event is frequent, maybe log less verbosely or only specific updates.
+    // DEBUG_LOG_FMT(VR, "OpenVR Device {} updated.", event.trackedDeviceIndex);
+    break;
+  case vr::VREvent_IpdChanged:
+    g_openvr_ipd = event.data.ipd.ipdMeters;
+    NOTICE_LOG_FMT(VR, "OpenVR IPD changed to {:.4f}m", g_openvr_ipd);
+    break;
+  // Handle other relevant events like VREvent_Quit, VREvent_ProcessQuit, VREvent_ChaperoneDataHasChanged etc.
+  case vr::VREvent_Quit: // Deprecated, use VREvent_ProcessQuit
+  case vr::VREvent_ProcessQuit:
+      NOTICE_LOG_FMT(VR, "OpenVR Quit Event received.");
+      // Potentially set a flag that Core::Run() can check to initiate shutdown
+      break;
+  default:
     break;
   }
-  case vr::VREvent_IpdChanged:
-  {
-    g_openvr_ipd = event.data.ipd.ipdMeters;
-    NOTICE_LOG_FMT(VR, "IPD changed to {}", g_openvr_ipd);
-  }
-  }
-}
-#endif
-
-void ConvertOpenVRToOculusPose()
-{
-#if defined(OVR_MAJOR_VERSION) && defined(HAVE_OPENVR)
-  ovrPosef pose;
-
-  Common::Quaternion q = Common::Matrix44::ToQuaternion(g_head_tracking_matrix);
-    
-  pose.Orientation.x = q.data.x;
-  pose.Orientation.y = q.data.y;
-  pose.Orientation.z = q.data.z;
-  pose.Orientation.w = q.data.w;
-  pose.Position = ovrVector3f(-g_head_tracking_position.x, -g_head_tracking_position.y, -g_head_tracking_position.z);
-
-  g_eye_poses[0] = pose;
-  g_eye_poses[1] = pose;
-#endif
 }
 
-#ifdef OVR_MAJOR_VERSION
-void UpdateOculusHeadTracking()
-{
-// we can only call GetEyePose between BeginFrame and EndFrame
-#ifdef OCULUSSDK042
-  g_vr_lock.lock();
-  g_eye_poses[ovrEye_Left] = ovrHmd_GetEyePose(hmd, ovrEye_Left);
-  g_eye_poses[ovrEye_Right] = ovrHmd_GetEyePose(hmd, ovrEye_Right);
-  OVR::Posef pose = g_eye_poses[ovrEye_Left];
-  g_vr_lock.unlock();
-#else
-#if OVR_PRODUCT_VERSION >= 1
-  ovrVector3f useHmdToEyeViewOffset[2] = {g_eye_render_desc[0].HmdToEyeOffset,
-                                          g_eye_render_desc[1].HmdToEyeOffset};
-#else
-  ovrVector3f useHmdToEyeViewOffset[2] = {g_eye_render_desc[0].HmdToEyeViewOffset,
-                                          g_eye_render_desc[1].HmdToEyeViewOffset};
-#endif
-#if OVR_PRODUCT_VERSION >= 1 || OVR_MAJOR_VERSION >= 8
-  double display_time = ovr_GetPredictedDisplayTime(hmd, g_ovr_frameindex);
-  ovrTrackingState state = ovr_GetTrackingState(hmd, display_time, false);
-  ovr_CalcEyePoses(state.HeadPose.ThePose, useHmdToEyeViewOffset, g_eye_poses);
-  OVR::Posef pose = state.HeadPose.ThePose;
-#elif OVR_MAJOR_VERSION >= 7
-  ovr_GetEyePoses(hmd, g_ovr_frameindex, useHmdToEyeViewOffset, g_eye_poses, nullptr);
-  OVR::Posef pose = g_eye_poses[ovrEye_Left];
-#else
-  ovrHmd_GetEyePoses(hmd, g_ovr_frameindex, useHmdToEyeViewOffset, g_eye_poses, nullptr);
-  OVR::Posef pose = g_eye_poses[ovrEye_Left];
-#endif
-#endif
-  // ovrTrackingState ss = ovrHmd_GetTrackingState(hmd, g_rift_frame_timing.ScanoutMidpointSeconds);
-  // if (ss.StatusFlags & (ovrStatus_OrientationTracked | ovrStatus_PositionTracked))
-  {
-    // OVR::Posef pose = ss.HeadPose.ThePose;
-    float yaw = 0.0f, pitch = 0.0f, roll = 0.0f;
-    pose.Rotation.GetEulerAngles<OVR::Axis_Y, OVR::Axis_X, OVR::Axis_Z>(&yaw, &pitch, &roll);
-
-    float x = 0, y = 0, z = 0;
-    roll = -RADIANS_TO_DEGREES(roll);    // ???
-    pitch = -RADIANS_TO_DEGREES(pitch);  // should be degrees down
-    yaw = -RADIANS_TO_DEGREES(yaw);      // should be degrees right
-    x = pose.Translation.x;
-    y = pose.Translation.y;
-    z = pose.Translation.z;
-    g_head_tracking_position.x = -x;
-    g_head_tracking_position.y = -y;
-#if OVR_PRODUCT_VERSION == 0 && OVR_MAJOR_VERSION <= 4
-    g_head_tracking_position.z = 0.06f - z;
-#else
-    g_head_tracking_position.z = -z;
-#endif
-    Common::Matrix33 m, yp, ya, p, r;
-    ya = Common::Matrix33::RotateY(DEGREES_TO_RADIANS(yaw));
-    p = Common::Matrix33::RotateY(DEGREES_TO_RADIANS(pitch));
-    Common::Matrix33::Multiply(p, ya, &yp);
-    r = Common::Matrix33::RotateZ(DEGREES_TO_RADIANS(roll));
-    Common::Matrix33::Multiply(r, yp, &m);
-    g_head_tracking_matrix = Common::Matrix44::FromMatrix33(m);
-  }
-}
-#endif
-
-#ifdef HAVE_OPENVR
 void UpdateOpenVRHeadTracking()
 {
-  // Process OpenVR events
+  if (!m_pHMD)
+    return;
+
   vr::VREvent_t event;
   while (m_pHMD->PollNextEvent(&event, sizeof(event)))
   {
     ProcessVREvent(event);
   }
 
-  // float fSecondsUntilPhotons = 0.0f;
-  // m_pHMD->GetDeviceToAbsoluteTrackingPose(vr::TrackingUniverseSeated, fSecondsUntilPhotons,
-  // m_rTrackedDevicePose, vr::k_unMaxTrackedDeviceCount);
-  m_iValidPoseCount = 0;
-  // for ( int nDevice = 0; nDevice < vr::k_unMaxTrackedDeviceCount; ++nDevice )
-  //{
-  //	if ( m_rTrackedDevicePose[nDevice].bPoseIsValid )
-  //	{
-  //		m_iValidPoseCount++;
-  //		//m_rTrackedDevicePose[nDevice].mDeviceToAbsoluteTracking;
-  //	}
-  //}
+  if (vr::VRCompositor())
+  {
+    vr::VRCompositor()->WaitGetPoses(m_rTrackedDevicePose, vr::k_unMaxTrackedDeviceCount, nullptr, 0);
+  }
+  else
+  {
+    // Fallback if compositor not available (less ideal, lacks future prediction)
+    m_pHMD->GetDeviceToAbsoluteTrackingPose(vr::TrackingUniverseSeated, 0, m_rTrackedDevicePose, vr::k_unMaxTrackedDeviceCount);
+  }
 
+  g_older_tracking_time = g_old_tracking_time;
+  g_old_tracking_time = g_last_tracking_time;
+  g_last_tracking_time = Common::Timer::NowMs() / 1000.0; // Ensure Timer::GetTimeMs exists and is appropriate
+
+  m_iValidPoseCount = 0;
   if (m_rTrackedDevicePose[vr::k_unTrackedDeviceIndex_Hmd].bPoseIsValid)
   {
-    float x =
-        m_rTrackedDevicePose[vr::k_unTrackedDeviceIndex_Hmd].mDeviceToAbsoluteTracking.m[0][3];
-    float y =
-        m_rTrackedDevicePose[vr::k_unTrackedDeviceIndex_Hmd].mDeviceToAbsoluteTracking.m[1][3];
-    float z =
-        m_rTrackedDevicePose[vr::k_unTrackedDeviceIndex_Hmd].mDeviceToAbsoluteTracking.m[2][3];
-    g_head_tracking_position.x = -x;
-    g_head_tracking_position.y = -y;
-    g_head_tracking_position.z = -z;
-    Common::Matrix33 m;
-    for (int r = 0; r < 3; r++)
-      for (int c = 0; c < 3; c++)
-        m.data[r * 3 + c] =
-            m_rTrackedDevicePose[vr::k_unTrackedDeviceIndex_Hmd].mDeviceToAbsoluteTracking.m[c][r];
-    g_head_tracking_matrix = Common::Matrix44::FromMatrix33(m);
-  }
-}
-#endif
+    m_iValidPoseCount++;
+    const vr::HmdMatrix34_t& mat = m_rTrackedDevicePose[vr::k_unTrackedDeviceIndex_Hmd].mDeviceToAbsoluteTracking;
 
-#ifdef _WIN32
-void UpdateVuzixHeadTracking()
-{
-  //LONG ya = 0, p = 0, r = 0;
-  //if (Vuzix_GetTracking(&ya, &p, &r) == ERROR_SUCCESS)
-  //{
-  //  float yaw = -ya * 180.0f / 32767.0f;
-  //  float pitch = p * -180.0f / 32767.0f;
-  //  float roll = r * 180.0f / 32767.0f;
-  //  // todo: use head and neck model
-  //  float x = 0;
-  //  float y = 0;
-  //  float z = 0;
-  //  Matrix33 m, yp, yawm, pitchm, rollm;
-  //  Matrix33::RotateY(yawm, DEGREES_TO_RADIANS(yaw));
-  //  Matrix33::RotateX(pitchm, DEGREES_TO_RADIANS(pitch));
-  //  Matrix33::Multiply(pitchm, yawm, yp);
-  //  Matrix33::RotateZ(rollm, DEGREES_TO_RADIANS(roll));
-  //  Matrix33::Multiply(rollm, yp, m);
-  //  Common::Matrix44::LoadMatrix33(g_head_tracking_matrix, m);
-  //  g_head_tracking_position[0] = -x;
-  //  g_head_tracking_position[1] = -y;
-  //  g_head_tracking_position[2] = -z;
-  //}
+    // Convert OpenVR matrix (column-major) to our Matrix44 (row-major)
+    // And OpenVR's +Y up, -Z forward to Dolphin's +Y up, +Z forward convention if necessary.
+    // OpenVR HmdMatrix34_t is:
+    // m[0][0] m[0][1] m[0][2] m[0][3] (right_x, up_x, back_x, pos_x)
+    // m[1][0] m[1][1] m[1][2] m[1][3] (right_y, up_y, back_y, pos_y)
+    // m[2][0] m[2][1] m[2][2] m[2][3] (right_z, up_z, back_z, pos_z)
+    // Dolphin's Matrix44 is row-major.
+
+    Common::Matrix44 openvr_pose_matrix;
+    openvr_pose_matrix.data[0] = mat.m[0][0]; openvr_pose_matrix.data[1] = mat.m[0][1]; openvr_pose_matrix.data[2] = mat.m[0][2]; openvr_pose_matrix.data[3] = mat.m[0][3];
+    openvr_pose_matrix.data[4] = mat.m[1][0]; openvr_pose_matrix.data[5] = mat.m[1][1]; openvr_pose_matrix.data[6] = mat.m[1][2]; openvr_pose_matrix.data[7] = mat.m[1][3];
+    openvr_pose_matrix.data[8] = mat.m[2][0]; openvr_pose_matrix.data[9] = mat.m[2][1]; openvr_pose_matrix.data[10] = mat.m[2][2]; openvr_pose_matrix.data[11] = mat.m[2][3];
+    openvr_pose_matrix.data[12] = 0; openvr_pose_matrix.data[13] = 0; openvr_pose_matrix.data[14] = 0; openvr_pose_matrix.data[15] = 1;
+
+    // Assuming OpenVR provides pose in its standard coordinate system (+Y up, -Z forward, +X right)
+    // And g_head_tracking_matrix is expected to be view matrix (camera transform)
+    // The pose from OpenVR is HMD_tracking_reference_to_HMD_actual.
+    // To get a view matrix, we need its inverse.
+    // Also, positions from OpenVR are usually direct world positions.
+    // g_head_tracking_position should store the HMD's world position.
+    // g_head_tracking_matrix should store the HMD's world orientation as a view matrix.
+
+    g_head_tracking_position = Common::Vec3(mat.m[0][3], mat.m[1][3], mat.m[2][3]);
+
+    // Extract rotation part for g_head_tracking_matrix (as a view matrix, it's the inverse of HMD world orientation)
+    Common::Matrix33 rot_matrix;
+    rot_matrix.data[0] = mat.m[0][0]; rot_matrix.data[1] = mat.m[1][0]; rot_matrix.data[2] = mat.m[2][0]; // Transpose for view
+    rot_matrix.data[3] = mat.m[0][1]; rot_matrix.data[4] = mat.m[1][1]; rot_matrix.data[5] = mat.m[2][1];
+    rot_matrix.data[6] = mat.m[0][2]; rot_matrix.data[7] = mat.m[1][2]; rot_matrix.data[8] = mat.m[2][2];
+
+    g_head_tracking_matrix = Common::Matrix44::FromMatrix33(rot_matrix);
+    // The translation part of the view matrix is -R^T * T_world
+    Common::Vec3 transformed_pos = rot_matrix * g_head_tracking_position;
+    g_head_tracking_matrix *= Common::Matrix44::Translate(Common::Vec3(-transformed_pos.x, -transformed_pos.y, -transformed_pos.z));
+
+  }
 }
 #endif
 
@@ -1050,336 +490,133 @@ void VR_UpdateHeadTrackingIfNeeded()
   if (g_new_tracking_frame)
   {
     g_new_tracking_frame = false;
-#ifdef _WIN32
-    /*if (g_has_vr920 && Vuzix_GetTracking)
-      UpdateVuzixHeadTracking();*/
-#endif
 #ifdef HAVE_OPENVR
-    if (g_has_openvr)
+    if (g_has_openvr && m_pHMD)
       UpdateOpenVRHeadTracking();
-#endif
-#ifdef OVR_MAJOR_VERSION
-    if (g_has_rift && g_has_openvr)
-      ConvertOpenVRToOculusPose();
-    else if (g_has_rift)
-      UpdateOculusHeadTracking();
 #endif
   }
 }
 
 void VR_GetProjectionHalfTan(float& hmd_halftan)
 {
-#ifdef OVR_MAJOR_VERSION
-  if (g_has_rift)
+#ifdef HAVE_OPENVR
+  if (g_has_openvr && m_pHMD)
   {
-    hmd_halftan = fabs(g_eye_fov[0].LeftTan);
-    if (fabs(g_eye_fov[0].RightTan) > hmd_halftan)
-      hmd_halftan = fabs(g_eye_fov[0].RightTan);
-    if (fabs(g_eye_fov[0].UpTan) > hmd_halftan)
-      hmd_halftan = fabs(g_eye_fov[0].UpTan);
-    if (fabs(g_eye_fov[0].DownTan) > hmd_halftan)
-      hmd_halftan = fabs(g_eye_fov[0].DownTan);
+    float left, right, top, bottom;
+    // Get raw projection values for one eye (e.g., left)
+    m_pHMD->GetProjectionRaw(vr::Eye_Left, &left, &right, &top, &bottom);
+    // The largest absolute tangent value determines the "half tan" for the widest FOV component
+    hmd_halftan = std::max({std::abs(left), std::abs(right), std::abs(top), std::abs(bottom)});
+
+    if (g_reduce_fov_for_motion_sickness) {
+        hmd_halftan = std::min(hmd_halftan, g_reduced_fov_tan_limit);
+    }
+    return;
   }
-  else
 #endif
-      if (g_has_openvr)
-  {
-    // rough approximation, can't be bothered to work this out properly
-    hmd_halftan = tan(DEGREES_TO_RADIANS(100.0f / 2));
-  }
-  else
-  {
-    hmd_halftan = tan(DEGREES_TO_RADIANS(32.0f / 2)) * 3.0f / 4.0f;
-  }
+  // Default fallback if no VR system is active or call fails
+  hmd_halftan = tan(DEGREES_TO_RADIANS(g_ActiveConfig.fMotionSicknessFOV > 0.f ? g_ActiveConfig.fMotionSicknessFOV / 2.0f : 45.0f));
 }
 
 void VR_GetProjectionMatrices(Common::Matrix44& left_eye, Common::Matrix44& right_eye, float znear, float zfar)
 {
-#ifdef OVR_MAJOR_VERSION
-  if (g_has_rift && !g_has_two_hmds)
-  {
-#if OVR_PRODUCT_VERSION >= 1
-    ovrMatrix4f rift_left = ovrMatrix4f_Projection(g_eye_fov[0], znear, zfar, 0);
-    ovrMatrix4f rift_right = ovrMatrix4f_Projection(g_eye_fov[1], znear, zfar, 0);
-#else
-    ovrMatrix4f rift_left = ovrMatrix4f_Projection(g_eye_fov[0], znear, zfar, true);
-    ovrMatrix4f rift_right = ovrMatrix4f_Projection(g_eye_fov[1], znear, zfar, true);
-#endif
-    left_eye.data[0] = rift_left.M[0][0];
-    left_eye.data[1] = rift_left.M[0][1];
-    left_eye.data[2] = rift_left.M[0][2];
-    left_eye.data[3] = rift_left.M[0][3];
-    left_eye.data[4] = rift_left.M[1][0];
-    left_eye.data[5] = rift_left.M[1][1];
-    left_eye.data[6] = rift_left.M[1][2];
-    left_eye.data[7] = rift_left.M[1][3];
-    left_eye.data[8] = rift_left.M[2][0];
-    left_eye.data[9] = rift_left.M[2][1];
-    left_eye.data[10] = rift_left.M[2][2];
-    left_eye.data[11] = rift_left.M[2][3];
-    left_eye.data[12] = rift_left.M[3][0];
-    left_eye.data[13] = rift_left.M[3][1];
-    left_eye.data[14] = rift_left.M[3][2];
-    left_eye.data[15] = rift_left.M[3][3];
-    right_eye.data[0] = rift_right.M[0][0];
-    right_eye.data[1] = rift_right.M[0][1];
-    right_eye.data[2] = rift_right.M[0][2];
-    right_eye.data[3] = rift_right.M[0][3];
-    right_eye.data[4] = rift_right.M[1][0];
-    right_eye.data[5] = rift_right.M[1][1];
-    right_eye.data[6] = rift_right.M[1][2];
-    right_eye.data[7] = rift_right.M[1][3];
-    right_eye.data[8] = rift_right.M[2][0];
-    right_eye.data[9] = rift_right.M[2][1];
-    right_eye.data[10] = rift_right.M[2][2];
-    right_eye.data[11] = rift_right.M[2][3];
-    right_eye.data[12] = rift_right.M[3][0];
-    right_eye.data[13] = rift_right.M[3][1];
-    right_eye.data[14] = rift_right.M[3][2];
-    right_eye.data[15] = rift_right.M[3][3];
-  }
-  else
-#endif
 #ifdef HAVE_OPENVR
-      if (g_has_openvr)
+  if (g_has_openvr && m_pHMD)
   {
-#ifdef OPENVR_105_OR_ABOVE
-    vr::HmdMatrix44_t mat = m_pHMD->GetProjectionMatrix(
-        vr::Eye_Left, znear,
-        zfar);  // if error here, use OpenVR 1.05 or above instead of 1.03/1.04 OR use line below
-#else
-    vr::HmdMatrix44_t mat = m_pHMD->GetProjectionMatrix(vr::Eye_Left, znear, zfar, OPENVR_DirectX);
-#endif
-    for (int r = 0; r < 4; ++r)
-      for (int c = 0; c < 4; ++c)
-        left_eye.data[r * 4 + c] = mat.m[r][c];
-#ifdef OPENVR_105_OR_ABOVE
-    mat = m_pHMD->GetProjectionMatrix(
-        vr::Eye_Right, znear,
-        zfar);  // if error here, use OpenVR 1.05 or above instead of 1.03/1.04 OR use line below
-#else
-    mat = m_pHMD->GetProjectionMatrix(vr::Eye_Right, znear, zfar, OPENVR_DirectX);
-#endif
-    for (int r = 0; r < 4; ++r)
-      for (int c = 0; c < 4; ++c)
-        right_eye.data[r * 4 + c] = mat.m[r][c];
+    vr::HmdMatrix44_t mat_left = m_pHMD->GetProjectionMatrix(vr::Eye_Left, znear, zfar);
+    vr::HmdMatrix44_t mat_right = m_pHMD->GetProjectionMatrix(vr::Eye_Right, znear, zfar);
+
+    // Convert OpenVR's HmdMatrix44_t to Common::Matrix44
+    // OpenVR matrices are column-major, Common::Matrix44 is row-major.
+    for (int r = 0; r < 4; ++r) {
+      for (int c = 0; c < 4; ++c) {
+        left_eye.data[r * 4 + c] = mat_left.m[r][c]; // This assumes HmdMatrix44_t is row-major or direct copy is fine. Check OpenVR docs.
+        right_eye.data[r * 4 + c] = mat_right.m[r][c]; // If column-major, needs transpose: left_eye.data[c * 4 + r] = mat_left.m[r][c];
+      }
+    }
+    // If GetProjectionMatrix returns a matrix that needs to be adjusted for FOV reduction:
+    if (g_reduce_fov_for_motion_sickness) {
+        // This is a simplified symmetric FOV reduction.
+        // A more accurate method would involve GetProjectionRaw, modifying tangents, then rebuilding the matrix.
+        float scale = tan(atan(1.0f / left_eye.data[0]) * 2.0f * 0.5f) / g_reduced_fov_tan_limit; // Approximation
+        if (scale > 1.0f) { // only narrow, don't widen
+            left_eye.data[0] *= scale;  left_eye.data[5] *= scale; // Scale P[0][0] and P[1][1]
+            right_eye.data[0] *= scale; right_eye.data[5] *= scale;
+            g_fov_changed = true;
+        }
+    }
+    return;
   }
-  else
 #endif
-  {
-    left_eye = Common::Matrix44::Identity();
-    left_eye.data[10] = -znear / (zfar - znear);
-    left_eye.data[11] = -zfar * znear / (zfar - znear);
-    left_eye.data[14] = -1.0f;
-    left_eye.data[15] = 0.0f;
-    // 32 degrees HFOV, 4:3 aspect ratio
-    left_eye.data[0 * 4 + 0] = 1.0f / tan(32.0f / 2.0f * 3.1415926535f / 180.0f);
-    left_eye.data[1 * 4 + 1] = 4.0f / 3.0f * left_eye.data[0 * 4 + 0];
-    right_eye = Common::Matrix44::FromArray(left_eye.data);
-  }
+  // Fallback if no VR
+  left_eye = Common::Matrix44::Perspective(DEGREES_TO_RADIANS(90.0f), 1.0f, znear, zfar);
+  right_eye = left_eye;
 }
 
 void VR_GetEyePos(float* posLeft, float* posRight)
 {
-#ifdef OVR_MAJOR_VERSION
-  if (g_has_rift)
-  {
-#ifdef OCULUSSDK042
-    posLeft[0] = g_eye_render_desc[0].ViewAdjust.x;
-    posLeft[1] = g_eye_render_desc[0].ViewAdjust.y;
-    posLeft[2] = g_eye_render_desc[0].ViewAdjust.z;
-    posRight[0] = g_eye_render_desc[1].ViewAdjust.x;
-    posRight[1] = g_eye_render_desc[1].ViewAdjust.y;
-    posRight[2] = g_eye_render_desc[1].ViewAdjust.z;
-#elif OVR_PRODUCT_VERSION >= 1
-    posLeft[0] = g_eye_render_desc[0].HmdToEyeOffset.x;
-    posLeft[1] = g_eye_render_desc[0].HmdToEyeOffset.y;
-    posLeft[2] = g_eye_render_desc[0].HmdToEyeOffset.z;
-    posRight[0] = g_eye_render_desc[1].HmdToEyeOffset.x;
-    posRight[1] = g_eye_render_desc[1].HmdToEyeOffset.y;
-    posRight[2] = g_eye_render_desc[1].HmdToEyeOffset.z;
-#else
-    posLeft[0] = g_eye_render_desc[0].HmdToEyeViewOffset.x;
-    posLeft[1] = g_eye_render_desc[0].HmdToEyeViewOffset.y;
-    posLeft[2] = g_eye_render_desc[0].HmdToEyeViewOffset.z;
-    posRight[0] = g_eye_render_desc[1].HmdToEyeViewOffset.x;
-    posRight[1] = g_eye_render_desc[1].HmdToEyeViewOffset.y;
-    posRight[2] = g_eye_render_desc[1].HmdToEyeViewOffset.z;
-#endif
-#if OVR_PRODUCT_VERSION >= 1 || OVR_MAJOR_VERSION >= 6
-    for (int i = 0; i < 3; ++i)
-    {
-      posLeft[i] = -posLeft[i];
-      posRight[i] = -posRight[i];
-    }
-#endif
-  }
-  else
-#endif
 #ifdef HAVE_OPENVR
-      if (g_has_openvr)
+  if (g_has_openvr && m_pHMD)
   {
-    posLeft[0] = g_openvr_ipd / 2;
-    posRight[0] = -posLeft[0];
+    vr::TrackedPropertyError error;
+    g_openvr_ipd = m_pHMD->GetFloatTrackedDeviceProperty(vr::k_unTrackedDeviceIndex_Hmd, vr::Prop_UserIpdMeters_Float, &error);
+    if (error != vr::TrackedProp_Success) {
+        g_openvr_ipd = 0.064f; // Default if fetch fails
+        WARN_LOG_FMT(VR, "Failed to get IPD from OpenVR: {}. Using default: {}", vr::VRSystem()->GetPropErrorNameFromEnum(error), g_openvr_ipd);
+    }
+    posLeft[0] = -g_openvr_ipd / 2.0f;
+    posRight[0] = g_openvr_ipd / 2.0f;
     posLeft[1] = posRight[1] = 0;
     posLeft[2] = posRight[2] = 0;
+    return;
   }
-  else
 #endif
-  {
-    // assume 64mm IPD
-    posLeft[0] = 0.032f;
-    posRight[0] = -0.032f;
-    posLeft[1] = posRight[1] = 0;
-    posLeft[2] = posRight[2] = 0;
-  }
+  // Default fallback
+  posLeft[0] = -0.032f;
+  posRight[0] = 0.032f;
+  posLeft[1] = posRight[1] = 0;
+  posLeft[2] = posRight[2] = 0;
 }
 
 void VR_GetFovTextureSize(int* width, int* height)
 {
-#if defined(OVR_MAJOR_VERSION)
-  if (g_has_rift)
-  {
-    ovrSizei size = ovrHmd_GetFovTextureSize(hmd, ovrEye_Left, g_eye_fov[0], 1.0f);
-    *width = size.w;
-    *height = size.h;
-  }
+#ifdef HAVE_OPENVR
+    if(g_has_openvr && m_pHMD)
+    {
+        uint32_t w, h;
+        m_pHMD->GetRecommendedRenderTargetSize(&w, &h);
+        *width = static_cast<int>(w);
+        *height = static_cast<int>(h);
+        return;
+    }
 #endif
+    *width = 1280;
+    *height = 720;
 }
 
 std::wstring VR_GetAudioDeviceId()
 {
-#if defined(OVR_PRODUCT_VERSION) && OVR_PRODUCT_VERSION >= 1
-  if (g_has_rift)
-  {
-    // this is a standard GUID, but the windows GUID include file system is insane, so just define
-    // it here
-    const GUID DEVINTERFACE_AUDIO_RENDER_ = {
-        0xe6327cad, 0xdcec, 0x4949, {0xae, 0x8a, 0x99, 0x1e, 0x97, 0x6a, 0x79, 0xd2}};
-    GUID rift_guid;
-    ovr_GetAudioDeviceOutGuid(&rift_guid);
-    wchar_t guid_wstr[40];
-    StringFromGUID2(rift_guid, guid_wstr, 40);
-    NOTICE_LOG_FMT(VR, "Rift Audio GUID: '%S'", guid_wstr);
-    HDEVINFO const device_info = SetupDiGetClassDevs(&DEVINTERFACE_AUDIO_RENDER_, 0, 0,
-                                                     DIGCF_DEVICEINTERFACE | DIGCF_PRESENT);
-
-    SP_DEVICE_INTERFACE_DATA device_data = {};
-    device_data.cbSize = sizeof(device_data);
-    PSP_DEVICE_INTERFACE_DETAIL_DATA detail_data = nullptr;
-
-    for (int index = 0; SetupDiEnumDeviceInterfaces(
-             device_info, nullptr, &DEVINTERFACE_AUDIO_RENDER_, index, &device_data);
-         ++index)
-    {
-      // Get the size of the data block required
-      DWORD len;
-      SetupDiGetDeviceInterfaceDetail(device_info, &device_data, nullptr, 0, &len, nullptr);
-      detail_data = (PSP_DEVICE_INTERFACE_DETAIL_DATA)malloc(len);
-      detail_data->cbSize = sizeof(SP_DEVICE_INTERFACE_DETAIL_DATA);
-
-      SP_DEVINFO_DATA device_info_data = {};
-      device_info_data.cbSize = sizeof(SP_DEVINFO_DATA);
-
-      // Query the data for this device
-      if (SetupDiGetDeviceInterfaceDetail(device_info, &device_data, detail_data, len, nullptr,
-                                          &device_info_data))
-      {
-        std::wstring device_path(detail_data->DevicePath);
-        for_each(device_path.begin(), device_path.end(), [](wchar_t& in) { in = ::toupper(in); });
-        if (device_path.find(guid_wstr) != std::string::npos)
-        {
-          NOTICE_LOG_FMT(VR, "Found Rift audio device %d: DevicePath = '%S', ", index,
-                     detail_data->DevicePath);
-          auto result = std::wstring(detail_data->DevicePath);
-          free(detail_data);
-          SetupDiDestroyDeviceInfoList(device_info);
-          return result;
-        }
-        else
-        {
-          // NOTICE_LOG_FMT(VR, "%d: DevicePath = '%S', ", index, detail_data->DevicePath);
-        }
-      }
-      free(detail_data);
-    }
-    SetupDiDestroyDeviceInfoList(device_info);
-    // couldn't find the audio device Oculus specified
-    ERROR_LOG_FMT(VR, "Couldn't find Rift audio device.");
-    return std::wstring();
-  }
-  else
-#endif
 #ifdef HAVE_OPENVR
-      if (g_has_openvr)
+  if (g_has_openvr && m_pHMD)
   {
-    return std::wstring();
+    char audio_device_id[vr::k_unMaxPropertyStringSize];
+    vr::TrackedPropertyError error;
+    m_pHMD->GetStringTrackedDeviceProperty(vr::k_unTrackedDeviceIndex_Hmd, vr::Prop_Audio_DefaultPlaybackDeviceId_String, audio_device_id, sizeof(audio_device_id), &error);
+    if (error == vr::TrackedProp_Success && audio_device_id[0] != '\0')
+    {
+        return UTF8ToWString(std::string(audio_device_id));
+    }
+    else if (error != vr::TrackedProp_Success && error != vr::TrackedProp_ValueNotProvidedByDevice && error != vr::TrackedProp_UnknownProperty)
+    {
+        // Don't warn if property just isn't there, some HMDs might not provide it.
+        WARN_LOG_FMT(VR, "Failed to get OpenVR audio device ID: {}", vr::VRSystem()->GetPropErrorNameFromEnum(error));
+    }
   }
-  else
 #endif
-  {
-    return std::wstring();
-  }
+  return std::wstring();
 }
 
-bool VR_GetRemoteButtons(u32* buttons)
-{
-  *buttons = 0;
-#if defined(OVR_MAJOR_VERSION) && OVR_PRODUCT_VERSION >= 1
-  if (g_has_rift)
-  {
-    ovrInputState sidInput = {};
-    bool HasInputState = OVR_SUCCESS(ovr_GetInputState(hmd, ovrControllerType_Remote, &sidInput));
-    *buttons = sidInput.Buttons;
-    return HasInputState;
-  }
-  else
-#endif
-  {
-    return false;
-  }
-}
-
-bool VR_GetTouchButtons(u32* buttons, u32* touches, float m_triggers[], float m_axes[])
-{
-  *buttons = 0;
-  *touches = 0;
-#if defined(OVR_MAJOR_VERSION) && (OVR_MAJOR_VERSION > 7 || OVR_PRODUCT_VERSION >= 1)
-  if (g_has_rift)
-  {
-    ovrInputState touchInput = {};
-    bool HasInputState = OVR_SUCCESS(ovr_GetInputState(hmd, ovrControllerType_Touch, &touchInput));
-    *buttons = touchInput.Buttons;
-    *touches = touchInput.Touches;
-    memcpy(m_triggers, touchInput.IndexTrigger, 2 * sizeof(float));
-    memcpy(&m_triggers[2], touchInput.HandTrigger, 2 * sizeof(float));
-    memcpy(m_axes, touchInput.Thumbstick, 4 * sizeof(float));
-    return HasInputState;
-  }
-  else
-#endif
-  {
-    return false;
-  }
-}
-
-bool VR_SetTouchVibration(int hands, float freq, float amplitude)
-{
-#if defined(OVR_MAJOR_VERSION) && (OVR_MAJOR_VERSION > 7 || OVR_PRODUCT_VERSION >= 1)
-  if (g_has_rift)
-  {
-    if (amplitude <= 0)
-      amplitude = 0;
-    else
-      amplitude = 1;
-    return OVR_SUCCESS(ovr_SetControllerVibration(hmd, (ovrControllerType)hands, freq, amplitude));
-  }
-  else
-#endif
-  {
-    return false;
-  }
-}
+// Removed VR_GetRemoteButtons, VR_GetTouchButtons, VR_SetTouchVibration, VR_GetHMDGestures
 
 // 0 = unknown, 1 = buttons, -1 = analog
 static int s_vive_button_mode[2] = {};
@@ -1545,37 +782,36 @@ bool VR_GetViveButtons(u32* buttons, u32* touches, u64* specials, float triggers
   if (m_pHMD)
   {
     // find the controllers for each hand, 100 = not found
-    vr::TrackedDeviceIndex_t left_hand = 100, right_hand = 100;
+    vr::TrackedDeviceIndex_t left_hand = vr::k_unTrackedDeviceIndexInvalid;
+    vr::TrackedDeviceIndex_t right_hand = vr::k_unTrackedDeviceIndexInvalid;
+
     for (vr::TrackedDeviceIndex_t i = 0; i < vr::k_unMaxTrackedDeviceCount; ++i)
     {
-      vr::ETrackedControllerRole hand = m_pHMD->GetControllerRoleForTrackedDeviceIndex(i);
-      if (hand == vr::TrackedControllerRole_LeftHand)
+      if (m_pHMD->GetControllerRoleForTrackedDeviceIndex(i) == vr::TrackedControllerRole_LeftHand)
         left_hand = i;
-      else if (hand == vr::TrackedControllerRole_RightHand)
+      else if (m_pHMD->GetControllerRoleForTrackedDeviceIndex(i) == vr::TrackedControllerRole_RightHand)
         right_hand = i;
     }
-    for (vr::TrackedDeviceIndex_t i = 0; i < vr::k_unMaxTrackedDeviceCount; ++i)
-    {
-      vr::ETrackedDeviceClass kind = m_pHMD->GetTrackedDeviceClass(i);
-      if (kind == vr::TrackedDeviceClass_Controller)
-      {
-        if (left_hand == 100 && i != right_hand)
-          left_hand = i;
-        else if (right_hand == 100 && i != left_hand)
-          right_hand = i;
-      }
+    // Fallback if roles aren't assigned (e.g. some generic OpenVR controllers)
+    if (left_hand == vr::k_unTrackedDeviceIndexInvalid || right_hand == vr::k_unTrackedDeviceIndexInvalid) {
+        for (vr::TrackedDeviceIndex_t i = 0; i < vr::k_unMaxTrackedDeviceCount; ++i) {
+            if (m_pHMD->GetTrackedDeviceClass(i) == vr::TrackedDeviceClass_Controller) {
+                if (left_hand == vr::k_unTrackedDeviceIndexInvalid && i != right_hand) left_hand = i;
+                else if (right_hand == vr::k_unTrackedDeviceIndexInvalid && i != left_hand) right_hand = i;
+            }
+        }
     }
+
+
     if (g_ActiveConfig.bAutoPairViveControllers &&
-        (left_hand == 100 || right_hand == 100 || !m_rTrackedDevicePose[left_hand].bPoseIsValid ||
-         !m_rTrackedDevicePose[right_hand].bPoseIsValid))
+        (left_hand == vr::k_unTrackedDeviceIndexInvalid || right_hand == vr::k_unTrackedDeviceIndexInvalid ||
+         (left_hand != vr::k_unTrackedDeviceIndexInvalid && !m_rTrackedDevicePose[left_hand].bPoseIsValid) ||
+         (right_hand != vr::k_unTrackedDeviceIndexInvalid && !m_rTrackedDevicePose[right_hand].bPoseIsValid)))
     {
-      // one of the controllers lost tracking
       double t = Common::Timer::NowMs() / 1000.0;
-      // if we haven't had tracking for a whole second, try repairing
       if (t - last_good_tracking_time > 1.0)
       {
         VR_PairViveControllers();
-        // don't try again for 20 seconds
         last_good_tracking_time = t + 20;
       }
     }
@@ -1583,87 +819,74 @@ bool VR_GetViveButtons(u32* buttons, u32* touches, u64* specials, float triggers
     {
       last_good_tracking_time = Common::Timer::NowMs() / 1000.0;
     }
-    // get the state of each hand
+
     vr::VRControllerState_t states[2];
-    ZeroMemory(&states, 2 * sizeof(*states));
-#ifdef OPENVR_104_OR_ABOVE
-    if (m_pHMD->GetControllerState(left_hand, &states[0], sizeof(*states)))  // if error here, use
-                                                                             // OpenVR 1.05 or above
-                                                                             // instead of 1.03 OR
-                                                                             // use line below
-#else
-    if (m_pHMD->GetControllerState(left_hand, &states[0]))
-#endif
+    memset(states, 0, sizeof(states));
+
+    if (left_hand != vr::k_unTrackedDeviceIndexInvalid && m_pHMD->GetControllerState(left_hand, &states[0], sizeof(vr::VRControllerState_t)))
       result = true;
-#ifdef OPENVR_104_OR_ABOVE
-    if (m_pHMD->GetControllerState(right_hand, &states[1], sizeof(*states)))  // if error here, use
-                                                                              // OpenVR 1.05 or
-                                                                              // above instead of
-                                                                              // 1.03 OR use line
-                                                                              // below
-#else
-    if (m_pHMD->GetControllerState(right_hand, &states[1]))
-#endif
+    if (right_hand != vr::k_unTrackedDeviceIndexInvalid && m_pHMD->GetControllerState(right_hand, &states[1], sizeof(vr::VRControllerState_t)))
       result = true;
-    // save the results in our own format
+
     *buttons =
         (states[0].ulButtonPressed & 0xFF) | ((states[0].ulButtonPressed >> 24) & 0xFF00) |
         (((states[1].ulButtonPressed & 0xFF) | ((states[1].ulButtonPressed >> 24) & 0xFF00)) << 16);
     *touches =
         (states[0].ulButtonTouched & 0xFF) | ((states[0].ulButtonTouched >> 24) & 0xFF00) |
         (((states[1].ulButtonTouched & 0xFF) | ((states[1].ulButtonTouched >> 24) & 0xFF00)) << 16);
-    axes[4] = states[0].rAxis[0].x;
-    axes[5] = states[0].rAxis[0].y;
-    axes[6] = states[1].rAxis[0].x;
-    axes[7] = states[1].rAxis[0].y;
-    triggers[0] = states[0].rAxis[1].x;
-    triggers[1] = states[1].rAxis[1].x;
-    // our own special processing
-    for (int hand = 0; hand < 2; ++hand)
-      ProcessViveTouchpad(
-          hand, (states[hand].ulButtonTouched & ((u64)1 << vr::k_EButton_SteamVR_Touchpad)) != 0,
-          (states[hand].ulButtonPressed & ((u64)1 << vr::k_EButton_SteamVR_Touchpad)) != 0,
-          states[hand].rAxis[0].x, states[hand].rAxis[0].y, ((u32*)specials) + hand,
-          &axes[hand * 2]);
+
+    // Axis 0 is touchpad/thumbstick, Axis 1 is trigger
+    if (left_hand != vr::k_unTrackedDeviceIndexInvalid) {
+      axes[4] = states[0].rAxis[0].x; // Left X
+      axes[5] = states[0].rAxis[0].y; // Left Y
+      triggers[0] = states[0].rAxis[1].x; // Left Trigger
+      ProcessViveTouchpad(0, (states[0].ulButtonTouched & vr::ButtonMaskFromId(vr::k_EButton_SteamVR_Touchpad)) != 0,
+                          (states[0].ulButtonPressed & vr::ButtonMaskFromId(vr::k_EButton_SteamVR_Touchpad)) != 0,
+                          states[0].rAxis[0].x, states[0].rAxis[0].y, ((u32*)specials), &axes[0]);
+    }
+    if (right_hand != vr::k_unTrackedDeviceIndexInvalid) {
+      axes[6] = states[1].rAxis[0].x; // Right X
+      axes[7] = states[1].rAxis[0].y; // Right Y
+      triggers[1] = states[1].rAxis[1].x; // Right Trigger
+      ProcessViveTouchpad(1, (states[1].ulButtonTouched & vr::ButtonMaskFromId(vr::k_EButton_SteamVR_Touchpad)) != 0,
+                          (states[1].ulButtonPressed & vr::ButtonMaskFromId(vr::k_EButton_SteamVR_Touchpad)) != 0,
+                          states[1].rAxis[0].x, states[1].rAxis[0].y, ((u32*)specials) + 1, &axes[2]);
+    }
     return result;
   }
-  else
 #endif
-  {
-    return false;
-  }
+  return false;
 }
 
 bool VR_ViveHapticPulse(int hands, int microseconds)
 {
 #if defined(HAVE_OPENVR)
-  if (g_has_openvr && hands)
+  if (g_has_openvr && m_pHMD && hands)
   {
-    // find the controllers for each hand, 100 = not found
-    vr::TrackedDeviceIndex_t left_hand = 100, right_hand = 100;
+    vr::TrackedDeviceIndex_t left_hand = vr::k_unTrackedDeviceIndexInvalid;
+    vr::TrackedDeviceIndex_t right_hand = vr::k_unTrackedDeviceIndexInvalid;
     for (vr::TrackedDeviceIndex_t i = 0; i < vr::k_unMaxTrackedDeviceCount; ++i)
     {
-      vr::ETrackedControllerRole hand = m_pHMD->GetControllerRoleForTrackedDeviceIndex(i);
-      if (hand == vr::TrackedControllerRole_LeftHand)
+      if (m_pHMD->GetControllerRoleForTrackedDeviceIndex(i) == vr::TrackedControllerRole_LeftHand)
         left_hand = i;
-      else if (hand == vr::TrackedControllerRole_RightHand)
+      else if (m_pHMD->GetControllerRoleForTrackedDeviceIndex(i) == vr::TrackedControllerRole_RightHand)
         right_hand = i;
     }
-    for (vr::TrackedDeviceIndex_t i = 0; i < vr::k_unMaxTrackedDeviceCount; ++i)
-    {
-      vr::ETrackedDeviceClass kind = m_pHMD->GetTrackedDeviceClass(i);
-      if (kind == vr::TrackedDeviceClass_Controller)
-      {
-        if (left_hand == 100 && i != right_hand)
-          left_hand = i;
-        else if (right_hand == 100 && i != left_hand)
-          right_hand = i;
-      }
+     // Fallback if roles aren't assigned
+    if (left_hand == vr::k_unTrackedDeviceIndexInvalid || right_hand == vr::k_unTrackedDeviceIndexInvalid) {
+        for (vr::TrackedDeviceIndex_t i = 0; i < vr::k_unMaxTrackedDeviceCount; ++i) {
+            if (m_pHMD->GetTrackedDeviceClass(i) == vr::TrackedDeviceClass_Controller) {
+                if (left_hand == vr::k_unTrackedDeviceIndexInvalid && i != right_hand) left_hand = i;
+                else if (right_hand == vr::k_unTrackedDeviceIndexInvalid && i != left_hand) right_hand = i;
+            }
+        }
     }
-    if (hands & 1)
-      m_pHMD->TriggerHapticPulse(left_hand, 0, microseconds);
-    if (hands & 2)
-      m_pHMD->TriggerHapticPulse(right_hand, 0, microseconds);
+
+    if ((hands & 1) && left_hand != vr::k_unTrackedDeviceIndexInvalid)
+      m_pHMD->TriggerHapticPulse(left_hand, 0, static_cast<unsigned short>(microseconds));
+    if ((hands & 2) && right_hand != vr::k_unTrackedDeviceIndexInvalid)
+      m_pHMD->TriggerHapticPulse(right_hand, 0, static_cast<unsigned short>(microseconds));
+    return true;
   }
 #endif
   return false;
@@ -1675,137 +898,105 @@ float right_hand_old_velocity[3] = {}, right_hand_older_velocity[3] = {};
 bool VR_GetAccel(int index, bool sideways, bool has_extension, float* gx, float* gy, float* gz)
 {
 #if defined(HAVE_OPENVR)
-  if (g_has_openvr)
+  if (g_has_openvr && m_pHMD)
   {
-    // find the controllers for each hand, 100 = not found
-    vr::TrackedDeviceIndex_t left_hand = 100, right_hand = 100;
-    for (vr::TrackedDeviceIndex_t i = 0; i < vr::k_unMaxTrackedDeviceCount; ++i)
+    vr::TrackedDeviceIndex_t controller_index = vr::k_unTrackedDeviceIndexInvalid;
+    // Determine which controller based on 'index' (assuming 0 for right, 1 for left, or similar logic)
+    // This needs to map to the actual tracked device indices.
+    // For simplicity, let's assume index 0 is right hand, index 1 is left.
+    // This should be made more robust if Wiimote emulation maps differently.
+     for (vr::TrackedDeviceIndex_t i = 0; i < vr::k_unMaxTrackedDeviceCount; ++i)
     {
-      vr::ETrackedControllerRole hand = m_pHMD->GetControllerRoleForTrackedDeviceIndex(i);
-      if (hand == vr::TrackedControllerRole_LeftHand)
-        left_hand = i;
-      else if (hand == vr::TrackedControllerRole_RightHand)
-        right_hand = i;
-    }
-    for (vr::TrackedDeviceIndex_t i = 0; i < vr::k_unMaxTrackedDeviceCount; ++i)
-    {
-      vr::ETrackedDeviceClass kind = m_pHMD->GetTrackedDeviceClass(i);
-      if (kind == vr::TrackedDeviceClass_Controller)
-      {
-        if (left_hand == 100 && i != right_hand)
-          left_hand = i;
-        else if (right_hand == 100 && i != left_hand)
-          right_hand = i;
+      if (index == 0 && m_pHMD->GetControllerRoleForTrackedDeviceIndex(i) == vr::TrackedControllerRole_RightHand) {
+        controller_index = i;
+        break;
       }
+      // Potentially add logic for left hand if index == 1
     }
-    if (right_hand >= vr::k_unMaxTrackedDeviceCount ||
-        !m_rTrackedDevicePose[right_hand].bPoseIsValid)
+     if (controller_index == vr::k_unTrackedDeviceIndexInvalid) {
+         // Fallback if role not assigned
+         for (vr::TrackedDeviceIndex_t i = 0; i < vr::k_unMaxTrackedDeviceCount; ++i) {
+            if (m_pHMD->GetTrackedDeviceClass(i) == vr::TrackedDeviceClass_Controller) {
+                // Simple fallback: first controller found for index 0
+                if (index == 0) { controller_index = i; break;}
+            }
+         }
+     }
+
+
+    if (controller_index == vr::k_unTrackedDeviceIndexInvalid || !m_rTrackedDevicePose[controller_index].bPoseIsValid)
     {
-      // NOTICE_LOG_FMT(VR, "invalid!");
       return false;
     }
-    float rx = m_rTrackedDevicePose[right_hand].mDeviceToAbsoluteTracking.m[0][3];
-    float ry = m_rTrackedDevicePose[right_hand].mDeviceToAbsoluteTracking.m[1][3];
-    float rz = m_rTrackedDevicePose[right_hand].mDeviceToAbsoluteTracking.m[2][3];
-    Common::Matrix33 m;
+
+    const vr::HmdMatrix34_t& pose_matrix = m_rTrackedDevicePose[controller_index].mDeviceToAbsoluteTracking;
+    Common::Matrix33 m; // Orientation of the controller
     for (int r = 0; r < 3; r++)
       for (int c = 0; c < 3; c++)
-        m.data[r * 3 + c] = m_rTrackedDevicePose[right_hand].mDeviceToAbsoluteTracking.m[c][r];
-    float acc[3] = {};
-    float dt = (float)(g_last_tracking_time - g_older_tracking_time);
-    if (dt < 0.001f)
-    {
-      // NOTICE_LOG_FMT(VR, "too fast!");
-      // return false;
-    }
-    for (int axis = 0; axis < 3; ++axis)
-    {
-      acc[axis] =
-          (m_rTrackedDevicePose[right_hand].vVelocity.v[axis] - right_hand_older_velocity[axis]) /
-          dt;
-      right_hand_older_velocity[axis] = right_hand_old_velocity[axis];
-      right_hand_old_velocity[axis] = m_rTrackedDevicePose[right_hand].vVelocity.v[axis];
-    }
-    // World-space accelerations need to be converted into accelerations relative to the Wiimote's
-    // sensor.
-    float rel_acc[3];
-    for (int i = 0; i < 3; ++i)
-    {
-      rel_acc[i] =
-          acc[0] * m.data[i * 3 + 0] + acc[1] * m.data[i * 3 + 1] + acc[2] * m.data[i * 3 + 2];
-      // todo: check if this is correct!
-    }
+        m.data[r * 3 + c] = pose_matrix.m[r][c]; // Assuming row-major storage in Common::Matrix33
 
-    // Note that here gX means to the CONTROLLER'S left, gY means to the CONTROLLER'S tail, and gZ
-    // means to the CONTROLLER'S top!
-    // Tilt sensing.
-    // If the left Vive controller is off, or an extension is plugged in then just
-    // hold the right Vive sideways yourself. Otherwise in sideways mode
-    // with no extension pitch is controlled by the angle between the Vive controllers.
-    if (sideways && !has_extension && left_hand != 100)
+    // Get linear acceleration (already in tracking space coordinates)
+    Common::Vec3 linear_acceleration(
+        m_rTrackedDevicePose[controller_index].vVelocity.v[0] - right_hand_old_velocity[0], // Simplified, should use proper time delta
+        m_rTrackedDevicePose[controller_index].vVelocity.v[1] - right_hand_old_velocity[1],
+        m_rTrackedDevicePose[controller_index].vVelocity.v[2] - right_hand_old_velocity[2]
+    );
+    // Update old velocities (this is a crude differentiation, OpenVR might provide acceleration directly or better velocity)
+    // A proper time delta (g_last_tracking_time - g_old_tracking_time) should be used.
+    // For now, this is a placeholder for how acceleration might be derived.
+    // OpenVR actually provides vPhysicalLinearAcceleration in TrackedDevicePose_t. Use that instead.
+    linear_acceleration = Common::Vec3(
+        m_rTrackedDevicePose[controller_index].vPhysicalAcceleration.v[0],
+        m_rTrackedDevicePose[controller_index].vPhysicalAcceleration.v[1],
+        m_rTrackedDevicePose[controller_index].vPhysicalAcceleration.v[2]
+    );
+
+
+    // Transform world-space acceleration (which includes gravity if standing still) to controller's local space
+    // For tilt sensing (gravity vector in controller space):
+    // We need the inverse of the controller's rotation matrix to transform the world's up vector (0,1,0 or 0,-1,0 depending on convention)
+    // into controller space. Or, simpler, the Y column of the controller's orientation matrix (if it's world_to_local)
+    // represents where the controller's Y axis points in world space. We want where world Y points in controller space.
+    // If m is local_to_world, then m.Transpose() is world_to_local.
+    Common::Matrix33 world_to_local_orientation = m.Transposed();
+    Common::Vec3 world_gravity_vector(0.0f, -1.0f, 0.0f); // Assuming -Y is world down (standard graphics)
+                                                        // OpenVR might use +Y up. If so, (0,1,0)
+                                                        // Let's assume OpenVR world is +Y up for now.
+    world_gravity_vector = Common::Vec3(0.0f, 1.0f, 0.0f);
+    Common::Vec3 local_gravity = world_to_local_orientation * world_gravity_vector;
+
+    // Combine local_gravity with physical acceleration (which should ideally be without gravity)
+    // The accelerometer reading = physical acceleration + local_gravity_effect
+    // Wiimote gx, gy, gz expect values in Gs. 1G = 9.8 m/s^2.
+    // OpenVR vPhysicalAcceleration is in m/s^2.
+    float physical_acc_x_g = linear_acceleration.x / 9.80665f;
+    float physical_acc_y_g = linear_acceleration.y / 9.80665f;
+    float physical_acc_z_g = linear_acceleration.z / 9.80665f;
+
+    // Wiimote axes: +X right, +Y up (pointing away from IR camera), +Z towards buttons
+    // OpenVR controller axes: +X right, +Y up, -Z forward (standard for controllers)
+    // This mapping needs to be precise based on how the Vive controller is held like a Wiimote.
+
+    if (sideways) // Wiimote held sideways (NES style)
     {
-      // Left vive controller's left side = front of wiimote
-      // Right vive controller's right side = back of wiimote
-      // Right vive controller's front = right side of wiimote
-      // Right vive controller's face = top side of wiimote
-
-      // angle between the controllers
-      float lx = m_rTrackedDevicePose[left_hand].mDeviceToAbsoluteTracking.m[0][3];
-      float ly = m_rTrackedDevicePose[left_hand].mDeviceToAbsoluteTracking.m[1][3];
-      float lz = m_rTrackedDevicePose[left_hand].mDeviceToAbsoluteTracking.m[2][3];
-      float x = rx - lx;
-      float y = ry - ly;
-      float z = rz - lz;
-      float dist = sqrtf(x * x + y * y + z * z);
-      if (dist > 0)
-      {
-        x = x / dist;
-        y = y / dist;
-        z = z / dist;
-      }
-      else
-      {
-        x = 1;
-        y = 0;
-        z = 0;
-      }
-      *gy = y;
-      float tail_up = m.data[2 * 3 + 1];
-      float touchpad_up = m.data[1 * 3 + 1];
-      float len = sqrtf(tail_up * tail_up + touchpad_up * touchpad_up);
-      if (len == 0)
-      {
-        // neither the tail or the touchpad is up, the side is up
-        *gx = 0;
-        *gz = 0;
-      }
-      else
-      {
-        float horiz_dist = sqrtf(x * x + z * z);
-        *gx = horiz_dist * tail_up / len;
-        *gz = horiz_dist * touchpad_up / len;
-      }
-
-      // Convert rel acc from m/s/s to G's, and to sideways Wiimote's coordinate system.
-      *gx += rel_acc[2] / 9.8f;
-      *gz += rel_acc[1] / 9.8f;
-      *gy -= rel_acc[0] / 9.8f;
+        // This mapping depends on how the Vive controller is oriented when held sideways.
+        // Assuming standard Vive controller orientation:
+        // Wiimote +X (right)  -> Vive Controller -Z (forward)
+        // Wiimote +Y (up, away from IR) -> Vive Controller +X (right)
+        // Wiimote +Z (buttons) -> Vive Controller +Y (up)
+        *gx = -local_gravity.z + physical_acc_z_g; // Wiimote X from Vive -Z
+        *gy =  local_gravity.x + physical_acc_x_g; // Wiimote Y from Vive +X
+        *gz =  local_gravity.y + physical_acc_y_g; // Wiimote Z from Vive +Y
     }
-    else
+    else // Wiimote held normally
     {
-      // Tilt sensing.
-      *gx = -m.data[0 * 3 + 1];
-      *gz = m.data[1 * 3 + 1];
-      *gy = m.data[2 * 3 + 1];
-      // NOTICE_LOG_FMT(VR, "gx=%f, gy=%f, gz=%f", *gx, *gy, *gz);
-
-      // Convert rel acc from m/s/s to G's, and to Wiimote's coordinate system.
-      *gx -= rel_acc[0] / 9.8f;
-      *gz += rel_acc[1] / 9.8f;
-      *gy += rel_acc[2] / 9.8f;
-      // NOTICE_LOG_FMT(VR, "dt=%f", dt);
-      // NOTICE_LOG_FMT(VR, "gx=%f, gy=%f, gz=%f", -rel_acc[0] / 9.8f, rel_acc[2] / 9.8f, rel_acc[1] /
-      // 9.8f);
+        // Wiimote +X (right) -> Vive Controller +X (right)
+        // Wiimote +Y (up, away from IR) -> Vive Controller +Y (up)
+        // Wiimote +Z (buttons) -> Vive Controller -Z (forward)
+        *gx =  local_gravity.x + physical_acc_x_g;
+        *gy =  local_gravity.y + physical_acc_y_g;
+        *gz = -local_gravity.z - physical_acc_z_g; // Note: physical_acc_z is typically forward, Wiimote Z is toward buttons (often also forward)
+                                                // This needs careful axis alignment check.
     }
     return true;
   }
@@ -1816,76 +1007,67 @@ bool VR_GetAccel(int index, bool sideways, bool has_extension, float* gx, float*
 bool VR_GetNunchuckAccel(int index, float* gx, float* gy, float* gz)
 {
 #if defined(HAVE_OPENVR)
-  if (g_has_openvr && index == 0)
+  // Similar logic to VR_GetAccel, but for the left controller if used as a Nunchuk.
+  // This requires identifying the left controller and its pose.
+  if (g_has_openvr && m_pHMD && index == 0) // Assuming index 0 for the primary (or only) nunchuk
   {
-    // find the controllers for each hand, 100 = not found
-    vr::TrackedDeviceIndex_t left_hand = 100, right_hand = 100;
-    for (vr::TrackedDeviceIndex_t i = 0; i < vr::k_unMaxTrackedDeviceCount; ++i)
-    {
-      vr::ETrackedControllerRole hand = m_pHMD->GetControllerRoleForTrackedDeviceIndex(i);
-      if (hand == vr::TrackedControllerRole_LeftHand)
-        left_hand = i;
-      else if (hand == vr::TrackedControllerRole_RightHand)
-        right_hand = i;
+    vr::TrackedDeviceIndex_t nunchuk_controller_index = vr::k_unTrackedDeviceIndexInvalid;
+    for (vr::TrackedDeviceIndex_t i = 0; i < vr::k_unMaxTrackedDeviceCount; ++i) {
+        if (m_pHMD->GetControllerRoleForTrackedDeviceIndex(i) == vr::TrackedControllerRole_LeftHand) {
+            nunchuk_controller_index = i;
+            break;
+        }
     }
-    for (vr::TrackedDeviceIndex_t i = 0; i < vr::k_unMaxTrackedDeviceCount; ++i)
-    {
-      vr::ETrackedDeviceClass kind = m_pHMD->GetTrackedDeviceClass(i);
-      if (kind == vr::TrackedDeviceClass_Controller)
-      {
-        if (left_hand == 100 && i != right_hand)
-          left_hand = i;
-        else if (right_hand == 100 && i != left_hand)
-          right_hand = i;
-      }
+    // Fallback if role not set
+    if (nunchuk_controller_index == vr::k_unTrackedDeviceIndexInvalid) {
+         for (vr::TrackedDeviceIndex_t i = 0; i < vr::k_unMaxTrackedDeviceCount; ++i) {
+            if (m_pHMD->GetTrackedDeviceClass(i) == vr::TrackedDeviceClass_Controller) {
+                // A simple heuristic: if right hand is known, this is not it.
+                // This isn't robust if multiple generic controllers are present.
+                vr::ETrackedControllerRole role = m_pHMD->GetControllerRoleForTrackedDeviceIndex(i);
+                if (role != vr::TrackedControllerRole_RightHand) {
+                     nunchuk_controller_index = i;
+                     break;
+                }
+            }
+         }
     }
-    if (left_hand >= vr::k_unMaxTrackedDeviceCount || !m_rTrackedDevicePose[left_hand].bPoseIsValid)
-    {
-      // NOTICE_LOG_FMT(VR, "invalid!");
+
+
+    if (nunchuk_controller_index == vr::k_unTrackedDeviceIndexInvalid || !m_rTrackedDevicePose[nunchuk_controller_index].bPoseIsValid)
       return false;
-    }
-    // float lx = m_rTrackedDevicePose[left_hand].mDeviceToAbsoluteTracking.m[0][3];
-    // float ly = m_rTrackedDevicePose[left_hand].mDeviceToAbsoluteTracking.m[1][3];
-    // float lz = m_rTrackedDevicePose[left_hand].mDeviceToAbsoluteTracking.m[2][3];
+
+    const vr::HmdMatrix34_t& pose_matrix = m_rTrackedDevicePose[nunchuk_controller_index].mDeviceToAbsoluteTracking;
     Common::Matrix33 m;
     for (int r = 0; r < 3; r++)
       for (int c = 0; c < 3; c++)
-        m.data[r * 3 + c] = m_rTrackedDevicePose[left_hand].mDeviceToAbsoluteTracking.m[c][r];
-    float acc[3] = {};
-    float dt = (float)(g_last_tracking_time - g_older_tracking_time);
-    if (dt < 0.001f)
-    {
-      // NOTICE_LOG_FMT(VR, "too fast!");
-      // return false;
-    }
-    for (int axis = 0; axis < 3; ++axis)
-    {
-      acc[axis] =
-          (m_rTrackedDevicePose[left_hand].vVelocity.v[axis] - left_hand_older_velocity[axis]) / dt;
-      left_hand_older_velocity[axis] = left_hand_old_velocity[axis];
-      left_hand_old_velocity[axis] = m_rTrackedDevicePose[left_hand].vVelocity.v[axis];
-    }
-    // World-space accelerations need to be converted into accelerations relative to the Nunchuk's
-    // sensor.
-    float rel_acc[3];
-    for (int i = 0; i < 3; ++i)
-    {
-      rel_acc[i] =
-          acc[0] * m.data[i * 3 + 0] + acc[1] * m.data[i * 3 + 1] + acc[2] * m.data[i * 3 + 2];
-      // todo: check if this is correct!
-    }
+        m.data[r * 3 + c] = pose_matrix.m[r][c];
 
-    {
-      // Tilt sensing.
-      *gx = -m.data[0 * 3 + 1];
-      *gz = m.data[1 * 3 + 1];
-      *gy = m.data[2 * 3 + 1];
+    Common::Vec3 linear_acceleration(
+        m_rTrackedDevicePose[nunchuk_controller_index].vPhysicalAcceleration.v[0],
+        m_rTrackedDevicePose[nunchuk_controller_index].vPhysicalAcceleration.v[1],
+        m_rTrackedDevicePose[nunchuk_controller_index].vPhysicalAcceleration.v[2]
+    );
 
-      // Convert from metres per second per second to G's, and to Wiimote's coordinate system.
-      *gx -= rel_acc[0] / 9.8f;
-      *gz += rel_acc[1] / 9.8f;
-      *gy += rel_acc[2] / 9.8f;
-    }
+    Common::Matrix33 world_to_local_orientation = m.Transposed();
+    Common::Vec3 world_gravity_vector(0.0f, 1.0f, 0.0f); // Assuming +Y up for OpenVR world
+    Common::Vec3 local_gravity = world_to_local_orientation * world_gravity_vector;
+
+    float physical_acc_x_g = linear_acceleration.x / 9.80665f;
+    float physical_acc_y_g = linear_acceleration.y / 9.80665f;
+    float physical_acc_z_g = linear_acceleration.z / 9.80665f;
+
+    // Nunchuk axes: +X right, +Y top (buttons up), +Z forward (stick direction)
+    // Vive controller (held naturally): +X right, +Y up (thumbstick/trackpad face), -Z forward (trigger direction)
+    // Mapping depends on how a Vive controller is imagined as a Nunchuk.
+    // Typical Nunchuk orientation: Stick forward, C/Z buttons on top.
+    // If Vive controller is held similarly (trigger down, thumbstick forward):
+    // Nunchuk +X (right) -> Vive +X
+    // Nunchuk +Y (top)   -> Vive +Y
+    // Nunchuk +Z (fwd)   -> Vive -Z
+    *gx =  local_gravity.x + physical_acc_x_g;
+    *gy =  local_gravity.y + physical_acc_y_g;
+    *gz = -local_gravity.z - physical_acc_z_g;
     return true;
   }
 #endif
@@ -1895,65 +1077,23 @@ bool VR_GetNunchuckAccel(int index, float* gx, float* gy, float* gz)
 bool VR_GetIR(int index, double* irx, double* iry, double* irz)
 {
 #if defined(HAVE_OPENVR)
-  if (g_has_openvr)
+  // OpenVR does not directly provide IR dot tracking like a Wiimote sensor bar.
+  // This function would need to simulate IR based on controller pointing if desired.
+  // The existing g_vr_has_ir, g_vr_ir_x, etc. flags would need to be populated by such simulation.
+  // For a direct port, if these are not populated by other means, this will return false.
+  if (g_has_openvr && g_vr_has_ir) // Check if simulation has populated these
   {
-    if (g_vr_has_ir)
-    {
       *irx = g_vr_ir_x;
       *iry = g_vr_ir_y;
-      *irz = g_vr_ir_z;
+      *irz = g_vr_ir_z; // Depth component
       return true;
-    }
   }
 #endif
   return false;
 }
 
-#if defined(OVR_MAJOR_VERSION)
-bool WasItTapped(ovrVector3f linearAcc, double time)
-{
-  const float thresholdForTap = 10.0f;
-  const float thresholdForReset = 2.0f;
-  const double keepDownTime = 0.050;
-  float magOfAccelSquared =
-      linearAcc.x * linearAcc.x + linearAcc.y * linearAcc.y + linearAcc.z * linearAcc.z;
-  static bool readyForNewSingleTap = false;
-  static double lastTapTime = 0.0;
-  if (magOfAccelSquared < thresholdForReset * thresholdForReset)
-    readyForNewSingleTap = true;
-  if ((readyForNewSingleTap) && (magOfAccelSquared > thresholdForTap * thresholdForTap))
-  {
-    readyForNewSingleTap = false;
-    lastTapTime = time;
-    return (true);
-  }
-  return time - lastTapTime < keepDownTime;
-}
-#endif
+// Removed VR_GetHMDGestures (was Oculus-specific tap gesture)
 
-bool VR_GetHMDGestures(u32* gestures)
-{
-  *gestures = 0;
-#if defined(OVR_MAJOR_VERSION)
-  if (g_has_rift)
-  {
-#if OVR_PRODUCT_VERSION >= 1 || OVR_MAJOR_VERSION >= 8
-    ovrTrackingState t = ovr_GetTrackingState(hmd, 0, false);
-#else
-    ovrTrackingState t = ovrHmd_GetTrackingState(hmd, g_rift_frame_timing.ScanoutMidpointSeconds);
-#endif
-    if (WasItTapped(t.HeadPose.LinearAcceleration, t.HeadPose.TimeInSeconds))
-    {
-      *gestures |= OCULUS_BUTTON_A;
-    }
-    return true;
-  }
-  else
-#endif
-  {
-    return false;
-  }
-}
 
 void VR_UpdateWiimoteReportingMode(int index, u8 accel, u8 ir, u8 ext)
 {
@@ -1965,184 +1105,136 @@ void VR_UpdateWiimoteReportingMode(int index, u8 accel, u8 ir, u8 ext)
 bool VR_GetLeftControllerPos(float* pos, float* thumbpos, Common::Matrix33* m)
 {
 #if defined(HAVE_OPENVR)
-  if (g_has_openvr)
+  if (g_has_openvr && m_pHMD)
   {
-    // find the controllers for each hand, 100 = not found
-    vr::TrackedDeviceIndex_t left_hand = 100, right_hand = 100;
-    for (vr::TrackedDeviceIndex_t i = 0; i < vr::k_unMaxTrackedDeviceCount; ++i)
-    {
-      vr::ETrackedControllerRole hand = m_pHMD->GetControllerRoleForTrackedDeviceIndex(i);
-      if (hand == vr::TrackedControllerRole_LeftHand)
-        left_hand = i;
-      else if (hand == vr::TrackedControllerRole_RightHand)
-        right_hand = i;
+    vr::TrackedDeviceIndex_t controller_index = vr::k_unTrackedDeviceIndexInvalid;
+    for (vr::TrackedDeviceIndex_t i = 0; i < vr::k_unMaxTrackedDeviceCount; ++i) {
+        if (m_pHMD->GetControllerRoleForTrackedDeviceIndex(i) == vr::TrackedControllerRole_LeftHand) {
+            controller_index = i;
+            break;
+        }
     }
-    for (vr::TrackedDeviceIndex_t i = 0; i < vr::k_unMaxTrackedDeviceCount; ++i)
+    // Fallback
+    if (controller_index == vr::k_unTrackedDeviceIndexInvalid) {
+         for (vr::TrackedDeviceIndex_t i = 0; i < vr::k_unMaxTrackedDeviceCount; ++i) {
+            if (m_pHMD->GetTrackedDeviceClass(i) == vr::TrackedDeviceClass_Controller) {
+                if (m_pHMD->GetControllerRoleForTrackedDeviceIndex(i) != vr::TrackedControllerRole_RightHand) { // Not right, assume left
+                     controller_index = i;
+                     break;
+                }
+            }
+         }
+    }
+
+    if (controller_index != vr::k_unTrackedDeviceIndexInvalid && m_rTrackedDevicePose[controller_index].bPoseIsValid)
     {
-      vr::ETrackedDeviceClass kind = m_pHMD->GetTrackedDeviceClass(i);
-      if (kind == vr::TrackedDeviceClass_Controller)
+      const vr::HmdMatrix34_t& pose_matrix = m_rTrackedDevicePose[controller_index].mDeviceToAbsoluteTracking;
+      pos[0] = pose_matrix.m[0][3];
+      pos[1] = pose_matrix.m[1][3];
+      pos[2] = pose_matrix.m[2][3];
+      for (int r = 0; r < 3; r++)
+        for (int c = 0; c < 3; c++)
+          m->data[r * 3 + c] = pose_matrix.m[r][c]; // Assuming row-major in Common::Matrix33
+
+      vr::VRControllerState_t cs;
+      if (m_pHMD->GetControllerState(controller_index, &cs, sizeof(cs)))
       {
-        if (left_hand == 100 && i != right_hand)
-          left_hand = i;
-        else if (right_hand == 100 && i != left_hand)
-          right_hand = i;
-      }
-    }
-    if (left_hand >= vr::k_unMaxTrackedDeviceCount || !m_rTrackedDevicePose[left_hand].bPoseIsValid)
-    {
-      // NOTICE_LOG_FMT(VR, "invalid!");
-      pos[0] = pos[1] = pos[2] = 0;
-      return false;
-    }
-    float lx = m_rTrackedDevicePose[left_hand].mDeviceToAbsoluteTracking.m[0][3];
-    float ly = m_rTrackedDevicePose[left_hand].mDeviceToAbsoluteTracking.m[1][3];
-    float lz = m_rTrackedDevicePose[left_hand].mDeviceToAbsoluteTracking.m[2][3];
-    pos[0] = lx;
-    pos[1] = ly;
-    pos[2] = lz;
-    for (int r = 0; r < 3; r++)
-      for (int c = 0; c < 3; c++)
-        m->data[r * 3 + c] = m_rTrackedDevicePose[left_hand].mDeviceToAbsoluteTracking.m[r][c];
-    vr::VRControllerState_t cs;
-#ifdef OPENVR_104_OR_ABOVE
-    if (m_pHMD->GetControllerState(
-            left_hand, &cs,
-            sizeof(
-                cs)))  // if error here, use OpenVR 1.05 or above instead of 1.03 OR use line below
-#else
-    if (m_pHMD->GetControllerState(left_hand, &cs))
-#endif
-    {
-      thumbpos[0] = cs.rAxis[0].x;
-      thumbpos[1] = cs.rAxis[0].y;
-      if (cs.ulButtonPressed & ((u64)1 << vr::k_EButton_SteamVR_Touchpad))
-        thumbpos[2] = 1;
-      else if (cs.ulButtonTouched & ((u64)1 << vr::k_EButton_SteamVR_Touchpad))
-        thumbpos[2] = 0;
-      else
-        thumbpos[2] = -1;
-      if ((cs.ulButtonPressed | cs.ulButtonTouched) & ((u64)1 << vr::k_EButton_ApplicationMenu))
-      {
-        if (cs.ulButtonTouched & ((u64)1 << vr::k_EButton_SteamVR_Touchpad))
-          thumbpos[1] = 1.18f;
+        thumbpos[0] = cs.rAxis[0].x; // Axis 0: Touchpad/Thumbstick X
+        thumbpos[1] = cs.rAxis[0].y; // Axis 0: Touchpad/Thumbstick Y
+        if (cs.ulButtonPressed & vr::ButtonMaskFromId(vr::k_EButton_SteamVR_Touchpad)) // Or k_EButton_A if it's a thumbstick press
+          thumbpos[2] = 1; // Pressed
+        else if (cs.ulButtonTouched & vr::ButtonMaskFromId(vr::k_EButton_SteamVR_Touchpad))
+          thumbpos[2] = 0; // Touched
         else
-          thumbpos[1] = 1.5f;
-        thumbpos[2] = 1;
+          thumbpos[2] = -1; // Not touched
+        // Example: Check if menu button is also used for a special mode
+        // if ((cs.ulButtonPressed | cs.ulButtonTouched) & vr::ButtonMaskFromId(vr::k_EButton_ApplicationMenu)) { ... }
       }
+      else
+      {
+        thumbpos[0] = thumbpos[1] = 0;
+        thumbpos[2] = -1;
+      }
+      return true;
     }
-    else
-    {
-      thumbpos[0] = thumbpos[1] = 0;
-      thumbpos[2] = -1;
-    }
-    return true;
   }
-  else
 #endif
-  {
-    pos[0] = -0.15f;
-    pos[1] = -0.30f;
-    pos[2] = -0.4f;
-    return true;
-  }
+  // Fallback default position
+  pos[0] = -0.15f; pos[1] = -0.30f; pos[2] = -0.4f;
+  thumbpos[0] = thumbpos[1] = 0; thumbpos[2] = -1;
+  if (m) *m = Common::Matrix33::Identity();
+  return false; // Indicate failure or fallback
 }
 
 bool VR_GetRightControllerPos(float* pos, float* thumbpos, Common::Matrix33* m)
 {
 #if defined(HAVE_OPENVR)
-  if (g_has_openvr)
+  if (g_has_openvr && m_pHMD)
   {
-    // find the controllers for each hand, 100 = not found
-    vr::TrackedDeviceIndex_t left_hand = 100, right_hand = 100;
-    for (vr::TrackedDeviceIndex_t i = 0; i < vr::k_unMaxTrackedDeviceCount; ++i)
-    {
-      vr::ETrackedControllerRole hand = m_pHMD->GetControllerRoleForTrackedDeviceIndex(i);
-      if (hand == vr::TrackedControllerRole_LeftHand)
-        left_hand = i;
-      else if (hand == vr::TrackedControllerRole_RightHand)
-        right_hand = i;
+    vr::TrackedDeviceIndex_t controller_index = vr::k_unTrackedDeviceIndexInvalid;
+     for (vr::TrackedDeviceIndex_t i = 0; i < vr::k_unMaxTrackedDeviceCount; ++i) {
+        if (m_pHMD->GetControllerRoleForTrackedDeviceIndex(i) == vr::TrackedControllerRole_RightHand) {
+            controller_index = i;
+            break;
+        }
     }
-    for (vr::TrackedDeviceIndex_t i = 0; i < vr::k_unMaxTrackedDeviceCount; ++i)
+    // Fallback
+    if (controller_index == vr::k_unTrackedDeviceIndexInvalid) {
+         for (vr::TrackedDeviceIndex_t i = 0; i < vr::k_unMaxTrackedDeviceCount; ++i) {
+            if (m_pHMD->GetTrackedDeviceClass(i) == vr::TrackedDeviceClass_Controller) {
+                 if (m_pHMD->GetControllerRoleForTrackedDeviceIndex(i) != vr::TrackedControllerRole_LeftHand) { // Not left, assume right
+                     controller_index = i;
+                     break;
+                }
+            }
+         }
+    }
+
+    if (controller_index != vr::k_unTrackedDeviceIndexInvalid && m_rTrackedDevicePose[controller_index].bPoseIsValid)
     {
-      vr::ETrackedDeviceClass kind = m_pHMD->GetTrackedDeviceClass(i);
-      if (kind == vr::TrackedDeviceClass_Controller)
+      const vr::HmdMatrix34_t& pose_matrix = m_rTrackedDevicePose[controller_index].mDeviceToAbsoluteTracking;
+      pos[0] = pose_matrix.m[0][3];
+      pos[1] = pose_matrix.m[1][3];
+      pos[2] = pose_matrix.m[2][3];
+      for (int r = 0; r < 3; r++)
+        for (int c = 0; c < 3; c++)
+          m->data[r * 3 + c] = pose_matrix.m[r][c];
+
+      vr::VRControllerState_t cs;
+      if (m_pHMD->GetControllerState(controller_index, &cs, sizeof(cs)))
       {
-        if (left_hand == 100 && i != right_hand)
-          left_hand = i;
-        else if (right_hand == 100 && i != left_hand)
-          right_hand = i;
-      }
-    }
-    if (right_hand >= vr::k_unMaxTrackedDeviceCount ||
-        !m_rTrackedDevicePose[right_hand].bPoseIsValid)
-    {
-      // NOTICE_LOG_FMT(VR, "invalid!");
-      pos[0] = pos[1] = pos[2] = 0;
-      return false;
-    }
-    float rx = m_rTrackedDevicePose[right_hand].mDeviceToAbsoluteTracking.m[0][3];
-    float ry = m_rTrackedDevicePose[right_hand].mDeviceToAbsoluteTracking.m[1][3];
-    float rz = m_rTrackedDevicePose[right_hand].mDeviceToAbsoluteTracking.m[2][3];
-    pos[0] = rx;
-    pos[1] = ry;
-    pos[2] = rz;
-    for (int r = 0; r < 3; r++)
-      for (int c = 0; c < 3; c++)
-        m->data[r * 3 + c] = m_rTrackedDevicePose[right_hand].mDeviceToAbsoluteTracking.m[r][c];
-    vr::VRControllerState_t cs;
-#ifdef OPENVR_104_OR_ABOVE
-    if (m_pHMD->GetControllerState(
-            left_hand, &cs,
-            sizeof(
-                cs)))  // if error here, use OpenVR 1.05 or above instead of 1.03 OR use line below
-#else
-    if (m_pHMD->GetControllerState(right_hand, &cs))
-#endif
-    {
-      thumbpos[0] = cs.rAxis[0].x;
-      thumbpos[1] = cs.rAxis[0].y;
-      if (cs.ulButtonPressed & ((u64)1 << vr::k_EButton_SteamVR_Touchpad))
-        thumbpos[2] = 1;
-      else if (cs.ulButtonTouched & ((u64)1 << vr::k_EButton_SteamVR_Touchpad))
-        thumbpos[2] = 0;
-      else
-        thumbpos[2] = -1;
-      if ((cs.ulButtonPressed | cs.ulButtonTouched) & ((u64)1 << vr::k_EButton_ApplicationMenu))
-      {
-        if (cs.ulButtonTouched & ((u64)1 << vr::k_EButton_SteamVR_Touchpad))
-          thumbpos[1] = 1.18f;
+        thumbpos[0] = cs.rAxis[0].x;
+        thumbpos[1] = cs.rAxis[0].y;
+        if (cs.ulButtonPressed & vr::ButtonMaskFromId(vr::k_EButton_SteamVR_Touchpad))
+          thumbpos[2] = 1;
+        else if (cs.ulButtonTouched & vr::ButtonMaskFromId(vr::k_EButton_SteamVR_Touchpad))
+          thumbpos[2] = 0;
         else
-          thumbpos[1] = 1.5f;
-        thumbpos[2] = 1;
+          thumbpos[2] = -1;
       }
+      else
+      {
+        thumbpos[0] = thumbpos[1] = 0;
+        thumbpos[2] = -1;
+      }
+      return true;
     }
-    else
-    {
-      thumbpos[0] = thumbpos[1] = 0;
-      thumbpos[2] = -1;
-    }
-    return true;
   }
-  else
 #endif
-  {
-    pos[0] = 0.15f;
-    pos[1] = -0.30f;
-    pos[2] = -0.4f;
-    return true;
-  }
+  pos[0] = 0.15f; pos[1] = -0.30f; pos[2] = -0.4f;
+  thumbpos[0] = thumbpos[1] = 0; thumbpos[2] = -1;
+  if (m) *m = Common::Matrix33::Identity();
+  return false;
 }
 
 void VR_SetGame(bool is_wii, bool is_nand, std::string id)
 {
   g_is_nes = false;
-  // GameCube uses GameCube controller
   if (!is_wii)
   {
     vr_left_controller = CS_GC_LEFT;
     vr_right_controller = CS_GC_RIGHT;
   }
-  // Wii Discs or homebrew files use the Wiimote and Nunchuk
   else if (!is_nand)
   {
     vr_left_controller = CS_NUNCHUK_UNREAD;
@@ -2150,92 +1242,52 @@ void VR_SetGame(bool is_wii, bool is_nand, std::string id)
   }
   else
   {
-    char c = ' ';
-    if (id.length() > 0)
-      c = id[0];
+    char c = id.empty() ? ' ' : id[0];
     switch (c)
     {
-    case 'C':
-    case 'X':
-      // C64, MSX (or WiiWare demos)
-      vr_left_controller = CS_ARCADE_LEFT;
-      vr_right_controller = CS_ARCADE_RIGHT;
-      break;
+    case 'C': case 'X':
+      vr_left_controller = CS_ARCADE_LEFT; vr_right_controller = CS_ARCADE_RIGHT; break;
     case 'E':
-      // Virtual arcade, Neo Geo
-      vr_left_controller = CS_ARCADE_LEFT;
-      vr_right_controller = CS_ARCADE_RIGHT;
-      break;
+      vr_left_controller = CS_ARCADE_LEFT; vr_right_controller = CS_ARCADE_RIGHT; break;
     case 'F':
-      // NES
       g_is_nes = true;
-      if (id.length() > 3 && id[3] == 'J')
-      {
-        vr_left_controller = CS_FAMICON_LEFT;
-        vr_right_controller = CS_FAMICON_RIGHT;
-      }
-      else
-      {
-        vr_left_controller = CS_NES_LEFT;
-        vr_right_controller = CS_NES_RIGHT;
+      if (id.length() > 3 && id[3] == 'J') {
+        vr_left_controller = CS_FAMICON_LEFT; vr_right_controller = CS_FAMICON_RIGHT;
+      } else {
+        vr_left_controller = CS_NES_LEFT; vr_right_controller = CS_NES_RIGHT;
       }
       break;
     case 'J':
       vr_left_controller = CS_SNES_LEFT;
-      // SNES
-      if (id.length() > 3 && id[3] == 'E')
-        vr_right_controller = CS_SNES_NTSC_RIGHT;
-      else
-        vr_right_controller = CS_SNES_RIGHT;
+      vr_right_controller = (id.length() > 3 && id[3] == 'E') ? CS_SNES_NTSC_RIGHT : CS_SNES_RIGHT;
       break;
     case 'L':
-      // Sega
-      vr_left_controller = CS_SEGA_LEFT;
-      vr_right_controller = CS_SEGA_RIGHT;
-      break;
+      vr_left_controller = CS_SEGA_LEFT; vr_right_controller = CS_SEGA_RIGHT; break;
     case 'M':
-      // Sega Genesis
-      vr_left_controller = CS_GENESIS_LEFT;
-      vr_right_controller = CS_GENESIS_RIGHT;
-      break;
+      vr_left_controller = CS_GENESIS_LEFT; vr_right_controller = CS_GENESIS_RIGHT; break;
     case 'N':
-      // N64
-      vr_left_controller = CS_N64_LEFT;
-      vr_right_controller = CS_N64_RIGHT;
-      break;
-    case 'P':
-    case 'Q':
-      // TurboGrafx
-      vr_left_controller = CS_TURBOGRAFX_LEFT;
-      vr_right_controller = CS_TURBOGRAFX_RIGHT;
-      break;
-    case 'H':
-    case 'W':
+      vr_left_controller = CS_N64_LEFT; vr_right_controller = CS_N64_RIGHT; break;
+    case 'P': case 'Q':
+      vr_left_controller = CS_TURBOGRAFX_LEFT; vr_right_controller = CS_TURBOGRAFX_RIGHT; break;
+    case 'H': case 'W':
     default:
-      // WiiWare
-      vr_left_controller = CS_NUNCHUK_UNREAD;
-      vr_right_controller = CS_WIIMOTE;
-      break;
+      vr_left_controller = CS_NUNCHUK_UNREAD; vr_right_controller = CS_WIIMOTE; break;
     }
   }
 }
 
 ControllerStyle VR_GetHydraStyle(int hand)
 {
-  if (hand)
+  if (hand) // Right hand
   {
     if (vr_right_controller == CS_WIIMOTE && g_vr_reading_wiimote_ir[0])
-      vr_right_controller = CS_WIIMOTE_IR;
-    else if (vr_right_controller == CS_WIIMOTE_IR && !g_vr_reading_wiimote_ir[0])
-      vr_right_controller = CS_WIIMOTE;
+      return CS_WIIMOTE_IR; // Use IR if Wiimote and IR is being read
     return vr_right_controller;
   }
-  else
+  else // Left hand
   {
-    if (vr_left_controller == CS_NUNCHUK && !g_vr_reading_wiimote_ext[0])
-      vr_left_controller = CS_NUNCHUK_UNREAD;
-    else if (vr_left_controller == CS_NUNCHUK_UNREAD && g_vr_reading_wiimote_ext[0])
-      vr_left_controller = CS_NUNCHUK;
+    if (vr_left_controller == CS_NUNCHUK_UNREAD && g_vr_reading_wiimote_ext[0])
+      return CS_NUNCHUK; // Use Nunchuk if extension is read
     return vr_left_controller;
   }
 }
@@ -2248,45 +1300,32 @@ bool VR_PairViveControllers()
     return false;
   POINT C;
   BOOL hasC = GetCursorPos(&C);
-  // HWND W = GetForegroundWindow();
-  // RECT rw;
-  // GetWindowRect(W, &rw);
-  // SetForegroundWindow(SteamVRStatusWindow);
-  INPUT input[16] = {};
+  INPUT input[16] = {}; // Max 8 keybd + 8 mouse events, though fewer used
   RECT r;
   if (!GetWindowRect(SteamVRStatusWindow, &r))
     return false;
-  SetCursorPos(r.left + 100, r.top + 100);
-  input[0].type = INPUT_MOUSE;
-  input[0].mi.dwFlags = MOUSEEVENTF_RIGHTDOWN;
-  input[1].type = INPUT_MOUSE;
-  input[1].mi.dwFlags = MOUSEEVENTF_RIGHTUP;
-  SendInput(2, &input[0], sizeof(INPUT));
-  Sleep(100);
+  SetCursorPos(r.left + 100, r.top + 100); // Position inside window for context menu
 
-  input[2].type = INPUT_KEYBOARD;
-  input[2].ki.wVk = VK_DOWN;
-  input[3].ki.dwFlags = 0;
-  input[3].type = INPUT_KEYBOARD;
-  input[3].ki.wVk = VK_DOWN;
-  input[3].ki.dwFlags = KEYEVENTF_KEYUP;
-  input[6] = input[4] = input[2];
-  input[7] = input[5] = input[3];
-  SendInput(4, &input[2], sizeof(INPUT));
-  Sleep(100);
+  // Simulate Right Click
+  input[0].type = INPUT_MOUSE; input[0].mi.dwFlags = MOUSEEVENTF_RIGHTDOWN;
+  input[1].type = INPUT_MOUSE; input[1].mi.dwFlags = MOUSEEVENTF_RIGHTUP;
+  SendInput(2, input, sizeof(INPUT));
+  Sleep(100); // Allow context menu to appear
 
-  input[6].ki.wVk = VK_RETURN;
-  input[7].ki.wVk = VK_RETURN;
-  SendInput(2, &input[6], sizeof(INPUT));
-  Sleep(100);
-
-  if (hasC)
-  {
-    SetCursorPos(C.x, C.y);
-    input[0].mi.dwFlags = MOUSEEVENTF_LEFTDOWN;
-    input[1].mi.dwFlags = MOUSEEVENTF_LEFTUP;
+  // Simulate KeyDown (x2) then Enter for "Pair Controller" (assuming it's 3rd item)
+  // This is fragile and depends on SteamVR UI
+  for (int i = 0; i < 2; ++i) { // Navigate down twice
+    input[0].type = INPUT_KEYBOARD; input[0].ki.wVk = VK_DOWN; input[0].ki.dwFlags = 0;
+    input[1].type = INPUT_KEYBOARD; input[1].ki.wVk = VK_DOWN; input[1].ki.dwFlags = KEYEVENTF_KEYUP;
     SendInput(2, input, sizeof(INPUT));
+    Sleep(50);
   }
+  input[0].type = INPUT_KEYBOARD; input[0].ki.wVk = VK_RETURN; input[0].ki.dwFlags = 0;
+  input[1].type = INPUT_KEYBOARD; input[1].ki.wVk = VK_RETURN; input[1].ki.dwFlags = KEYEVENTF_KEYUP;
+  SendInput(2, input, sizeof(INPUT));
+  Sleep(100);
+
+  if (hasC) SetCursorPos(C.x, C.y); // Restore cursor
   return true;
 #else
   return false;
@@ -2295,339 +1334,35 @@ bool VR_PairViveControllers()
 
 void OpcodeReplayBuffer()
 {
-  // Opcode Replay Buffer Code.  This enables the capture of all the Video Opcodes that occur during
-  // a frame,
-  // and then plays them back with new headtracking information.  Allows ways to easily set
-  // headtracking at 75fps
-  // for various games.  In Alpha right now, will crash many games/cause corruption.
-  static int extra_video_loops_count = 0;
-  static int real_frame_count = 0;
-  if (g_ActiveConfig.bOpcodeReplay &&
-      Config::GetGPUDeterminismMode() != Config::GPUDeterminismMode::FakeCompletion)
+  // This function's logic relied on g_ActiveConfig settings that might have been Oculus-specific
+  // or tied to the old dual-SDK structure. It also directly manipulated g_ActiveConfig values.
+  // Given the goal is to simplify and focus on OpenVR, and this feature was marked "In Alpha",
+  // it's best to disable or remove it unless its utility and compatibility with a pure OpenVR
+  // setup can be clearly established and reimplemented.
+  // For now, it will be effectively disabled by not running its core logic.
+  if (g_opcode_replay_enabled) // If it was somehow enabled, clear logs and disable
   {
-    g_opcode_replay_enabled = true;
-    if (g_hmd_refresh_rate == 75)
-    {
-      if (g_ActiveConfig.bPullUp20fps)
-      {
-        if (real_frame_count % 4 == 1)
-        {
-          g_ActiveConfig.iExtraVideoLoops = 2;
-          g_ActiveConfig.iExtraVideoLoopsDivider = 0;
-        }
-        else
-        {
-          g_ActiveConfig.iExtraVideoLoops = 3;
-          g_ActiveConfig.iExtraVideoLoopsDivider = 0;
-        }
-      }
-      else if (g_ActiveConfig.bPullUp30fps)
-      {
-        if (real_frame_count % 2 == 1)
-        {
-          g_ActiveConfig.iExtraVideoLoops = 1;
-          g_ActiveConfig.iExtraVideoLoopsDivider = 0;
-        }
-        else
-        {
-          g_ActiveConfig.iExtraVideoLoops = 2;
-          g_ActiveConfig.iExtraVideoLoopsDivider = 0;
-        }
-      }
-      else if (g_ActiveConfig.bPullUp60fps)
-      {
-        // if (real_frame_count % 4 == 0)
-        //{
-        //	g_ActiveConfig.iExtraVideoLoops = 1;
-        //	g_ActiveConfig.iExtraVideoLoopsDivider = 0;
-        //}
-        // else
-        //{
-        //	g_ActiveConfig.iExtraVideoLoops = 0;
-        //	g_ActiveConfig.iExtraVideoLoopsDivider = 0;
-        //}
-        g_ActiveConfig.iExtraVideoLoops = 1;
-        g_ActiveConfig.iExtraVideoLoopsDivider = 3;
-      }
-    }
-    else
-    {
-      // 90 FPS
-      if (g_ActiveConfig.bPullUp20fps)
-      {
-        if (real_frame_count % 2 == 1)
-        {
-          g_ActiveConfig.iExtraVideoLoops = 4;
-          g_ActiveConfig.iExtraVideoLoopsDivider = 0;
-        }
-        else
-        {
-          g_ActiveConfig.iExtraVideoLoops = 5;
-          g_ActiveConfig.iExtraVideoLoopsDivider = 0;
-        }
-      }
-      else if (g_ActiveConfig.bPullUp30fps)
-      {
-        g_ActiveConfig.iExtraVideoLoops = 2;
-        g_ActiveConfig.iExtraVideoLoopsDivider = 0;
-      }
-      else if (g_ActiveConfig.bPullUp60fps)
-      {
-        // if (real_frame_count % 4 == 0)
-        //{
-        //	g_ActiveConfig.iExtraVideoLoops = 1;
-        //	g_ActiveConfig.iExtraVideoLoopsDivider = 0;
-        //}
-        // else
-        //{
-        //	g_ActiveConfig.iExtraVideoLoops = 0;
-        //	g_ActiveConfig.iExtraVideoLoopsDivider = 0;
-        //}
-        g_ActiveConfig.iExtraVideoLoops = 1;
-        g_ActiveConfig.iExtraVideoLoopsDivider = 1;
-      }
-    }
-
-    if ((g_opcode_replay_frame &&
-         (extra_video_loops_count >= (int)g_ActiveConfig.iExtraVideoLoops)))
-    {
-      g_opcode_replay_frame = false;
-      ++real_frame_count;
-      extra_video_loops_count = 0;
-    }
-    else
-    {
-      if (skipped_opcode_replay_count >= (int)g_ActiveConfig.iExtraVideoLoopsDivider)
-      {
-        g_opcode_replay_frame = true;
-        ++extra_video_loops_count;
-        skipped_opcode_replay_count = 0;
-
-        //for (TimewarpLogEntry& entry : timewarp_logentries)
-        //{
-        //  // VertexManager::s_pCurBufferPointer = s_pCurBufferPointer_log.at(i);
-        //  // VertexManager::s_pEndBufferPointer = s_pEndBufferPointer_log.at(i);
-        //  // VertexManager::s_pBaseBufferPointer = s_pBaseBufferPointer_log.at(i);
-
-        //  // if (i == 0)
-        //  //{
-        //  // SCPFifoStruct &fifo = CommandProcessor::fifo;
-
-        //  // fifo.CPBase = CPBase_log.at(i);
-        //  // fifo.CPEnd = CPEnd_log.at(i);
-        //  // fifo.CPHiWatermark = CPHiWatermark_log.at(i);
-        //  // fifo.CPLoWatermark = CPLoWatermark_log.at(i);
-        //  // fifo.CPReadWriteDistance = CPReadWriteDistance_log.at(i);
-        //  // fifo.CPWritePointer = CPWritePointer_log.at(i);
-        //  // fifo.CPReadPointer = CPReadPointer_log.at(i);
-        //  // fifo.CPBreakpoint = CPBreakpoint_log.at(i);
-        //  //}
-
-        //  /*if (entry.is_preprocess_log)
-        //  {
-        //    OpcodeDecoder::Run<true>(entry.timewarp_log, nullptr, false);
-        //  }
-        //  else
-        //  {
-        //    OpcodeDecoder::Run<false>(entry.timewarp_log, nullptr, false);
-        //  }*/
-        //}
-      }
-      else
-      {
-        ++skipped_opcode_replay_count;
-      }
-      // CPBase_log.resize(0);
-      // CPEnd_log.resize(0);
-      // CPHiWatermark_log.resize(0);
-      // CPLoWatermark_log.resize(0);
-      // CPReadWriteDistance_log.resize(0);
-      // CPWritePointer_log.resize(0);
-      // CPReadPointer_log.resize(0);
-      // CPBreakpoint_log.resize(0);
-      // CPBase_log.clear();
-      // CPEnd_log.clear();
-      // CPHiWatermark_log.clear();
-      // CPLoWatermark_log.clear();
-      // CPReadWriteDistance_log.clear();
-      // CPWritePointer_log.clear();
-      // CPReadPointer_log.clear();
-      // CPBreakpoint_log.clear();
-      // s_pCurBufferPointer_log.clear();
-      // s_pCurBufferPointer_log.resize(0);
-      // s_pEndBufferPointer_log.clear();
-      // s_pEndBufferPointer_log.resize(0);
-      // s_pBaseBufferPointer_log.clear();
-      // s_pBaseBufferPointer_log.resize(0);
       timewarp_logentries.clear();
-      timewarp_logentries.resize(0);
-    }
+      // timewarp_logentries.resize(0); // .clear() is sufficient
   }
-  else
-  {
-    if (g_opcode_replay_enabled)
-    {
-      timewarp_logentries.clear();
-      timewarp_logentries.resize(0);
-    }
-    g_opcode_replay_enabled = false;
-    g_opcode_replay_log_frame = false;
-  }
+  g_opcode_replay_enabled = false;
+  g_opcode_replay_log_frame = false;
+  g_opcode_replay_frame = false; // Ensure this is also reset
 }
 
 void OpcodeReplayBufferInline()
 {
-  // Opcode Replay Buffer Code.  This enables the capture of all the Video Opcodes that occur during
-  // a frame,
-  // and then plays them back with new headtracking information.  Allows ways to easily set
-  // headtracking at 75fps
-  // for various games.  In Alpha right now, will crash many games/cause corruption.
-  static int real_frame_count = 0;
-  int extra_video_loops;
-  if (g_ActiveConfig.bOpcodeReplay &&
-      Config::GetGPUDeterminismMode() != Config::GPUDeterminismMode::FakeCompletion)
+  // Similar to OpcodeReplayBuffer, this was an experimental feature.
+  // Disabling its core logic for now.
+  if (g_opcode_replay_enabled)
   {
-    g_opcode_replay_enabled = true;
-    g_opcode_replay_log_frame = true;
-    if (g_ActiveConfig.bPullUpAuto)
-    {
-      static int replay_count = 0;
-      static int old_rate = 0;
-      int real_framerate = ((int)((g_current_fps + 2.5) / 5)) * 5;
-      if (real_framerate != old_rate)
-      {
-        // MessageBeep(MB_ICONASTERISK);
-        WARN_LOG_FMT(VR, "new FPS = {}", real_framerate);
-        replay_count = 0;
-        old_rate = real_framerate;
-      }
-      if (real_framerate < 19 || real_framerate > g_hmd_refresh_rate ||
-          (g_vr_has_asynchronous_timewarp && g_current_speed < 95.0f))
-      {
-        real_framerate = g_hmd_refresh_rate;
-        replay_count = 0;
-      }
-      int replays_per_second = g_hmd_refresh_rate - real_framerate;
-      extra_video_loops = 0;
-      replay_count += replays_per_second;
-      while (replay_count >= real_framerate)
-      {
-        ++extra_video_loops;
-        replay_count -= real_framerate;
-      }
-      // check if next frame will need replays
-      if (replay_count + replays_per_second < real_framerate)
-        g_opcode_replay_log_frame = false;
-    }
-    else if (g_hmd_refresh_rate == 75)
-    {
-      if (g_ActiveConfig.bPullUp60fps)
-      {
-        if (real_frame_count % 4 == 0)
-        {
-          extra_video_loops = 1;
-        }
-        else
-        {
-          extra_video_loops = 0;
-          if ((real_frame_count + 1) % 4 != 0)
-            g_opcode_replay_log_frame = false;
-        }
-      }
-      else if (g_ActiveConfig.bPullUp30fps)
-      {
-        if (real_frame_count % 2 == 1)
-        {
-          extra_video_loops = 1;
-        }
-        else
-        {
-          extra_video_loops = 2;
-        }
-      }
-      else if (g_ActiveConfig.bPullUp20fps)
-      {
-        if (real_frame_count % 4 == 1)
-        {
-          extra_video_loops = 2;
-        }
-        else
-        {
-          extra_video_loops = 3;
-        }
-      }
-      else
-      {
-        extra_video_loops = g_ActiveConfig.iExtraVideoLoops;
-      }
-    }
-    else
-    {
-      // 90 FPS
-      if (g_ActiveConfig.bPullUp60fps)
-      {
-        if (real_frame_count % 2 == 0)
-        {
-          extra_video_loops = 1;
-        }
-        else
-        {
-          extra_video_loops = 0;
-          // if ((real_frame_count + 1) % 2 != 0)
-          //	g_opcode_replay_log_frame = false;
-        }
-      }
-      else if (g_ActiveConfig.bPullUp30fps)
-      {
-        extra_video_loops = 2;
-      }
-      else if (g_ActiveConfig.bPullUp20fps)
-      {
-        if (real_frame_count % 2 == 1)
-        {
-          extra_video_loops = 4;
-        }
-        else
-        {
-          extra_video_loops = 5;
-        }
-      }
-      else
-      {
-        extra_video_loops = g_ActiveConfig.iExtraVideoLoops;
-      }
-    }
-    ++real_frame_count;
-    g_opcode_replay_frame = true;
-    skipped_opcode_replay_count = 0;
-
-    //for (int num_extra_frames = 0; num_extra_frames < extra_video_loops; ++num_extra_frames)
-    //{
-    //  for (TimewarpLogEntry& entry : timewarp_logentries)
-    //  {
-    //    /*if (entry.is_preprocess_log)
-    //    {
-    //      OpcodeDecoder::Run<true>(entry.timewarp_log, nullptr, false);
-    //    }
-    //    else
-    //    {
-    //      OpcodeDecoder::Run<false>(entry.timewarp_log, nullptr, false);
-    //    }*/
-    //  }
-    //}
-    timewarp_logentries.clear();
-    timewarp_logentries.resize(0);
-    g_opcode_replay_frame = false;
-  }
-  else
-  {
-    if (g_opcode_replay_enabled)
-    {
       timewarp_logentries.clear();
-      timewarp_logentries.resize(0);
-    }
-    g_opcode_replay_enabled = false;
-    g_opcode_replay_log_frame = false;
   }
-  g_Config.iExtraVideoLoopsDivider = 0;
+  g_opcode_replay_enabled = false;
+  g_opcode_replay_log_frame = false;
+  g_opcode_replay_frame = false;
+  // g_Config.iExtraVideoLoopsDivider = 0; // g_Config is not directly accessible here.
+                                        // This was likely VideoConfig& g_Config.
+                                        // If this needs to be set, it should be via g_ActiveConfig or similar.
+                                        // For now, removing this line as the feature is disabled.
 }

@@ -246,6 +246,19 @@ void Matrix33::Multiply(const Matrix33& a, const Vec3& vec, Vec3* result)
   result->data = MatrixMultiply<3, 3, 1>(a.data, vec.data);
 }
 
+Matrix33 Matrix33::Transposed() const
+{
+  Matrix33 result;
+  for (int i = 0; i < 3; ++i)
+  {
+    for (int j = 0; j < 3; ++j)
+    {
+      result.data[j + i * 3] = data[i + j * 3];
+    }
+  }
+  return result;
+}
+
 Matrix33 Matrix33::Inverted() const
 {
   const auto m = [this](int x, int y) { return data[y + x * 3]; };

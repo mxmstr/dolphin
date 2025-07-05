@@ -22,22 +22,8 @@
 // Handle is a pointer to a VRVulkanTextureData_t structure
 #define OPENVR_Vulkan (decltype(vr::Texture_t::eType))2
 
-#ifdef INVALID_SHARED_TEXTURE_HANDLE
-#define OPENVR_103_OR_ABOVE
-#define OPENVR_0921_OR_ABOVE
-#define OPENVR_0903_OR_ABOVE
-#elif defined(INVALID_TRACKED_CAMERA_HANDLE)
-#define OPENVR_0921_OR_ABOVE
-#define OPENVR_0903_OR_ABOVE
-#elif defined(VR_INTERFACE)
-#define OPENVR_0903_OR_ABOVE
-#endif
-
-// There's no way to detect 1.04 or 1.05, so just assume
-#ifdef OPENVR_103_OR_ABOVE
-#define OPENVR_104_OR_ABOVE
-#define OPENVR_105_OR_ABOVE
-#endif
+// Removed preprocessor checks for older OpenVR versions.
+// Assuming latest SDK features are available.
 
 extern vr::IVRSystem *m_pHMD;
 extern vr::IVRRenderModels *m_pRenderModels;
