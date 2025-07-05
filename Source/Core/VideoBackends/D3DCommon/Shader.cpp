@@ -283,6 +283,56 @@ std::optional<Shader::BinaryData> Shader::CompileShader(D3D_FEATURE_LEVEL featur
   return CreateByteCode(code->GetBufferPointer(), code->GetBufferSize());
 }
 
+std::optional<Shader::BinaryData> Shader::CompileHLSLDirect(D3D_FEATURE_LEVEL feature_level,
+                                                            ShaderStage stage,
+                                                            std::string_view source,
+                                                            const char* entry_point_name)
+{
+  static constexpr D3D_SHADER_MACRO macros[] = {{"API_D3D", "1"}, {nullptr, nullptr}};
+  const UINT flags = g_ActiveConfig.bEnableValidationLayer ?
+                         (D3DCOMPILE_DEBUG | D3DCOMPILE_SKIP_OPTIMIZATION) :
+                         (D3DCOMPILE_OPTIMIZATION_LEVEL3 | D3DCOMPILE_SKIP_VALIDATION);
+  const char* target = GetCompileTarget(feature_level, stage); // Existing helper
+
+  if (target == nullptr || target[0] == '\0') {
+    ERROR_LOG_FMT(VIDEO, "Cannot compile HLSL: Invalid target for stage {} at feature level {}.", static_cast<int>(stage), static_cast<int>(feature_level));
+    return std::nullopt;
+  }
+
+  Microsoft::WRL::ComPtr<ID3DBlob> code;
+  Microsoft::WRL::ComPtr<ID3DBlob> errors;
+  HRESULT hr = d3d_compile(source.data(), source.size(), nullptr, macros, nullptr, entry_point_name, target,
+                           flags, 0, &code, &errors);
+  if (FAILED(hr))
+  {
+    static int num_failures = 0;
+    std::string filename = VideoBackendBase::BadShaderFilename(target, num_failures++);
+    std::ofstream file;
+    File::OpenFStream(file, filename, std::ios_base::out);
+    file.write(source.data(), source.size());
+    file << "\n";
+    if (errors)
+      file.write(static_cast<const char*>(errors->GetBufferPointer()), errors->GetBufferSize());
+    file << "\n";
+    file << "Dolphin Version: " + Common::GetScmRevStr() + "\n";
+    file << "Video Backend: " + g_video_backend->GetDisplayName();
+    file.close();
+
+    PanicAlertFmt("Failed to compile HLSL shader {}: {}\nDebug info ({}):\n{}",
+                  filename, Common::HRWrap(hr), target,
+                  errors ? static_cast<const char*>(errors->GetBufferPointer()) : "No error message blob.");
+    return std::nullopt;
+  }
+
+  if (errors && errors->GetBufferSize() > 0)
+  {
+    WARN_LOG_FMT(VIDEO, "HLSL shader {} compilation succeeded with warnings:\n{}", target,
+                 static_cast<const char*>(errors->GetBufferPointer()));
+  }
+
+  return CreateByteCode(code->GetBufferPointer(), code->GetBufferSize());
+}
+
 AbstractShader::BinaryData Shader::CreateByteCode(const void* data, size_t length)
 {
   const auto* const begin = static_cast<const u8*>(data);

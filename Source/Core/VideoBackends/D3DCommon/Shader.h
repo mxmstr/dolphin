@@ -22,6 +22,11 @@ public:
   static std::optional<BinaryData> CompileShader(D3D_FEATURE_LEVEL feature_level, ShaderStage stage,
                                                  std::string_view source);
 
+  static std::optional<BinaryData> CompileHLSLDirect(D3D_FEATURE_LEVEL feature_level,
+                                                     ShaderStage stage,
+                                                     std::string_view source,
+                                                     const char* entry_point_name);
+
   static BinaryData CreateByteCode(const void* data, size_t length);
 
 protected:
