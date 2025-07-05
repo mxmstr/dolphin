@@ -348,10 +348,17 @@ void VR_Shutdown()
 void VR_RecenterHMD()
 {
 #ifdef HAVE_OPENVR
-  if (g_has_openvr && m_pHMD)
+  if (g_has_openvr && m_pHMD) // m_pHMD check implies vr::VRSystem() is likely available
   {
-    m_pHMD->ResetSeatedZeroPose();
-    NOTICE_LOG_FMT(VR, "OpenVR HMD recentered.");
+    if (vr::VRChaperone())
+    {
+      vr::VRChaperone()->ResetZeroPose(vr::TrackingUniverseSeated);
+      NOTICE_LOG_FMT(VR, "OpenVR HMD recentered via Chaperone.");
+    }
+    else
+    {
+      WARN_LOG_FMT(VR, "OpenVR Chaperone interface not available for recentering.");
+    }
   }
 #endif
 }
@@ -943,14 +950,26 @@ bool VR_GetAccel(int index, bool sideways, bool has_extension, float* gx, float*
     );
     // Update old velocities (this is a crude differentiation, OpenVR might provide acceleration directly or better velocity)
     // A proper time delta (g_last_tracking_time - g_old_tracking_time) should be used.
-    // For now, this is a placeholder for how acceleration might be derived.
-    // OpenVR actually provides vPhysicalLinearAcceleration in TrackedDevicePose_t. Use that instead.
+    // Calculate acceleration from velocity and time delta.
+    // This assumes g_last_tracking_time, g_old_tracking_time, and right_hand_old_velocity are correctly updated elsewhere.
+    // A more robust solution would involve checking if (g_last_tracking_time - g_old_tracking_time) is non-zero.
+    // For now, we proceed assuming it's valid as per the existing structure.
+    float dt = static_cast<float>(g_last_tracking_time - g_old_tracking_time); // More accurate delta
+    if (dt < 0.0001f) dt = 0.0001f; // Prevent division by zero or very small numbers
+
     linear_acceleration = Common::Vec3(
-        m_rTrackedDevicePose[controller_index].vPhysicalAcceleration.v[0],
-        m_rTrackedDevicePose[controller_index].vPhysicalAcceleration.v[1],
-        m_rTrackedDevicePose[controller_index].vPhysicalAcceleration.v[2]
+        (m_rTrackedDevicePose[controller_index].vVelocity.v[0] - right_hand_old_velocity[0]) / dt,
+        (m_rTrackedDevicePose[controller_index].vVelocity.v[1] - right_hand_old_velocity[1]) / dt,
+        (m_rTrackedDevicePose[controller_index].vVelocity.v[2] - right_hand_old_velocity[2]) / dt
     );
 
+    // Update old velocities for the next frame's calculation
+    right_hand_older_velocity[0] = right_hand_old_velocity[0];
+    right_hand_older_velocity[1] = right_hand_old_velocity[1];
+    right_hand_older_velocity[2] = right_hand_old_velocity[2];
+    right_hand_old_velocity[0] = m_rTrackedDevicePose[controller_index].vVelocity.v[0];
+    right_hand_old_velocity[1] = m_rTrackedDevicePose[controller_index].vVelocity.v[1];
+    right_hand_old_velocity[2] = m_rTrackedDevicePose[controller_index].vVelocity.v[2];
 
     // Transform world-space acceleration (which includes gravity if standing still) to controller's local space
     // For tilt sensing (gravity vector in controller space):
@@ -1041,13 +1060,25 @@ bool VR_GetNunchuckAccel(int index, float* gx, float* gy, float* gz)
     Common::Matrix33 m;
     for (int r = 0; r < 3; r++)
       for (int c = 0; c < 3; c++)
-        m.data[r * 3 + c] = pose_matrix.m[r][c];
+        m.data[r * 3 + c] = pose_matrix.m[r][c]; // Assuming m.data is row-major access m[row][col] style
+
+    // Calculate acceleration from velocity and time delta.
+    float dt = static_cast<float>(g_last_tracking_time - g_old_tracking_time);
+    if (dt < 0.0001f) dt = 0.0001f; // Prevent division by zero
 
     Common::Vec3 linear_acceleration(
-        m_rTrackedDevicePose[nunchuk_controller_index].vPhysicalAcceleration.v[0],
-        m_rTrackedDevicePose[nunchuk_controller_index].vPhysicalAcceleration.v[1],
-        m_rTrackedDevicePose[nunchuk_controller_index].vPhysicalAcceleration.v[2]
+        (m_rTrackedDevicePose[nunchuk_controller_index].vVelocity.v[0] - left_hand_old_velocity[0]) / dt,
+        (m_rTrackedDevicePose[nunchuk_controller_index].vVelocity.v[1] - left_hand_old_velocity[1]) / dt,
+        (m_rTrackedDevicePose[nunchuk_controller_index].vVelocity.v[2] - left_hand_old_velocity[2]) / dt
     );
+
+    // Update old velocities for the next frame's calculation
+    left_hand_older_velocity[0] = left_hand_old_velocity[0];
+    left_hand_older_velocity[1] = left_hand_old_velocity[1];
+    left_hand_older_velocity[2] = left_hand_old_velocity[2];
+    left_hand_old_velocity[0] = m_rTrackedDevicePose[nunchuk_controller_index].vVelocity.v[0];
+    left_hand_old_velocity[1] = m_rTrackedDevicePose[nunchuk_controller_index].vVelocity.v[1];
+    left_hand_old_velocity[2] = m_rTrackedDevicePose[nunchuk_controller_index].vVelocity.v[2];
 
     Common::Matrix33 world_to_local_orientation = m.Transposed();
     Common::Vec3 world_gravity_vector(0.0f, 1.0f, 0.0f); // Assuming +Y up for OpenVR world

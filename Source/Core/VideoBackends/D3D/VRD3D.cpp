@@ -208,12 +208,12 @@ void VR_PresentHMDFrame()
     vr::Texture_t leftEyeTexture = {m_left_texture.Get(), vr::TextureType_DirectX, vr::ColorSpace_Gamma};
     vr::EVRCompositorError eErrorLeft = vr::VRCompositor()->Submit(vr::Eye_Left, &leftEyeTexture);
     if (eErrorLeft != vr::VRCompositorError_None)
-        WARN_LOG_FMT(VR, "Failed to submit left eye to OpenVR: {}", eErrorLeft);
+        WARN_LOG_FMT(VR, "Failed to submit left eye to OpenVR: {}", static_cast<int>(eErrorLeft));
 
     vr::Texture_t rightEyeTexture = {m_right_texture.Get(), vr::TextureType_DirectX, vr::ColorSpace_Gamma};
     vr::EVRCompositorError eErrorRight = vr::VRCompositor()->Submit(vr::Eye_Right, &rightEyeTexture);
      if (eErrorRight != vr::VRCompositorError_None)
-        WARN_LOG_FMT(VR, "Failed to submit right eye to OpenVR: {}", eErrorRight);
+        WARN_LOG_FMT(VR, "Failed to submit right eye to OpenVR: {}", static_cast<int>(eErrorRight));
 
     // Mirroring logic
     if (g_ActiveConfig.iMirrorStyle != VR_MIRROR_DISABLED &&

@@ -28,7 +28,7 @@ extern LUID* g_hmd_luid;
 extern bool g_has_hmd;
 extern int g_hmd_window_width;
 extern int g_hmd_window_height;
-extern bool g_is_direct_mode; // Assuming default
+//extern bool g_is_direct_mode; // Assuming default
 #endif
 
 
@@ -209,18 +209,18 @@ bool Create(const WindowSystemInfo& wsi, u32 adapter_index, bool enable_debug_la
     swap_chain_desc.BufferDesc = mode_desc;
 
 
-    if (g_is_direct_mode) // Ensure buffer matches HMD res in direct mode
-    {
+    //if (g_is_direct_mode) // Ensure buffer matches HMD res in direct mode
+    //{
       swap_chain_desc.BufferDesc.Width = static_cast<UINT>(g_hmd_window_width);
       swap_chain_desc.BufferDesc.Height = static_cast<UINT>(g_hmd_window_height);
-    }
-    else // If not direct mode, use window client rect (though this path less common for VR)
-    {
-       RECT client_rect;
-       GetClientRect((HWND)wsi.render_surface, &client_rect);
-       swap_chain_desc.BufferDesc.Width = client_rect.right - client_rect.left;
-       swap_chain_desc.BufferDesc.Height = client_rect.bottom - client_rect.top;
-    }
+    //}
+    //else // If not direct mode, use window client rect (though this path less common for VR)
+    //{
+    //   RECT client_rect;
+    //   GetClientRect((HWND)wsi.render_surface, &client_rect);
+    //   swap_chain_desc.BufferDesc.Width = client_rect.right - client_rect.left;
+    //   swap_chain_desc.BufferDesc.Height = client_rect.bottom - client_rect.top;
+    //}
 
 
     UINT create_device_flags = 0;
