@@ -268,10 +268,14 @@ void Gfx::PresentBackbuffer()
 {
   if (g_ActiveConfig.bEnableVR && g_has_hmd && m_stereo3d)
   {
-    // VR Rendering Path
-    VR_BeginFrame(); // Generic SDK call
-    VR_GetEyePoses(); // Generic SDK call to get latest HMD poses
+    // Ensure WaitGetPoses is called for the current frame to acquire focus and latest poses
+    VR_NewVRFrame();
+    VR_UpdateHeadTrackingIfNeeded();
 
+    // VR_BeginFrame(); // Original call, likely now redundant for OpenVR if covered by above
+    // VR_GetEyePoses(); // Original call, likely now redundant for OpenVR if covered by above
+
+    // VR Rendering Path
     // Get EFB texture (resolved if MSAA is active)
     AbstractTexture* efb_abstract_texture = g_framebuffer_manager->IsEFBMultisampled() ?
                                             g_framebuffer_manager->ResolveEFBColorTexture({}) : // Resolve whole EFB
