@@ -365,20 +365,25 @@ static void InitializeSimpleShaders()
     if (s_simple_d3d_vs && s_simple_d3d_ps && s_simple_input_layout && s_linear_sampler)
         return;
 
-    // Compile Vertex Shader
-    auto vs_bytecode_opt = DX11::DXShader::CompileShader(DX11::D3D::feature_level, ShaderStage::Vertex, s_simple_vs_code);
+    // Compile Vertex Shader using direct HLSL compilation
+    // The entry point in s_simple_vs_code is "Main" (capital M)
+    auto vs_bytecode_opt = D3DCommon::Shader::CompileHLSLDirect(DX11::D3D::feature_level, ShaderStage::Vertex, s_simple_vs_code, "Main");
     if (vs_bytecode_opt)
     {
+        // Assuming DX11::DXShader::CreateFromBytecode is suitable, or we might need a specific path
+        // if D3DCommon::Shader doesn't fit perfectly with DX11 specifics here.
+        // For now, let's assume it works as DXShader inherits D3DCommon::Shader.
         s_simple_vs_abs_shader = DX11::DXShader::CreateFromBytecode(ShaderStage::Vertex, std::move(*vs_bytecode_opt), "SimpleVS_D3DCommon");
     }
+
     if (!s_simple_vs_abs_shader)
     {
-        ERROR_LOG_FMT(VIDEO, "Failed to compile/create simple vertex shader for D3DCommon::DrawVideoQuad");
+        ERROR_LOG_FMT(VIDEO, "Failed to compile/create simple vertex shader for D3DCommon::DrawVideoQuad (using direct HLSL path)");
         return;
     }
     s_simple_d3d_vs = static_cast<DX11::DXShader*>(s_simple_vs_abs_shader.get())->GetD3DVertexShader();
 
-    // Create Input Layout
+    // Create Input Layout (no change here, depends on VS bytecode)
     const D3D11_INPUT_ELEMENT_DESC input_elements[] = {
         {"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0},
         {"TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 12, D3D11_INPUT_PER_VERTEX_DATA, 0},
@@ -396,23 +401,25 @@ static void InitializeSimpleShaders()
         return;
     }
     
-    // Compile Pixel Shader
-    auto ps_bytecode_opt = DX11::DXShader::CompileShader(DX11::D3D::feature_level, ShaderStage::Pixel, s_simple_ps_code);
+    // Compile Pixel Shader using direct HLSL compilation
+    // The entry point in s_simple_ps_code is "Main" (capital M)
+    auto ps_bytecode_opt = D3DCommon::Shader::CompileHLSLDirect(DX11::D3D::feature_level, ShaderStage::Pixel, s_simple_ps_code, "Main");
     if (ps_bytecode_opt)
     {
         s_simple_ps_abs_shader = DX11::DXShader::CreateFromBytecode(ShaderStage::Pixel, std::move(*ps_bytecode_opt), "SimplePS_D3DCommon");
     }
+
     if (!s_simple_ps_abs_shader)
     {
-        ERROR_LOG_FMT(VIDEO, "Failed to compile/create simple pixel shader for D3DCommon::DrawVideoQuad");
+        ERROR_LOG_FMT(VIDEO, "Failed to compile/create simple pixel shader for D3DCommon::DrawVideoQuad (using direct HLSL path)");
         s_simple_vs_abs_shader.reset();
         s_simple_d3d_vs = nullptr;
-        SAFE_RELEASE(s_simple_input_layout); // s_simple_input_layout is a COM object
+        SAFE_RELEASE(s_simple_input_layout);
         return;
     }
     s_simple_d3d_ps = static_cast<DX11::DXShader*>(s_simple_ps_abs_shader.get())->GetD3DPixelShader();
 
-    // Create Sampler State
+    // Create Sampler State (no change here)
     D3D11_SAMPLER_DESC samp_desc = {};
     samp_desc.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
     samp_desc.AddressU = D3D11_TEXTURE_ADDRESS_CLAMP;
