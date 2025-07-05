@@ -295,7 +295,7 @@ std::optional<Shader::BinaryData> Shader::CompileHLSLDirect(D3D_FEATURE_LEVEL fe
   const char* target = GetCompileTarget(feature_level, stage); // Existing helper
 
   if (target == nullptr || target[0] == '\0') {
-    ERROR_LOG_FMT(VIDEO, "Cannot compile HLSL: Invalid target for stage {} at feature level {}.", static_cast<int>(stage), feature_level);
+    ERROR_LOG_FMT(VIDEO, "Cannot compile HLSL: Invalid target for stage {} at feature level {}.", static_cast<int>(stage), static_cast<int>(feature_level));
     return std::nullopt;
   }
 
