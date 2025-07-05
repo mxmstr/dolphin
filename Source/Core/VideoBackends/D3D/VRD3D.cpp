@@ -123,20 +123,34 @@ void VR_StartFramebuffer()
     ASSERT_MSG(VR, SUCCEEDED(hr_left) && SUCCEEDED(hr_right), "Failed to create OpenVR eye textures");
 
     D3D11_RENDER_TARGET_VIEW_DESC rtv_desc = {};
-    // RTV format should match the texture format unless typeless, then specify the view format.
-    // If texture is SRGB, RTV can be UNORM for rendering, or SRGB if shaders expect linear and output SRGB.
-    // For simplicity and common practice, RTVs are often UNORM for SRGB textures when rendering.
-    rtv_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM; // Or tex_desc.Format if rendering pipeline handles SRGB correctly
+    // RTV format MUST match the texture format if the texture is not typeless.
+    // For SRGB textures, the RTV must also be SRGB.
+    rtv_desc.Format = tex_desc.Format; // Use the texture's format (DXGI_FORMAT_R8G8B8A8_UNORM_SRGB)
     rtv_desc.ViewDimension = (tex_config.samples > 1) ? D3D11_RTV_DIMENSION_TEXTURE2DMS : D3D11_RTV_DIMENSION_TEXTURE2D;
 
-    if (SUCCEEDED(hr_left))
+    HRESULT hr_rtv_left = E_FAIL, hr_rtv_right = E_FAIL;
+
+    if (SUCCEEDED(hr_left) && m_left_texture) // Ensure texture was created
     {
-      D3D::device->CreateRenderTargetView(m_left_texture.Get(), &rtv_desc, &m_left_texture_rtv);
+      hr_rtv_left = D3D::device->CreateRenderTargetView(m_left_texture.Get(), &rtv_desc, &m_left_texture_rtv);
+      if (FAILED(hr_rtv_left))
+      {
+        ERROR_LOG_FMT(VR, "Failed to create RTV for left eye texture. HRESULT: {:#08x}", static_cast<unsigned int>(hr_rtv_left));
+        m_left_texture.Reset(); // Release texture if RTV creation failed
+      }
     }
-    if (SUCCEEDED(hr_right))
+    if (SUCCEEDED(hr_right) && m_right_texture) // Ensure texture was created
     {
-      D3D::device->CreateRenderTargetView(m_right_texture.Get(), &rtv_desc, &m_right_texture_rtv);
+      hr_rtv_right = D3D::device->CreateRenderTargetView(m_right_texture.Get(), &rtv_desc, &m_right_texture_rtv);
+      if (FAILED(hr_rtv_right))
+      {
+        ERROR_LOG_FMT(VR, "Failed to create RTV for right eye texture. HRESULT: {:#08x}", static_cast<unsigned int>(hr_rtv_right));
+        m_right_texture.Reset(); // Release texture if RTV creation failed
+      }
     }
+
+    // Optional: Add an assert or further error handling if RTVs are still null
+    ASSERT_MSG(VR, m_left_texture_rtv && m_right_texture_rtv, "Failed to create OpenVR eye RTVs");
   }
 #endif
 }
