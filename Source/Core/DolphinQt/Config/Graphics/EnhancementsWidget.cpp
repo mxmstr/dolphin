@@ -13,6 +13,7 @@
 
 #include "Common/CommonTypes.h"
 #include "Common/EnumUtils.h"
+#include "Common/Logging/Log.h"
 
 #include "Core/Config/GraphicsSettings.h"
 

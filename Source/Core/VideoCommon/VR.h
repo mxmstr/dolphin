@@ -198,6 +198,19 @@ extern Common::Matrix44 g_game_camera_rotmat;
 
 extern double g_older_tracking_time, g_old_tracking_time, g_last_tracking_time;
 
+// VR D3D resources
+// These will be DXTexture and DXFramebuffer from the D3D backend
+namespace DX11 { class DXTexture; class DXFramebuffer; } // Forward declarations
+extern DX11::DXTexture* g_left_eye_dxtexture;
+extern DX11::DXFramebuffer* g_left_eye_dxframebuffer;
+extern DX11::DXTexture* g_right_eye_dxtexture;
+extern DX11::DXFramebuffer* g_right_eye_dxframebuffer;
+// We still need the raw D3D textures for submission to OpenVR
+struct ID3D11Texture2D; // Forward declaration
+extern ID3D11Texture2D* g_left_eye_texture_d3d_for_submit;
+extern ID3D11Texture2D* g_right_eye_texture_d3d_for_submit;
+
+
 extern float g_current_fps, g_current_speed;
 
 // 4 Wiimotes + 1 Balance Board
@@ -235,6 +248,10 @@ extern int skipped_opcode_replay_count;
 // extern std::vector<u32> CPBreakpoint_log;
 
 extern std::mutex g_vr_lock;
+
+// D3D-specific VR functions
+void VR_D3D_SubmitFrames();
+
 namespace Core
 {
 extern std::atomic<u32> g_drawn_vr;

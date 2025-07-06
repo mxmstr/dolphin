@@ -21,7 +21,10 @@
 #include "VideoCommon/VertexManagerBase.h"
 #include "VideoCommon/VideoConfig.h"
 #include "VideoCommon/VideoEvents.h"
+#include "VideoCommon/VR.h" // For VR_D3D_SubmitFrames and VR state
 #include "VideoCommon/Widescreen.h"
+
+#include "VideoBackends/D3D/DXTexture.h"
 
 std::unique_ptr<VideoCommon::Presenter> g_presenter;
 
@@ -819,68 +822,109 @@ void Presenter::Present(std::optional<TimePoint> presentation_time)
 {
   m_present_count++;
 
-  if (g_gfx->IsHeadless() || (!m_onscreen_ui && !m_xfb_entry))
+  if (g_gfx->IsHeadless() || (!m_onscreen_ui && !m_xfb_entry && !(g_has_openvr && g_ActiveConfig.stereo_mode == StereoMode::OpenVR)))
     return;
 
-  if (!g_gfx->SupportsUtilityDrawing())
+  if (!g_gfx->SupportsUtilityDrawing() && !(g_has_openvr && g_ActiveConfig.stereo_mode == StereoMode::OpenVR))
   {
     // Video Software doesn't support drawing a UI or doing post-processing
-    // So just show the XFB
+    // So just show the XFB (if not in VR mode that handles its own presentation)
     if (m_xfb_entry)
     {
       g_gfx->ShowImage(m_xfb_entry->texture.get(), m_xfb_rect);
-
-      // Update the window size based on the frame that was just rendered.
-      // Due to depending on guest state, we need to call this every frame.
       SetSuggestedWindowSize(m_xfb_rect.GetWidth(), m_xfb_rect.GetHeight());
     }
     return;
   }
 
-  // Since we use the common pipelines here and draw vertices if a batch is currently being
-  // built by the vertex loader, we end up trampling over its pointer, as we share the buffer
-  // with the loader, and it has not been unmapped yet. Force a pipeline flush to avoid this.
   g_vertex_manager->Flush();
-
   UpdateDrawRectangle();
-
   g_gfx->BeginUtilityDrawing();
-  const bool backbuffer_bound = g_gfx->BindBackbuffer({{0.0f, 0.0f, 0.0f, 1.0f}});
 
-  // Render the XFB to the screen.
-  if (backbuffer_bound && m_xfb_entry)
+  bool backbuffer_bound_for_ui_or_mirror = false;
+
+  if (g_has_openvr && g_ActiveConfig.stereo_mode == StereoMode::OpenVR)
   {
-    // Adjust the source rectangle instead of using an oversized viewport to render the XFB.
-    auto render_target_rc = GetTargetRectangle();
-    auto render_source_rc = m_xfb_rect;
-    AdjustRectanglesToFitBounds(&render_target_rc, &render_source_rc, m_backbuffer_width,
-                                m_backbuffer_height);
-    RenderXFBToScreen(render_target_rc, m_xfb_entry->texture.get(), render_source_rc);
+    if (m_xfb_entry && g_left_eye_dxframebuffer && g_right_eye_dxframebuffer)
+    {
+      // Common clear color for eyes
+      const ClearColor vr_clear_color = {{0.0f, 0.0f, 0.0f, 1.0f}};
+
+      // TODO: Update UBOs with per-eye view/projection matrices before rendering XFB to eye.
+      // This is a complex step involving shader and UBO management.
+      // For now, RenderXFBToScreen will act like a blit.
+
+      // Render Left Eye
+      g_gfx->SetAndClearFramebuffer((AbstractFramebuffer*)g_left_eye_dxframebuffer, vr_clear_color);
+      g_gfx->SetViewport(0, 0, static_cast<float>(g_hmd_window_width), static_cast<float>(g_hmd_window_height), 0.f, 1.f);
+      // RenderXFBToScreen expects target_rc in screen coordinates, source_rc in texture coordinates.
+      // For VR, target_rc is the full eye texture.
+      MathUtil::Rectangle<int> eye_target_rc(0, 0, g_hmd_window_width, g_hmd_window_height);
+      RenderXFBToScreen(eye_target_rc, m_xfb_entry->texture.get(), m_xfb_rect);
+
+      // Render Right Eye
+      g_gfx->SetAndClearFramebuffer((AbstractFramebuffer*)g_right_eye_dxframebuffer, vr_clear_color);
+      g_gfx->SetViewport(0, 0, static_cast<float>(g_hmd_window_width), static_cast<float>(g_hmd_window_height), 0.f, 1.f);
+      RenderXFBToScreen(eye_target_rc, m_xfb_entry->texture.get(), m_xfb_rect);
+
+      /*WARN_LOG_FMT(VR, "OpenVR: Rendering XFB to eyes, left eye size: {}x{}, right eye size: {}x{}",
+        g_left_eye_dxtexture->GetWidth(), g_left_eye_dxtexture->GetHeight(),
+        g_right_eye_dxtexture->GetWidth(), g_right_eye_dxtexture->GetHeight());*/
+      VR_D3D_SubmitFrames();
+
+      // Mirror to main window (e.g., left eye)
+      // This binds the actual backbuffer for the main window.
+      backbuffer_bound_for_ui_or_mirror = g_gfx->BindBackbuffer({{0.0f, 0.0f, 0.0f, 1.0f}});
+      if (backbuffer_bound_for_ui_or_mirror && g_left_eye_dxtexture)
+      {
+        // Use the full backbuffer as target for the mirror.
+        // Source is the full eye texture.
+        MathUtil::Rectangle<int> mirror_target_rc(0, 0, m_backbuffer_width, m_backbuffer_height);
+        MathUtil::Rectangle<int> mirror_source_rc(0, 0, g_left_eye_dxtexture->GetWidth(), g_left_eye_dxtexture->GetHeight());
+        // We use g_left_eye_dxtexture here as RenderXFBToScreen takes AbstractTexture*
+        m_post_processor->BlitFromTexture(mirror_target_rc, mirror_source_rc, g_left_eye_dxtexture);
+      }
+    }
+    else
+    {
+      // VR active but something is missing, clear backbuffer to black for safety.
+      backbuffer_bound_for_ui_or_mirror = g_gfx->BindBackbuffer({{0.0f, 0.0f, 0.0f, 1.0f}});
+    }
+  }
+  else // Not VR or VR not active
+  {
+    backbuffer_bound_for_ui_or_mirror = g_gfx->BindBackbuffer({{0.0f, 0.0f, 0.0f, 1.0f}});
+    if (backbuffer_bound_for_ui_or_mirror && m_xfb_entry)
+    {
+      auto render_target_rc = GetTargetRectangle();
+      auto render_source_rc = m_xfb_rect;
+      AdjustRectanglesToFitBounds(&render_target_rc, &render_source_rc, m_backbuffer_width,
+                                  m_backbuffer_height);
+      RenderXFBToScreen(render_target_rc, m_xfb_entry->texture.get(), render_source_rc);
+    }
   }
 
+  // Render UI on top of whatever is in the main backbuffer (mirrored VR frame or normal scene)
   if (m_onscreen_ui)
   {
     m_onscreen_ui->Finalize();
-    if (backbuffer_bound)
+    if (backbuffer_bound_for_ui_or_mirror) // Ensure backbuffer was successfully bound
       m_onscreen_ui->DrawImGui();
   }
 
   // Present to the window system.
   {
     std::lock_guard<std::mutex> guard(m_swap_mutex);
-
     if (presentation_time.has_value())
       Core::System::GetInstance().GetCoreTiming().SleepUntil(*presentation_time);
-
     g_gfx->PresentBackbuffer();
   }
 
-  if (m_xfb_entry)
+  if (m_xfb_entry && !(g_has_openvr && g_ActiveConfig.stereo_mode == StereoMode::OpenVR)) // Only suggest size if not in VR, VR uses HMD res
   {
-    // Update the window size based on the frame that was just rendered.
-    // Due to depending on guest state, we need to call this every frame.
     SetSuggestedWindowSize(m_xfb_rect.GetWidth(), m_xfb_rect.GetHeight());
   }
+
 
   if (m_onscreen_ui)
     m_onscreen_ui->BeginImGuiFrame(m_backbuffer_width, m_backbuffer_height);
