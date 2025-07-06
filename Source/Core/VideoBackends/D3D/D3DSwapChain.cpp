@@ -68,7 +68,9 @@ bool SwapChain::CreateSwapChainBuffers()
     tex_desc.Height = g_hmd_window_height; // Per-eye height from OpenVR
     tex_desc.MipLevels = 1;
     tex_desc.ArraySize = 1;
-    tex_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM; // Standard format for VR
+    // Create as TYPELESS to allow for potential RTV format aliasing if DXFramebuffer::Create attempts it.
+    // The main RTV will be UNORM.
+    tex_desc.Format = DXGI_FORMAT_R8G8B8A8_TYPELESS;
     tex_desc.SampleDesc.Count = 1;                // MSAA is handled separately if needed
     tex_desc.SampleDesc.Quality = 0;
     tex_desc.Usage = D3D11_USAGE_DEFAULT;
