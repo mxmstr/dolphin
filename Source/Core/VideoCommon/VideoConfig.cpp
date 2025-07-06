@@ -603,26 +603,50 @@ void VideoConfig::VerifyValidity()
   if (!Common::Contains(g_backend_info.AAModes, iMultisamples))
     iMultisamples = 1;
 
-  // VR-Hydra stereo mode logic
-  if (g_has_hmd && bEnableVR) // g_has_hmd will be from VR.h
+  // Revised stereo mode verification logic
+  if (!bEnableVR) // VR is globally disabled
   {
-    // TODO: This assumes STEREO_OCULUS is the desired mode for all HMDs.
-    // VR-Hydra had specific checks for g_has_rift, g_has_openvr, g_has_vr920.
-    // For now, if any HMD is present and VR enabled, try to set a VR stereo mode.
-    // The actual stereo_mode used by the backend might depend on VR.cpp initialization.
-    stereo_mode = StereoMode::QuadBuffer; // Or another suitable default VR stereo mode, QuadBuffer is often used for OpenVR/OpenGL
-                                          // VR-Hydra used STEREO_OCULUS enum value.
-                                          // The actual active VR SDK might override this later in VR specific code.
-  }
-   else if (stereo_mode == StereoMode::QuadBuffer) // If VR disabled or no HMD, turn off VR stereo modes
-  {
+    // If VR is disabled, VR-specific stereo modes must be turned off.
+    // Non-VR stereo modes (Anaglyph, SBS, TAB, Passive) can remain if selected by the user.
+    if (stereo_mode == StereoMode::OpenVR || stereo_mode == StereoMode::QuadBuffer)
+    {
       stereo_mode = StereoMode::Off;
+    }
+  }
+  else // bEnableVR is true
+  {
+    if (g_has_hmd) // VR is enabled AND HMD is present
+    {
+      // If user selected a non-VR stereo mode (or Off) but VR is enabled with an HMD,
+      // force a VR-compatible stereo mode.
+      // If user explicitly selected OpenVR or QuadBuffer, respect that.
+      if (stereo_mode == StereoMode::Off || stereo_mode == StereoMode::SBS ||
+          stereo_mode == StereoMode::TAB || stereo_mode == StereoMode::Anaglyph ||
+          stereo_mode == StereoMode::Passive)
+      {
+        // Default to OpenVR mode if VR is enabled with an HMD and user hasn't picked a VR mode.
+        // StereoMode::QuadBuffer could also be a default if OpenVR isn't the primary/sole VR path.
+        stereo_mode = StereoMode::OpenVR;
+      }
+    }
+    else // VR is enabled but NO HMD is present
+    {
+      // VR cannot function without an HMD, turn off VR-specific stereo modes.
+      // Non-VR stereo modes can remain.
+      if (stereo_mode == StereoMode::OpenVR || stereo_mode == StereoMode::QuadBuffer)
+      {
+        stereo_mode = StereoMode::Off;
+      }
+    }
   }
 
-
+  // General checks for stereo mode (e.g., Geometry Shader support)
+  // This applies after VR logic has potentially modified stereo_mode.
   if (stereo_mode != StereoMode::Off)
   {
-    if (!g_backend_info.bSupportsGeometryShaders && stereo_mode != StereoMode::Anaglyph) // Anaglyph might not need GS
+    // Anaglyph does not strictly require geometry shaders.
+    // Other 3D modes (SBS, TAB, QuadBuffer, Passive, OpenVR) typically do for Dolphin's implementation.
+    if (!g_backend_info.bSupportsGeometryShaders && stereo_mode != StereoMode::Anaglyph)
     {
       OSD::AddMessage(
           "Stereoscopic 3D (excluding Anaglyph) isn't supported by your GPU, support for Geometry Shaders is required.",
