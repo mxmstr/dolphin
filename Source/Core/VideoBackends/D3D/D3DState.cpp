@@ -450,7 +450,7 @@ ID3D11RasterizerState* StateCache::Get(RasterizationState state)
   desc.FillMode = D3D11_FILL_SOLID;
   desc.CullMode = cull_modes[u32(state.cullmode.Value())];
   desc.ScissorEnable = TRUE;
-  desc.DepthClipEnable = TRUE;//state.depth_clip_enable; // VR MERGE: Added depth_clip_enable
+  desc.DepthClipEnable = VertexShaderManager::UseVertexDepthRange();
 
   ComPtr<ID3D11RasterizerState> res;
   HRESULT hr = D3D::device->CreateRasterizerState(&desc, res.GetAddressOf());

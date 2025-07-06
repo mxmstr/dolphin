@@ -2646,7 +2646,7 @@ void TextureCacheBase::UninitializeEFBMemory(u8* dst, u32 stride, u32 bytes_per_
   }
 }
 
-void TextureCacheBase::CopyEFBToCacheEntry(RcTcacheEntry& entry, bool is_depth_copy,
+void TextureCacheBase::CopyEFBToCacheEntry_VR(RcTcacheEntry& entry, bool is_depth_copy,
                                            const MathUtil::Rectangle<int>& actual_game_src_rect, // Renamed for clarity
                                            bool scale_by_half, bool linear_filter,
                                            EFBCopyFormat dst_format, bool is_intensity, float gamma,
@@ -2743,6 +2743,91 @@ void TextureCacheBase::CopyEFBToCacheEntry(RcTcacheEntry& entry, bool is_depth_c
   // Use the copy pipeline to render the VRAM copy.
   g_gfx->SetAndDiscardFramebuffer(entry->framebuffer.get());
   g_gfx->SetViewportAndScissor(entry->framebuffer->GetRect()); // Destination is the full entry texture
+  g_gfx->SetPipeline(copy_pipeline);
+  g_gfx->SetTexture(0, src_texture);
+  g_gfx->SetSamplerState(0, linear_filter ? RenderState::GetLinearSamplerState() :
+                                            RenderState::GetPointSamplerState());
+  g_gfx->Draw(0, 3);
+  g_gfx->EndUtilityDrawing();
+  entry->texture->FinishedRendering();
+}
+
+void TextureCacheBase::CopyEFBToCacheEntry(RcTcacheEntry& entry, bool is_depth_copy,
+                                           const MathUtil::Rectangle<int>& src_rect,
+                                           bool scale_by_half, bool linear_filter,
+                                           EFBCopyFormat dst_format, bool is_intensity, float gamma,
+                                           bool clamp_top, bool clamp_bottom,
+                                           const std::array<u32, 3>& filter_coefficients)
+{
+  if (g_has_hmd && g_ActiveConfig.bEnableVR)
+  {
+      // Call your new, complex VR-aware copy function
+    CopyEFBToCacheEntry_VR(entry, is_depth_copy, src_rect, scale_by_half, linear_filter,
+      dst_format, is_intensity, gamma, clamp_top, clamp_bottom,
+      filter_coefficients);
+      return;
+  }
+
+  // Flush EFB pokes first, as they're expected to be included.
+  g_framebuffer_manager->FlushEFBPokes();
+
+  // Get the pipeline which we will be using. If the compilation failed, this will be null.
+  const AbstractPipeline* copy_pipeline = g_shader_cache->GetEFBCopyToVRAMPipeline(
+      TextureConversionShaderGen::GetShaderUid(dst_format, is_depth_copy, is_intensity,
+                                               scale_by_half, 1.0f / gamma, filter_coefficients));
+  if (!copy_pipeline)
+  {
+    WARN_LOG_FMT(VIDEO, "Skipping EFB copy to VRAM due to missing pipeline.");
+    return;
+  }
+
+  const auto scaled_src_rect = g_framebuffer_manager->ConvertEFBRectangle(src_rect);
+  const auto framebuffer_rect = g_gfx->ConvertFramebufferRectangle(
+      scaled_src_rect, g_framebuffer_manager->GetEFBFramebuffer());
+  AbstractTexture* src_texture =
+      is_depth_copy ? g_framebuffer_manager->ResolveEFBDepthTexture(framebuffer_rect) :
+                      g_framebuffer_manager->ResolveEFBColorTexture(framebuffer_rect);
+
+  src_texture->FinishedRendering();
+  g_gfx->BeginUtilityDrawing();
+
+  // Fill uniform buffer.
+  struct Uniforms
+  {
+    float src_left, src_top, src_width, src_height;
+    std::array<u32, 3> filter_coefficients;
+    float gamma_rcp;
+    float clamp_top;
+    float clamp_bottom;
+    float pixel_height;
+    u32 padding;
+  };
+  Uniforms uniforms;
+  const float rcp_efb_width = 1.0f / static_cast<float>(g_framebuffer_manager->GetEFBWidth());
+  const u32 efb_height = g_framebuffer_manager->GetEFBHeight();
+  const float rcp_efb_height = 1.0f / static_cast<float>(efb_height);
+  uniforms.src_left = framebuffer_rect.left * rcp_efb_width;
+  uniforms.src_top = framebuffer_rect.top * rcp_efb_height;
+  uniforms.src_width = framebuffer_rect.GetWidth() * rcp_efb_width;
+  uniforms.src_height = framebuffer_rect.GetHeight() * rcp_efb_height;
+  uniforms.filter_coefficients = filter_coefficients;
+  uniforms.gamma_rcp = 1.0f / gamma;
+  //   NOTE: when the clamp bits aren't set, the hardware will happily read beyond the EFB,
+  //         which returns random garbage from the empty bus (confirmed by hardware tests).
+  //
+  //         In our implementation, the garbage just so happens to be the top or bottom row.
+  //         Statistically, that could happen.
+  const u32 top_coord = clamp_top ? framebuffer_rect.top : 0;
+  uniforms.clamp_top = (static_cast<float>(top_coord) + .5f) * rcp_efb_height;
+  const u32 bottom_coord = (clamp_bottom ? framebuffer_rect.bottom : efb_height) - 1;
+  uniforms.clamp_bottom = (static_cast<float>(bottom_coord) + .5f) * rcp_efb_height;
+  uniforms.pixel_height = g_ActiveConfig.bCopyEFBScaled ? rcp_efb_height : 1.0f / EFB_HEIGHT;
+  uniforms.padding = 0;
+  g_vertex_manager->UploadUtilityUniforms(&uniforms, sizeof(uniforms));
+
+  // Use the copy pipeline to render the VRAM copy.
+  g_gfx->SetAndDiscardFramebuffer(entry->framebuffer.get());
+  g_gfx->SetViewportAndScissor(entry->framebuffer->GetRect());
   g_gfx->SetPipeline(copy_pipeline);
   g_gfx->SetTexture(0, src_texture);
   g_gfx->SetSamplerState(0, linear_filter ? RenderState::GetLinearSamplerState() :

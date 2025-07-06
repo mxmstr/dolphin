@@ -503,7 +503,7 @@ void Matrix44::Multiply(const Matrix44& a, const Vec3& vec, Vec3* result)
 Matrix44 Matrix44::Inverted()
 const
 {
-  const auto m = [this](int x, int y) { return data[y + x * 4]; };
+  const auto m = [this](int x, int y) { return data[y * 4 + x]; };
 
   const auto invdet = 1 / Determinant();
 
