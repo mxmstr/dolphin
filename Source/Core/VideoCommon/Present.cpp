@@ -867,6 +867,9 @@ void Presenter::Present(std::optional<TimePoint> presentation_time)
       g_gfx->SetViewport(0, 0, static_cast<float>(g_hmd_window_width), static_cast<float>(g_hmd_window_height), 0.f, 1.f);
       RenderXFBToScreen(eye_target_rc, m_xfb_entry->texture.get(), m_xfb_rect);
 
+      /*WARN_LOG_FMT(VR, "OpenVR: Rendering XFB to eyes, left eye size: {}x{}, right eye size: {}x{}",
+        g_left_eye_dxtexture->GetWidth(), g_left_eye_dxtexture->GetHeight(),
+        g_right_eye_dxtexture->GetWidth(), g_right_eye_dxtexture->GetHeight());*/
       VR_D3D_SubmitFrames();
 
       // Mirror to main window (e.g., left eye)

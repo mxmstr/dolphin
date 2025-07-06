@@ -34,6 +34,7 @@
 #include "VideoCommon/RenderState.h"
 #include "VideoCommon/VideoConfig.h"
 #include "VideoCommon/XFMemory.h"
+#include "VideoCommon/VR.h"
 
 namespace DX11
 {
@@ -166,6 +167,12 @@ bool Gfx::BindBackbuffer(const ClearColor& clear_color)
 
 void Gfx::PresentBackbuffer()
 {
+  if (g_has_openvr && g_ActiveConfig.stereo_mode == StereoMode::OpenVR)//g_has_hmd && m_stereo3d)
+  {
+    VR_NewVRFrame();
+    VR_UpdateHeadTrackingIfNeeded();
+  }
+
   m_swap_chain->Present();
 }
 

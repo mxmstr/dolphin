@@ -604,20 +604,20 @@ void VideoConfig::VerifyValidity()
     iMultisamples = 1;
 
   // VR-Hydra stereo mode logic
-  if (g_has_hmd && bEnableVR) // g_has_hmd will be from VR.h
-  {
-    // TODO: This assumes STEREO_OCULUS is the desired mode for all HMDs.
-    // VR-Hydra had specific checks for g_has_rift, g_has_openvr, g_has_vr920.
-    // For now, if any HMD is present and VR enabled, try to set a VR stereo mode.
-    // The actual stereo_mode used by the backend might depend on VR.cpp initialization.
-    stereo_mode = StereoMode::QuadBuffer; // Or another suitable default VR stereo mode, QuadBuffer is often used for OpenVR/OpenGL
-                                          // VR-Hydra used STEREO_OCULUS enum value.
-                                          // The actual active VR SDK might override this later in VR specific code.
-  }
-   else if (stereo_mode == StereoMode::QuadBuffer) // If VR disabled or no HMD, turn off VR stereo modes
-  {
-      stereo_mode = StereoMode::Off;
-  }
+  //if (g_has_hmd && bEnableVR) // g_has_hmd will be from VR.h
+  //{
+  //  // TODO: This assumes STEREO_OCULUS is the desired mode for all HMDs.
+  //  // VR-Hydra had specific checks for g_has_rift, g_has_openvr, g_has_vr920.
+  //  // For now, if any HMD is present and VR enabled, try to set a VR stereo mode.
+  //  // The actual stereo_mode used by the backend might depend on VR.cpp initialization.
+  //  stereo_mode = StereoMode::QuadBuffer; // Or another suitable default VR stereo mode, QuadBuffer is often used for OpenVR/OpenGL
+  //                                        // VR-Hydra used STEREO_OCULUS enum value.
+  //                                        // The actual active VR SDK might override this later in VR specific code.
+  //}
+  // else if (stereo_mode == StereoMode::QuadBuffer) // If VR disabled or no HMD, turn off VR stereo modes
+  //{
+  //    stereo_mode = StereoMode::Off;
+  //}
 
 
   if (stereo_mode != StereoMode::Off)
