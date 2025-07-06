@@ -309,11 +309,23 @@ bool VideoBackendBase::InitializeShared(std::unique_ptr<AbstractGfx> gfx,
 
   // DIAGNOSTIC: Unconditionally re-create controller to see if one created at this stage is valid.
   INFO_LOG_FMT(VR, "VideoBackendBase::InitializeShared: DIAGNOSTIC - Unconditionally calling SetControlType.");
+  if (Config::Get(Config::GLOBAL_VR_ENABLE_VR))
+{
+  // The VRTracker controller depends on the VR SDK, which is initialized inside the Gfx
+  // constructor. We must only create this controller if the SDK was actually initialized.
+  INFO_LOG_FMT(VR, "VR is enabled, setting freelook control type to SixAxis (VRTracker).");
   g_freelook_camera.SetControlType(FreeLook::ControlType::SixAxis);
+}
+else
+{
+  // Optional: If you want a different default freelook controller when VR is off,
+  // you could set it here. Otherwise, it will just not have a controller until set by user.
+  INFO_LOG_FMT(VR, "VR is disabled, skipping SixAxis controller setup.");
+}
   INFO_LOG_FMT(VR, "VideoBackendBase::InitializeShared: DIAGNOSTIC - AFTER Unconditional SetControlType. New controller: {}", static_cast<void*>(g_freelook_camera.GetController()));
 
   // DIAGNOSTIC: Unconditional pre-emptive typeid check on the re-created controller.
-  if (g_freelook_camera.GetController()) {
+  /*if (g_freelook_camera.GetController()) {
     try {
       CameraController* temp_controller = g_freelook_camera.GetController();
       INFO_LOG_FMT(VR, "VideoBackendBase::InitializeShared: DIAGNOSTIC - PRE-EMPTIVE typeid check on unconditionally re-created controller {}: {}", static_cast<void*>(temp_controller), typeid(*temp_controller).name());
@@ -324,7 +336,7 @@ bool VideoBackendBase::InitializeShared(std::unique_ptr<AbstractGfx> gfx,
     }
   } else {
     ERROR_LOG_FMT(VR, "VideoBackendBase::InitializeShared: DIAGNOSTIC - Controller is NULL after unconditional SetControlType.");
-  }
+  }*/
 
   // Original conditional logic (commented out for this diagnostic step)
   // if (should_really_enable_vr_features) 
