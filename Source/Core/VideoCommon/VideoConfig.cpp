@@ -604,10 +604,12 @@ void VideoConfig::VerifyValidity()
     iMultisamples = 1;
 
   // Revised stereo mode verification logic
-  if (!bEnableVR) // VR is globally disabled
+  if (!bEnableVR) // VR is globally disabled (bEnableVR is from g_Config.bEnableVR)
   {
     // If VR is disabled, VR-specific stereo modes must be turned off.
-    // Non-VR stereo modes (Anaglyph, SBS, TAB, Passive) can remain if selected by the user.
+    // Non-VR stereo modes (Anaglyph, SBS, TAB, Passive) can remain if selected by the user via GFX_STEREO_MODE.
+    // The original bug report states "stereoscopic rendering set to off", implying GFX_STEREO_MODE is Off.
+    // This check ensures that even if GFX_STEREO_MODE was set to OpenVR/Quadbuffer, it's overridden if EnableVR is false.
     if (stereo_mode == StereoMode::OpenVR || stereo_mode == StereoMode::QuadBuffer)
     {
       stereo_mode = StereoMode::Off;
@@ -619,20 +621,19 @@ void VideoConfig::VerifyValidity()
     {
       // If user selected a non-VR stereo mode (or Off) but VR is enabled with an HMD,
       // force a VR-compatible stereo mode.
-      // If user explicitly selected OpenVR or QuadBuffer, respect that.
+      // If user explicitly selected OpenVR or QuadBuffer (suitable for VR), respect that.
       if (stereo_mode == StereoMode::Off || stereo_mode == StereoMode::SBS ||
           stereo_mode == StereoMode::TAB || stereo_mode == StereoMode::Anaglyph ||
           stereo_mode == StereoMode::Passive)
       {
-        // Default to OpenVR mode if VR is enabled with an HMD and user hasn't picked a VR mode.
-        // StereoMode::QuadBuffer could also be a default if OpenVR isn't the primary/sole VR path.
+        // Default to OpenVR mode if VR is enabled with an HMD and user hasn't picked a VR-specific mode.
         stereo_mode = StereoMode::OpenVR;
       }
     }
     else // VR is enabled but NO HMD is present
     {
       // VR cannot function without an HMD, turn off VR-specific stereo modes.
-      // Non-VR stereo modes can remain.
+      // Non-VR stereo modes can remain if selected by user.
       if (stereo_mode == StereoMode::OpenVR || stereo_mode == StereoMode::QuadBuffer)
       {
         stereo_mode = StereoMode::Off;
