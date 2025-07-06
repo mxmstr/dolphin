@@ -2731,8 +2731,10 @@ void TextureCacheBase::CopyEFBToCacheEntry(RcTcacheEntry& entry, bool is_depth_c
 
   // pixel_height_uv is 1.0 / (height of the gameSrcRect portion in the resolved texture)
   // This is used for y-scaling in the copy filter.
-  uniforms.pixel_height_uv = 1.0f / (static_cast<float>(game_src_rect_scaled.GetHeight()));
-  if (game_src_rect_scaled.GetHeight() == 0) uniforms.pixel_height_uv = 0.0f;
+  // Corrected logic
+  const float rcp_efb_height = 1.0f / static_cast<float>(g_framebuffer_manager->GetEFBHeight());
+  uniforms.pixel_height_uv = g_ActiveConfig.bCopyEFBScaled ? rcp_efb_height : 1.0f / EFB_HEIGHT;
+  if (game_src_rect_scaled.GetHeight() == 0) uniforms.pixel_height_uv = 0.0f; // Keep previous safety check
 
 
   uniforms.padding = 0;

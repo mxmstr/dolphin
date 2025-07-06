@@ -1001,10 +1001,11 @@ void VertexShaderManager::TransformToClipSpace(const float* data, float* out, u3
   const float t[3] = {data[0]*world_matrix[0]+data[1]*world_matrix[1]+data[2]*world_matrix[2]+world_matrix[3],
                       data[0]*world_matrix[4]+data[1]*world_matrix[5]+data[2]*world_matrix[6]+world_matrix[7],
                       data[0]*world_matrix[8]+data[1]*world_matrix[9]+data[2]*world_matrix[10]+world_matrix[11]};
-  out[0] = t[0]*proj_matrix[0]+t[1]*proj_matrix[4]+t[2]*proj_matrix[8]+proj_matrix[12];
-  out[1] = t[0]*proj_matrix[1]+t[1]*proj_matrix[5]+t[2]*proj_matrix[9]+proj_matrix[13];
-  out[2] = t[0]*proj_matrix[2]+t[1]*proj_matrix[6]+t[2]*proj_matrix[10]+proj_matrix[14];
-  out[3] = t[0]*proj_matrix[3]+t[1]*proj_matrix[7]+t[2]*proj_matrix[11]+proj_matrix[15];
+  // Original row-major logic
+  out[0] = t[0] * proj_matrix[0] + t[1] * proj_matrix[1] + t[2] * proj_matrix[2] + proj_matrix[3];
+  out[1] = t[0] * proj_matrix[4] + t[1] * proj_matrix[5] + t[2] * proj_matrix[6] + proj_matrix[7];
+  out[2] = t[0] * proj_matrix[8] + t[1] * proj_matrix[9] + t[2] * proj_matrix[10] + proj_matrix[11];
+  out[3] = t[0] * proj_matrix[12] + t[1] * proj_matrix[13] + t[2] * proj_matrix[14] + proj_matrix[15];
 }
 
 void VertexShaderManager::DoState(PointerWrap& p)
