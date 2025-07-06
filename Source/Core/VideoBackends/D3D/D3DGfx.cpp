@@ -16,6 +16,7 @@
 #include "Common/CommonTypes.h"
 #include "Common/Logging/Log.h"
 #include "Common/MathUtil.h"
+#include "Core/Config/GraphicsSettings.h"
 
 #include "Core/Core.h"
 
@@ -112,7 +113,14 @@ Gfx::Gfx(std::unique_ptr<SwapChain> swap_chain, float backbuffer_scale)
     : m_backbuffer_scale(backbuffer_scale), m_swap_chain(std::move(swap_chain))
 {
   InitUtilityShaders(); // Initialize utility shaders including OSVR
-  if (g_ActiveConfig.bEnableVR)
+
+  // Directly check the persisted user setting for enabling VR.
+  // g_ActiveConfig.bEnableVR might not be up-to-date this early.
+  bool should_enable_vr = Config::Get(Config::GLOBAL_VR_ENABLE_VR);
+  INFO_LOG_FMT(VR, "D3DGfx::Gfx() constructor: Checking Config::Get(Config::GLOBAL_VR_ENABLE_VR). Value: {}", should_enable_vr ? "true" : "false");
+  INFO_LOG_FMT(VR, "D3DGfx::Gfx() constructor: Value of g_ActiveConfig.bEnableVR at this point: {}", g_ActiveConfig.bEnableVR ? "true" : "false");
+
+  if (should_enable_vr) // Use the directly fetched setting
   {
     // Initialize VR system
     VR_Init(); // From VR.cpp - initializes SDKs
@@ -125,9 +133,16 @@ Gfx::Gfx(std::unique_ptr<SwapChain> swap_chain, float backbuffer_scale)
     }
     else
     {
+      // If VR was requested but HMD init failed, ensure these are false.
       m_stereo3d = false;
       m_eye_count = 1;
     }
+  }
+  else // VR is not enabled by user setting
+  {
+    m_stereo3d = false;
+    m_eye_count = 1;
+    // Do NOT call VR_Init()
   }
 }
 

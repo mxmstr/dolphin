@@ -508,6 +508,8 @@ void VertexShaderManager::ResetView()
       // Log type information before attempting dynamic_cast
       try
       {
+        INFO_LOG_FMT(VR, "VertexShaderManager::ResetView(): &g_freelook_camera: {}, g_freelook_camera.GetController() again: {}", static_cast<void*>(&g_freelook_camera), static_cast<void*>(g_freelook_camera.GetController()));
+        INFO_LOG_FMT(VR, "VertexShaderManager::ResetView(): Controller pointer again before typeid: {}", static_cast<void*>(controller));
         INFO_LOG_FMT(VR, "VertexShaderManager::ResetView(): RTTI type name for controller {}: {}", static_cast<void*>(controller), typeid(*controller).name());
       }
       catch (const std::bad_typeid& e)

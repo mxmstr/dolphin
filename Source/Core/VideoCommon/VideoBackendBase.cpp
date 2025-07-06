@@ -17,6 +17,7 @@
 #include "Common/Logging/Log.h"
 
 #include "Core/Config/MainSettings.h"
+#include "Core/Config/GraphicsSettings.h"
 #include "Core/ConfigManager.h"
 #include "Core/Core.h"
 #include "Core/CoreTiming.h"
@@ -300,10 +301,52 @@ bool VideoBackendBase::InitializeShared(std::unique_ptr<AbstractGfx> gfx,
   g_perf_query = std::move(perf_query);
   g_bounding_box = std::move(bounding_box);
 
-  // Ensure g_freelook_camera is in a known good state after potential VR init side effects
-  // from g_gfx constructor. Re-setting its control type reconstructs the internal controller.
-  if (g_ActiveConfig.bEnableVR) // Only do this if VR is a factor, as it's a workaround for VR init issues
-    g_freelook_camera.SetControlType(FreeLook::ControlType::SixAxis); // Or its current configured type if accessible
+  INFO_LOG_FMT(VR, "VideoBackendBase::InitializeShared: BEFORE SetControlType for VR. &g_freelook_camera: {}, current controller: {}", static_cast<void*>(&g_freelook_camera), static_cast<void*>(g_freelook_camera.GetController()));
+  
+  bool should_really_enable_vr_features = Config::Get(Config::GLOBAL_VR_ENABLE_VR);
+  INFO_LOG_FMT(VR, "VideoBackendBase::InitializeShared: For SetControlType block, Config::Get(Config::GLOBAL_VR_ENABLE_VR) is: {}", should_really_enable_vr_features ? "true" : "false");
+  INFO_LOG_FMT(VR, "VideoBackendBase::InitializeShared: For SetControlType block, g_ActiveConfig.bEnableVR is: {}", g_ActiveConfig.bEnableVR ? "true" : "false");
+
+  // DIAGNOSTIC: Unconditionally re-create controller to see if one created at this stage is valid.
+  INFO_LOG_FMT(VR, "VideoBackendBase::InitializeShared: DIAGNOSTIC - Unconditionally calling SetControlType.");
+  g_freelook_camera.SetControlType(FreeLook::ControlType::SixAxis);
+  INFO_LOG_FMT(VR, "VideoBackendBase::InitializeShared: DIAGNOSTIC - AFTER Unconditional SetControlType. New controller: {}", static_cast<void*>(g_freelook_camera.GetController()));
+
+  // DIAGNOSTIC: Unconditional pre-emptive typeid check on the re-created controller.
+  if (g_freelook_camera.GetController()) {
+    try {
+      CameraController* temp_controller = g_freelook_camera.GetController();
+      INFO_LOG_FMT(VR, "VideoBackendBase::InitializeShared: DIAGNOSTIC - PRE-EMPTIVE typeid check on unconditionally re-created controller {}: {}", static_cast<void*>(temp_controller), typeid(*temp_controller).name());
+    } catch (const std::exception& e) {
+      ERROR_LOG_FMT(VR, "VideoBackendBase::InitializeShared: DIAGNOSTIC - PRE-EMPTIVE typeid FAILED: {}", e.what());
+    } catch (...) {
+      ERROR_LOG_FMT(VR, "VideoBackendBase::InitializeShared: DIAGNOSTIC - PRE-EMPTIVE typeid FAILED with unknown exception.");
+    }
+  } else {
+    ERROR_LOG_FMT(VR, "VideoBackendBase::InitializeShared: DIAGNOSTIC - Controller is NULL after unconditional SetControlType.");
+  }
+
+  // Original conditional logic (commented out for this diagnostic step)
+  // if (should_really_enable_vr_features) 
+  // {
+  //   // Ensure g_freelook_camera is in a known good state after potential VR init side effects
+  //   // from g_gfx constructor. Re-setting its control type reconstructs the internal controller.
+  //   g_freelook_camera.SetControlType(FreeLook::ControlType::SixAxis); // Or its current configured type if accessible
+  //   INFO_LOG_FMT(VR, "VideoBackendBase::InitializeShared: AFTER SetControlType for VR (VR enabled path). &g_freelook_camera: {}, new controller: {}", static_cast<void*>(&g_freelook_camera), static_cast<void*>(g_freelook_camera.GetController()));
+  //   // Pre-emptive typeid check
+  //   if (g_freelook_camera.GetController()) { // Check if controller is valid after SetControlType
+  //     try {
+  //       CameraController* temp_controller = g_freelook_camera.GetController();
+  //       INFO_LOG_FMT(VR, "VideoBackendBase::InitializeShared: PRE-EMPTIVE typeid check on new controller {}: {}", static_cast<void*>(temp_controller), typeid(*temp_controller).name());
+  //     } catch (const std::exception& e) {
+  //       ERROR_LOG_FMT(VR_INIT, "VideoBackendBase::InitializeShared: PRE-EMPTIVE typeid FAILED: {}", e.what());
+  //     } catch (...) {
+  //       ERROR_LOG_FMT(VR_INIT, "VideoBackendBase::InitializeShared: PRE-EMPTIVE typeid FAILED with unknown exception.");
+  //     }
+  //   }
+  // } else {
+  //    INFO_LOG_FMT(VR, "VideoBackendBase::InitializeShared: SKIPPING SetControlType for VR and pre-emptive check (VR disabled path). Current controller: {}", static_cast<void*>(g_freelook_camera.GetController()));
+  // }
 
   // Null and Software Backends supply their own derived EFBInterface and TextureCache
   g_texture_cache = std::move(texture_cache);

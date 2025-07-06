@@ -265,10 +265,12 @@ FreeLookCamera::FreeLookCamera()
 
 void FreeLookCamera::SetControlType(FreeLook::ControlType type)
 {
-  if (m_current_type && *m_current_type == type)
-  {
-    return;
-  }
+  // Always recreate the controller to ensure a fresh instance,
+  // especially after potential VR SDK initialization side effects.
+  // if (m_current_type && *m_current_type == type)
+  // {
+  //   return;
+  // }
 
   if (type == FreeLook::ControlType::SixAxis)
   {
