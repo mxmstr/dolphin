@@ -1438,7 +1438,7 @@ void VR_D3D_SubmitFrames()
   vr::EVRCompositorError error = vr::VRCompositor()->Submit(vr::Eye_Left, &leftEyeTexture);
   if (error != vr::VRCompositorError_None)
   {
-    WARN_LOG_FMT(VR, "OpenVR Compositor Submit (Left Eye) failed: {}", error);
+    WARN_LOG_FMT(VR, "OpenVR Compositor Submit (Left Eye) failed: {}", static_cast<int>(error));
   }
 
   vr::Texture_t rightEyeTexture = {g_right_eye_texture_d3d_for_submit, vr::TextureType_DirectX,
@@ -1446,7 +1446,7 @@ void VR_D3D_SubmitFrames()
   error = vr::VRCompositor()->Submit(vr::Eye_Right, &rightEyeTexture);
   if (error != vr::VRCompositorError_None)
   {
-    WARN_LOG_FMT(VR, "OpenVR Compositor Submit (Right Eye) failed: {}", error);
+    WARN_LOG_FMT(VR, "OpenVR Compositor Submit (Right Eye) failed: {}", static_cast<int>(error));
   }
 
   // WaitGetPoses is usually called after submit to get poses for the next frame.

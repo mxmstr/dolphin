@@ -93,7 +93,8 @@ bool SwapChain::CreateSwapChainBuffers()
         SAFE_RELEASE(g_left_eye_texture_d3d_for_submit);
         return false;
     }
-    D3DCommon::SetDebugObjectName(g_left_eye_dxtexture->GetD3DRTV(), "Left Eye VR RTV (via DXFramebuffer)");
+    // The RTV is part of the DXFramebuffer.
+    D3DCommon::SetDebugObjectName((IUnknown*)g_left_eye_dxframebuffer->GetRTVArray(), "Left Eye VR RTV");
 
 
     ComPtr<ID3D11Texture2D> right_eye_d3d_tex;
@@ -126,9 +127,10 @@ bool SwapChain::CreateSwapChainBuffers()
       SAFE_RELEASE(g_right_eye_texture_d3d_for_submit);
       return false;
     }
-    D3DCommon::SetDebugObjectName(g_right_eye_dxtexture->GetD3DRTV(), "Right Eye VR RTV (via DXFramebuffer)");
+    // The RTV is part of the DXFramebuffer.
+    D3DCommon::SetDebugObjectName((IUnknown*)g_right_eye_dxframebuffer->GetRTVArray(), "Right Eye VR RTV");
 
-    INFO_LOG_FMT(VIDEO, "Successfully created VR eye DXTextures and DXFramebuffers (%dx%d).", g_hmd_window_width, g_hmd_window_height);
+    INFO_LOG_FMT(VIDEO, "Successfully created VR eye DXTextures and DXFramebuffers ({}x{}).", g_hmd_window_width, g_hmd_window_height);
   }
 
   return true;

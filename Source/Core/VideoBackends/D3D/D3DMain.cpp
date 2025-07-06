@@ -25,6 +25,9 @@
 #include "VideoCommon/TextureCacheBase.h"
 #include "VideoCommon/VideoCommon.h"
 #include "VideoCommon/VideoConfig.h"
+#include "VideoCommon/VR.h"
+
+#include "Core/Config/GraphicsSettings.h"
 
 namespace DX11
 {
@@ -146,6 +149,7 @@ bool VideoBackend::Initialize(const WindowSystemInfo& wsi)
 
   FillBackendInfo();
   UpdateActiveConfig();
+  VR_Init(); // From VR.cpp - initializes SDKs
 
   std::unique_ptr<SwapChain> swap_chain;
   if (wsi.render_surface && !(swap_chain = SwapChain::Create(wsi)))
