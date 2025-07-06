@@ -80,7 +80,7 @@ bool SwapChain::CreateSwapChainBuffers()
     hr = D3D::device->CreateTexture2D(&tex_desc, nullptr, &left_eye_d3d_tex);
     ASSERT_MSG(VIDEO, SUCCEEDED(hr), "Failed to create left eye VR texture: {}", DX11HRWrap(hr));
     if (FAILED(hr)) return false;
-    D3D::SetDebugObjectName(left_eye_d3d_tex.Get(), "Left Eye VR Texture");
+    D3DCommon::SetDebugObjectName(left_eye_d3d_tex.Get(), "Left Eye VR Texture");
     g_left_eye_texture_d3d_for_submit = left_eye_d3d_tex.Get();
     g_left_eye_texture_d3d_for_submit->AddRef(); // DXTexture::CreateAdopted will take ownership, but we need a ref for submit
 
@@ -93,7 +93,7 @@ bool SwapChain::CreateSwapChainBuffers()
         SAFE_RELEASE(g_left_eye_texture_d3d_for_submit);
         return false;
     }
-    D3D::SetDebugObjectName(g_left_eye_dxtexture->GetD3DRTV(), "Left Eye VR RTV (via DXFramebuffer)");
+    D3DCommon::SetDebugObjectName(g_left_eye_dxtexture->GetD3DRTV(), "Left Eye VR RTV (via DXFramebuffer)");
 
 
     ComPtr<ID3D11Texture2D> right_eye_d3d_tex;
@@ -105,7 +105,7 @@ bool SwapChain::CreateSwapChainBuffers()
       SAFE_RELEASE(g_left_eye_texture_d3d_for_submit);
       return false;
     }
-    D3D::SetDebugObjectName(right_eye_d3d_tex.Get(), "Right Eye VR Texture");
+    D3DCommon::SetDebugObjectName(right_eye_d3d_tex.Get(), "Right Eye VR Texture");
     g_right_eye_texture_d3d_for_submit = right_eye_d3d_tex.Get();
     g_right_eye_texture_d3d_for_submit->AddRef(); // DXTexture::CreateAdopted will take ownership
 
@@ -126,9 +126,9 @@ bool SwapChain::CreateSwapChainBuffers()
       SAFE_RELEASE(g_right_eye_texture_d3d_for_submit);
       return false;
     }
-    D3D::SetDebugObjectName(g_right_eye_dxtexture->GetD3DRTV(), "Right Eye VR RTV (via DXFramebuffer)");
+    D3DCommon::SetDebugObjectName(g_right_eye_dxtexture->GetD3DRTV(), "Right Eye VR RTV (via DXFramebuffer)");
 
-    INFO_LOG(VIDEO, "Successfully created VR eye DXTextures and DXFramebuffers (%dx%d).", g_hmd_window_width, g_hmd_window_height);
+    INFO_LOG_FMT(VIDEO, "Successfully created VR eye DXTextures and DXFramebuffers (%dx%d).", g_hmd_window_width, g_hmd_window_height);
   }
 
   return true;

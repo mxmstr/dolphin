@@ -24,6 +24,8 @@
 #include "VideoCommon/VR.h" // For VR_D3D_SubmitFrames and VR state
 #include "VideoCommon/Widescreen.h"
 
+#include "VideoBackends/D3D/DXTexture.h"
+
 std::unique_ptr<VideoCommon::Presenter> g_presenter;
 
 namespace VideoCommon
@@ -853,7 +855,7 @@ void Presenter::Present(std::optional<TimePoint> presentation_time)
       // For now, RenderXFBToScreen will act like a blit.
 
       // Render Left Eye
-      g_gfx->SetAndClearFramebuffer(g_left_eye_dxframebuffer, vr_clear_color);
+      g_gfx->SetAndClearFramebuffer((AbstractFramebuffer*)g_left_eye_dxframebuffer, vr_clear_color);
       g_gfx->SetViewport(0, 0, static_cast<float>(g_hmd_window_width), static_cast<float>(g_hmd_window_height), 0.f, 1.f);
       // RenderXFBToScreen expects target_rc in screen coordinates, source_rc in texture coordinates.
       // For VR, target_rc is the full eye texture.
@@ -861,7 +863,7 @@ void Presenter::Present(std::optional<TimePoint> presentation_time)
       RenderXFBToScreen(eye_target_rc, m_xfb_entry->texture.get(), m_xfb_rect);
 
       // Render Right Eye
-      g_gfx->SetAndClearFramebuffer(g_right_eye_dxframebuffer, vr_clear_color);
+      g_gfx->SetAndClearFramebuffer((AbstractFramebuffer*)g_right_eye_dxframebuffer, vr_clear_color);
       g_gfx->SetViewport(0, 0, static_cast<float>(g_hmd_window_width), static_cast<float>(g_hmd_window_height), 0.f, 1.f);
       RenderXFBToScreen(eye_target_rc, m_xfb_entry->texture.get(), m_xfb_rect);
 
