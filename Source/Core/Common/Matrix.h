@@ -390,7 +390,8 @@ public:
   // set result = a x b
   static void Multiply(const Matrix33& a, const Matrix33& b, Matrix33* result);
   static void Multiply(const Matrix33& a, const Vec3& vec, Vec3* result);
-
+  
+  Matrix33 Transposed() const;
   Matrix33 Inverted() const;
   float Determinant() const;
 
@@ -419,20 +420,34 @@ class Matrix44
 {
 public:
   static Matrix44 Identity();
+  static Matrix44 Zero();
   static Matrix44 FromMatrix33(const Matrix33& m33);
   static Matrix44 FromQuaternion(const Quaternion& q);
   static Matrix44 FromArray(const std::array<float, 16>& arr);
 
+  static Quaternion ToQuaternion(const Matrix44& m44);
+
+  static Matrix44 RotateX(float rad);
+  static Matrix44 RotateY(float rad);
+  static Matrix44 RotateZ(float rad);
+
   static Matrix44 Translate(const Vec3& vec);
   static Matrix44 Shear(const float a, const float b = 0);
+  static Matrix44 Scale(const Vec3& vec);
   static Matrix44 Perspective(float fov_y, float aspect_ratio, float z_near, float z_far);
+
+  static void InvertTranslation(Matrix44& mtx);
+  static void InvertScale(Matrix44& mtx);
+  static void InvertRotation(Matrix44& mtx);
 
   static void Multiply(const Matrix44& a, const Matrix44& b, Matrix44* result);
   static void Multiply(const Matrix44& a, const Vec4& vec, Vec4* result);
+  static void Multiply(const Matrix44& a, const Vec3& vec, Vec3* result);
 
   // For when a vec4 isn't needed a multiplication function that takes a Vec3 and w:
   Vec3 Transform(const Vec3& point, float w) const;
 
+  Matrix44 Inverted() const;
   float Determinant() const;
 
   Matrix44& operator*=(const Matrix44& rhs)

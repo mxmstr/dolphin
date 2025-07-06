@@ -1,0 +1,12 @@
+// Copyright 2016 Dolphin VR Emulator Project
+// Licensed under GPLv2+
+// Refer to the license.txt file included.
+
+#pragma once
+
+#include "Common/MathUtil.h"
+#include "Common/Matrix.h"
+
+bool CalculateTrackingSpaceToViewSpaceMatrix(int kind, Common::Matrix44& look_matrix);
+bool CalculateViewMatrix(int kind, Common::Matrix44& look_matrix);
+void VRCalculateIRPointer();
