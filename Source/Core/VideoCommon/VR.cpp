@@ -22,6 +22,10 @@
 #include "VideoCommon/VideoConfig.h"
 #include "VideoCommon/VR.h"
 
+#ifdef _WIN32
+#include <d3d11.h> // For ID3D11Texture2D
+#endif
+
 #ifdef HAVE_OPENVR
 #include "VideoCommon/VROpenVR.h" // Included for OpenVR specifics
 #endif
@@ -104,6 +108,17 @@ bool g_vr_has_ir = false;
 float g_vr_ir_x = 0, g_vr_ir_y = 0, g_vr_ir_z = 0;
 
 ControllerStyle vr_left_controller = CS_HYDRA_LEFT, vr_right_controller = CS_HYDRA_RIGHT;
+
+// VR D3D resources (DX11 specific)
+// Needs to include actual class definitions if used beyond forward declaration storage.
+// For now, VR.cpp just declares them as extern.
+DX11::DXTexture* g_left_eye_dxtexture = nullptr;
+DX11::DXFramebuffer* g_left_eye_dxframebuffer = nullptr;
+DX11::DXTexture* g_right_eye_dxtexture = nullptr;
+DX11::DXFramebuffer* g_right_eye_dxframebuffer = nullptr;
+ID3D11Texture2D* g_left_eye_texture_d3d_for_submit = nullptr;
+ID3D11Texture2D* g_right_eye_texture_d3d_for_submit = nullptr;
+
 
 std::vector<TimewarpLogEntry> timewarp_logentries;
 
@@ -1404,3 +1419,48 @@ void OpcodeReplayBufferInline()
                                         // If this needs to be set, it should be via g_ActiveConfig or similar.
                                         // For now, removing this line as the feature is disabled.
 }
+
+#ifdef HAVE_OPENVR
+void VR_D3D_SubmitFrames()
+{
+  if (!g_has_openvr || !m_pCompositor || !g_left_eye_texture_d3d_for_submit ||
+      !g_right_eye_texture_d3d_for_submit)
+  {
+    // WARN_LOG_FMT(VR, "VR_D3D_SubmitFrames called but VR not ready or textures missing.");
+    return;
+  }
+
+  // Ensure using D3D11 for OpenVR
+  // The original VRD3D.cpp used vr::API_DirectX. The modern equivalent is TextureType_DirectX.
+  // ColorSpace_Gamma is typical for SDR content.
+  vr::Texture_t leftEyeTexture = {g_left_eye_texture_d3d_for_submit, vr::TextureType_DirectX,
+                                  vr::ColorSpace_Gamma};
+  vr::EVRCompositorError error = vr::VRCompositor()->Submit(vr::Eye_Left, &leftEyeTexture);
+  if (error != vr::VRCompositorError_None)
+  {
+    WARN_LOG_FMT(VR, "OpenVR Compositor Submit (Left Eye) failed: {}", error);
+  }
+
+  vr::Texture_t rightEyeTexture = {g_right_eye_texture_d3d_for_submit, vr::TextureType_DirectX,
+                                   vr::ColorSpace_Gamma};
+  error = vr::VRCompositor()->Submit(vr::Eye_Right, &rightEyeTexture);
+  if (error != vr::VRCompositorError_None)
+  {
+    WARN_LOG_FMT(VR, "OpenVR Compositor Submit (Right Eye) failed: {}", error);
+  }
+
+  // WaitGetPoses is usually called after submit to get poses for the next frame.
+  // It's already called in UpdateOpenVRHeadTracking.
+  // If rendering is very decoupled, it might be needed here too, but let's assume
+  // UpdateOpenVRHeadTracking handles the primary pose update.
+  // vr::VRCompositor()->WaitGetPoses(m_rTrackedDevicePose, vr::k_unMaxTrackedDeviceCount, nullptr, 0);
+
+  // Mirroring to main window (optional, simplified example: copy left eye to backbuffer)
+  // This part is complex and depends on how the main window's backbuffer is managed by D3DGfx.
+  // For now, this function will only handle submission to HMD. Mirroring can be a separate step.
+  // The old code in VRD3D.cpp for mirroring was quite involved.
+}
+#else
+// Stub if OpenVR is not compiled in
+void VR_D3D_SubmitFrames() {}
+#endif
