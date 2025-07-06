@@ -25,6 +25,7 @@
 #ifdef HAVE_OPENVR
 #include "VideoCommon/VROpenVR.h" // Included for OpenVR specifics
 #endif
+#include <Core/Config/GraphicsSettings.h>
 
 const char* scm_vr_sdk_str = "OpenVR";
 
@@ -293,8 +294,14 @@ bool InitOpenVR()
 
 void VR_Init()
 {
-  g_has_hmd = false;
-  g_hmd_device_name = nullptr;
+    g_has_hmd = false;
+    g_has_openvr = false;
+
+  if (!Config::Get(Config::GLOBAL_VR_ENABLE_VR))
+  {
+    return;
+  }
+
   g_has_openvr = false;
 #ifdef _WIN32
   g_hmd_luid = nullptr;
