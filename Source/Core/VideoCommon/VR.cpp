@@ -547,32 +547,71 @@ void VR_GetProjectionHalfTan(float& hmd_halftan)
   hmd_halftan = tan(DEGREES_TO_RADIANS(g_ActiveConfig.fMotionSicknessFOV > 0.f ? g_ActiveConfig.fMotionSicknessFOV / 2.0f : 45.0f));
 }
 
+// Helper to construct a projection matrix from raw tangents.
+// Matches typical D3D left-handed convention if Z goes into screen.
+// (OpenVR GetProjectionMatrix for D3D provides LH matrix)
+// l, r, b, t are tan(angle)
+static Common::Matrix44 PerspectiveOffCenterLH(float l, float r, float b, float t, float n, float f)
+{
+  Common::Matrix44 mat = Common::Matrix44::Identity();
+  mat.data[0] = 2 * n / (r - l);
+  mat.data[5] = 2 * n / (t - b);
+  mat.data[8] = (l + r) / (r - l); // D3D version uses (l+r)/(r-l) not (r+l)/(r-l) like OpenGL
+  mat.data[9] = (t + b) / (t - b); // D3D version uses (t+b)/(t-b) not (b+t)/(t-b) like OpenGL
+  mat.data[10] = f / (f - n);      // D3D version uses f/(f-n)
+  mat.data[11] = -n * f / (f - n); // D3D version uses -n*f/(f-n)
+  mat.data[14] = 1.0f;
+  mat.data[15] = 0.0f;
+  return mat;
+}
+
+
 void VR_GetProjectionMatrices(Common::Matrix44& left_eye, Common::Matrix44& right_eye, float znear, float zfar)
 {
 #ifdef HAVE_OPENVR
   if (g_has_openvr && m_pHMD)
   {
-    vr::HmdMatrix44_t mat_left = m_pHMD->GetProjectionMatrix(vr::Eye_Left, znear, zfar);
-    vr::HmdMatrix44_t mat_right = m_pHMD->GetProjectionMatrix(vr::Eye_Right, znear, zfar);
+    if (g_reduce_fov_for_motion_sickness)
+    {
+      float l, r, b, t;
+      m_pHMD->GetProjectionRaw(vr::Eye_Left, &l, &r, &t, &b); // Note OpenVR: Top, Bottom
+      // Ensure correct clamping for tangents (abs values are reduced)
+      // Left is negative, Right is positive. Bottom is negative, Top is positive.
+      l = -std::min(std::abs(l), g_reduced_fov_tan_limit);
+      r =  std::min(std::abs(r), g_reduced_fov_tan_limit);
+      b = -std::min(std::abs(b), g_reduced_fov_tan_limit); // OpenVR's GetProjectionRaw: bottom is positive, top is negative.
+      t =  std::min(std::abs(t), g_reduced_fov_tan_limit); // So b should be positive, t negative. Let's use abs to be sure.
+                                                          // Correcting based on typical frustum: left < right, bottom < top
+                                                          // OpenVR: left (-), right (+), bottom (+), top (-)
+                                                          // For PerspectiveOffCenterLH expecting: left, right, bottom, top
+      float left_tan = -std::min(std::abs(l), g_reduced_fov_tan_limit);
+      float right_tan = std::min(std::abs(r), g_reduced_fov_tan_limit);
+      float bottom_tan = -std::min(std::abs(b), g_reduced_fov_tan_limit); // Convert OpenVR's +Y down for bottom to typical -Y down
+      float top_tan = std::min(std::abs(t), g_reduced_fov_tan_limit);   // Convert OpenVR's -Y up for top to typical +Y up
 
-    // Convert OpenVR's HmdMatrix44_t to Common::Matrix44
-    // OpenVR matrices are column-major, Common::Matrix44 is row-major.
-    for (int r = 0; r < 4; ++r) {
-      for (int c = 0; c < 4; ++c) {
-        left_eye.data[r * 4 + c] = mat_left.m[r][c]; // This assumes HmdMatrix44_t is row-major or direct copy is fine. Check OpenVR docs.
-        right_eye.data[r * 4 + c] = mat_right.m[r][c]; // If column-major, needs transpose: left_eye.data[c * 4 + r] = mat_left.m[r][c];
-      }
+      left_eye = PerspectiveOffCenterLH(left_tan, right_tan, bottom_tan, top_tan, znear, zfar);
+
+      m_pHMD->GetProjectionRaw(vr::Eye_Right, &l, &r, &t, &b);
+      left_tan = -std::min(std::abs(l), g_reduced_fov_tan_limit);
+      right_tan = std::min(std::abs(r), g_reduced_fov_tan_limit);
+      bottom_tan = -std::min(std::abs(b), g_reduced_fov_tan_limit);
+      top_tan = std::min(std::abs(t), g_reduced_fov_tan_limit);
+      right_eye = PerspectiveOffCenterLH(left_tan, right_tan, bottom_tan, top_tan, znear, zfar);
+
+      g_fov_changed = true; // Indicate that FOV was actively modified.
     }
-    // If GetProjectionMatrix returns a matrix that needs to be adjusted for FOV reduction:
-    if (g_reduce_fov_for_motion_sickness) {
-        // This is a simplified symmetric FOV reduction.
-        // A more accurate method would involve GetProjectionRaw, modifying tangents, then rebuilding the matrix.
-        float scale = tan(atan(1.0f / left_eye.data[0]) * 2.0f * 0.5f) / g_reduced_fov_tan_limit; // Approximation
-        if (scale > 1.0f) { // only narrow, don't widen
-            left_eye.data[0] *= scale;  left_eye.data[5] *= scale; // Scale P[0][0] and P[1][1]
-            right_eye.data[0] *= scale; right_eye.data[5] *= scale;
-            g_fov_changed = true;
+    else
+    {
+      vr::HmdMatrix44_t mat_left = m_pHMD->GetProjectionMatrix(vr::Eye_Left, znear, zfar);
+      vr::HmdMatrix44_t mat_right = m_pHMD->GetProjectionMatrix(vr::Eye_Right, znear, zfar);
+
+      // Transpose from OpenVR's column-major to Common::Matrix44's row-major.
+      for (int r_idx = 0; r_idx < 4; ++r_idx) {
+        for (int c_idx = 0; c_idx < 4; ++c_idx) {
+          left_eye.data[r_idx * 4 + c_idx] = mat_left.m[c_idx][r_idx];
+          right_eye.data[r_idx * 4 + c_idx] = mat_right.m[c_idx][r_idx];
         }
+      }
     }
     return;
   }
@@ -585,14 +624,10 @@ void VR_GetProjectionMatrices(Common::Matrix44& left_eye, Common::Matrix44& righ
 void VR_GetEyePos(float* posLeft, float* posRight)
 {
 #ifdef HAVE_OPENVR
-  if (g_has_openvr && m_pHMD)
+  if (g_has_openvr) // m_pHMD check not strictly needed if g_openvr_ipd is reliably updated by events
   {
-    vr::TrackedPropertyError error;
-    g_openvr_ipd = m_pHMD->GetFloatTrackedDeviceProperty(vr::k_unTrackedDeviceIndex_Hmd, vr::Prop_UserIpdMeters_Float, &error);
-    if (error != vr::TrackedProp_Success) {
-        g_openvr_ipd = 0.064f; // Default if fetch fails
-        WARN_LOG_FMT(VR, "Failed to get IPD from OpenVR: {}. Using default: {}", vr::VRSystem()->GetPropErrorNameFromEnum(error), g_openvr_ipd);
-    }
+    // g_openvr_ipd is initialized in InitOpenVR and updated by VREvent_IpdChanged in ProcessVREvent.
+    // No need to query it here again.
     posLeft[0] = -g_openvr_ipd / 2.0f;
     posRight[0] = g_openvr_ipd / 2.0f;
     posLeft[1] = posRight[1] = 0;
