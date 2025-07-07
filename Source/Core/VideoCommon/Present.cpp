@@ -820,6 +820,15 @@ void Presenter::RenderXFBToScreen(const MathUtil::Rectangle<int>& target_rc,
 
 void Presenter::Present(std::optional<TimePoint> presentation_time)
 {
+  // Update VR head tracking and events first if VR is active.
+  // This ensures the latest pose data is available for the current frame.
+#if defined(HAVE_OPENVR)
+  if (g_ActiveConfig.bEnableVR && g_has_openvr)
+  {
+    VR_UpdateHeadTrackingIfNeeded();
+  }
+#endif
+
   m_present_count++;
 
   // VR Frame Submission Point
