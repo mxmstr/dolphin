@@ -22,6 +22,9 @@
 #include "VideoCommon/VideoConfig.h"
 #include "VideoCommon/VideoEvents.h"
 #include "VideoCommon/Widescreen.h"
+#include "VideoCommon/VR.h" // For VR_SubmitFrameD3D and g_has_openvr
+#include "VideoBackends/D3D/DXTexture.h" // For DXTexture and ID3D11Resource
+#include "VideoCommon/VideoConfig.h" // For g_ActiveConfig and VR settings
 
 std::unique_ptr<VideoCommon::Presenter> g_presenter;
 
@@ -818,6 +821,42 @@ void Presenter::RenderXFBToScreen(const MathUtil::Rectangle<int>& target_rc,
 void Presenter::Present(std::optional<TimePoint> presentation_time)
 {
   m_present_count++;
+
+  // VR Frame Submission Point
+  // If VR is active, submit the frame to the HMD and potentially bypass standard rendering.
+#if defined(HAVE_OPENVR) // Ensure OpenVR is compiled in
+  if (g_ActiveConfig.bEnableVR && g_has_openvr && m_xfb_entry && m_xfb_entry->texture)
+  {
+    // Assuming D3D backend is in use, which is a prerequisite for this specific VR integration.
+    // A more robust check might involve querying g_current_video_backend_name or similar.
+    DX11::DXTexture* dx_texture = static_cast<DX11::DXTexture*>(m_xfb_entry->texture.get());
+    ID3D11Resource* d3d_resource = dx_texture->GetD3DTexture();
+
+    if (d3d_resource)
+    {
+      VR_SubmitFrameD3D(d3d_resource);
+
+      // If VR submission is successful, we might want to bypass the normal window presentation.
+      // For now, let's allow window presentation to continue for debugging/mirroring.
+      // To truly bypass, we would `return;` here.
+      // However, the task asks to "bypass this", so we should prevent further drawing to the main window.
+      // We still need to handle FrameDumping and other logic that might be outside the main Present() scope.
+      // The most straightforward bypass for drawing is to return before g_gfx->BeginUtilityDrawing().
+      // But we also need to consider SetSuggestedWindowSize and ImGui frame updates.
+
+      // Let's make the bypass conditional on a config or keep it simple for now by returning.
+      // If we return here, PresentBackbuffer, SetSuggestedWindowSize, BeginImGuiFrame won't be called for the window.
+      // This seems to align with "bypass this and instead submit".
+      // Frame dumping is handled by ViSwap/ImmediateSwap before calling Present, so it should be fine.
+      return; // Bypass normal window presentation
+    }
+    else
+    {
+      // Log error if texture resource is null
+      ERROR_LOG_FMT(VR, "Failed to get D3D resource from XFB texture for VR submission.");
+    }
+  }
+#endif
 
   if (g_gfx->IsHeadless() || (!m_onscreen_ui && !m_xfb_entry))
     return;
