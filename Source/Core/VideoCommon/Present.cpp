@@ -827,6 +827,8 @@ void Presenter::Present(std::optional<TimePoint> presentation_time)
 #if defined(HAVE_OPENVR) // Ensure OpenVR is compiled in
   if (g_ActiveConfig.bEnableVR && g_has_openvr && m_xfb_entry && m_xfb_entry->texture)
   {
+    VR_UpdateHeadTrackingIfNeeded();
+
     // Assuming D3D backend is in use, which is a prerequisite for this specific VR integration.
     // A more robust check might involve querying g_current_video_backend_name or similar.
     DX11::DXTexture* dx_texture = static_cast<DX11::DXTexture*>(m_xfb_entry->texture.get());

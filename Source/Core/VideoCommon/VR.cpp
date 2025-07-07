@@ -1448,14 +1448,14 @@ void VR_SubmitFrameD3D(ID3D11Resource* pD3DTexture)
   vr::EVRCompositorError CErrorLeft = vr::VRCompositor()->Submit(vr::Eye_Left, &eyeTexture);
   if (CErrorLeft != vr::VRCompositorError_None)
   {
-    ERROR_LOG_FMT(VR, "OpenVR: Failed to submit left eye texture. Error: {}", vr::VRCompositor()->GetCompositorErrorNameFromEnum(CErrorLeft));
+    ERROR_LOG_FMT(VR, "OpenVR: Failed to submit left eye texture. Error: {}", static_cast<int>(CErrorLeft));
   }
 
   // Submit for Right Eye (implicitly slice 1 of the texture array)
   vr::EVRCompositorError CErrorRight = vr::VRCompositor()->Submit(vr::Eye_Right, &eyeTexture);
   if (CErrorRight != vr::VRCompositorError_None)
   {
-    ERROR_LOG_FMT(VR, "OpenVR: Failed to submit right eye texture. Error: {}", vr::VRCompositor()->GetCompositorErrorNameFromEnum(CErrorRight));
+    ERROR_LOG_FMT(VR, "OpenVR: Failed to submit right eye texture. Error: {}", static_cast<int>(CErrorRight));
   }
 
   // IMPORTANT: After submitting, OpenVR needs to know the application is done with its frame.

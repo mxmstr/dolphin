@@ -17,6 +17,7 @@
 #include "Common/Logging/Log.h"
 
 #include "Core/Config/MainSettings.h"
+#include "Core/Config/GraphicsSettings.h"
 #include "Core/ConfigManager.h"
 #include "Core/Core.h"
 #include "Core/CoreTiming.h"
@@ -337,7 +338,7 @@ bool VideoBackendBase::InitializeShared(std::unique_ptr<AbstractGfx> gfx,
 
   // Initialize VR System
   // This should be called after main video components are ready and config is initially processed.
-  if (Config::Get(Config::MAIN_VR_ENABLE_VR)) // Check if VR is enabled in config before initializing
+  if (Config::Get(Config::GLOBAL_VR_ENABLE_VR)) // Check if VR is enabled in config before initializing
   {
     VR_Init();
   }
