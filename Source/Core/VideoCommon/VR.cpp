@@ -501,7 +501,7 @@ void UpdateOpenVRHeadTracking()
 
 void VR_UpdateHeadTrackingIfNeeded()
 {
-  if (g_new_tracking_frame)
+  if (true)//g_new_tracking_frame)
   {
     g_new_tracking_frame = false;
 #ifdef HAVE_OPENVR
