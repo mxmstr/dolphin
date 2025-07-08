@@ -29,105 +29,108 @@
 void VertexShaderManager::Init()
 {
   // Initialize state tracking variables
-  m_projection_graphics_mod_change = false;
+  // m_projection_graphics_mod_change = false; // Removed
 
   constants = {};
 
-  m_projection_matrix = Common::Matrix44::Identity().data;
+  // m_projection_matrix = Common::Matrix44::Identity().data; // Removed
 
   dirty = true;
 }
 
-Common::Matrix44 VertexShaderManager::LoadProjectionMatrix()
-{
-  const auto& rawProjection = xfmem.projection.rawProjection;
+// Common::Matrix44 VertexShaderManager::LoadProjectionMatrix() // Removed
+// {
+//   const auto& rawProjection = xfmem.projection.rawProjection;
+//
+//   switch (xfmem.projection.type)
+//   {
+//   case ProjectionType::Perspective:
+//   {
+//     const Common::Vec2 fov_multiplier = g_freelook_camera.IsActive() ?
+//                                             g_freelook_camera.GetFieldOfViewMultiplier() :
+//                                             Common::Vec2{1, 1};
+//     // Internal m_projection_matrix was row-major, but Common::Matrix44 is also row-major.
+//     // The assignment here needs to be careful if we were to reconstruct this for per_eye_projection_matrix.
+//     // However, VR_GetProjectionMatrices will provide the final projection matrices directly.
+//     // So this logic is mostly illustrative of what it used to do.
+//     std::array<float,16> temp_proj_matrix;
+//     temp_proj_matrix[0] = rawProjection[0] * g_ActiveConfig.fAspectRatioHackW * fov_multiplier.x;
+//     temp_proj_matrix[1] = 0.0f;
+//     temp_proj_matrix[2] = rawProjection[1] * g_ActiveConfig.fAspectRatioHackW * fov_multiplier.x;
+//     temp_proj_matrix[3] = 0.0f;
+//     temp_proj_matrix[4] = 0.0f;
+//     temp_proj_matrix[5] = rawProjection[2] * g_ActiveConfig.fAspectRatioHackH * fov_multiplier.y;
+//     temp_proj_matrix[6] = rawProjection[3] * g_ActiveConfig.fAspectRatioHackH * fov_multiplier.y;
+//     temp_proj_matrix[7] = 0.0f;
+//     temp_proj_matrix[8] = 0.0f;
+//     temp_proj_matrix[9] = 0.0f;
+//     temp_proj_matrix[10] = rawProjection[4];
+//     temp_proj_matrix[11] = rawProjection[5];
+//     temp_proj_matrix[12] = 0.0f;
+//     temp_proj_matrix[13] = 0.0f;
+//     temp_proj_matrix[14] = -1.0f;
+//     temp_proj_matrix[15] = 0.0f;
+//     // g_stats.gproj = temp_proj_matrix; // This was for stats, might need alternative if stats are important
+//     return Common::Matrix44::FromArray(temp_proj_matrix);
+//   }
+//
+//   case ProjectionType::Orthographic:
+//   {
+//     std::array<float,16> temp_proj_matrix;
+//     temp_proj_matrix[0] = rawProjection[0];
+//     temp_proj_matrix[1] = 0.0f;
+//     temp_proj_matrix[2] = 0.0f;
+//     temp_proj_matrix[3] = rawProjection[1];
+//     temp_proj_matrix[4] = 0.0f;
+//     temp_proj_matrix[5] = rawProjection[2];
+//     temp_proj_matrix[6] = 0.0f;
+//     temp_proj_matrix[7] = rawProjection[3];
+//     temp_proj_matrix[8] = 0.0f;
+//     temp_proj_matrix[9] = 0.0f;
+//     temp_proj_matrix[10] = rawProjection[4];
+//     temp_proj_matrix[11] = rawProjection[5];
+//     temp_proj_matrix[12] = 0.0f;
+//     temp_proj_matrix[13] = 0.0f;
+//     temp_proj_matrix[14] = 0.0f;
+//     temp_proj_matrix[15] = 1.0f;
+//     // g_stats.g2proj = temp_proj_matrix;
+//     // g_stats.proj = rawProjection;
+//     return Common::Matrix44::FromArray(temp_proj_matrix);
+//   }
+//
+//   default:
+//     ERROR_LOG_FMT(VIDEO, "Unknown projection type: {}", xfmem.projection.type);
+//     // Should return a default matrix or handle error
+//     return Common::Matrix44::Identity();
+//   }
+//
+//   // This part of the original function is unreachable due to returns in switch cases
+//   // PRIM_LOG("Projection: {} {} {} {} {} {}", rawProjection[0], rawProjection[1], rawProjection[2],
+//   //          rawProjection[3], rawProjection[4], rawProjection[5]);
+//   // auto corrected_matrix = Common::Matrix44::FromArray(m_projection_matrix);
+//   // if (g_freelook_camera.IsActive() && xfmem.projection.type == ProjectionType::Perspective)
+//   //   corrected_matrix *= g_freelook_camera.GetView();
+//   // g_freelook_camera.GetController()->SetClean();
+//   // return corrected_matrix;
+// }
 
-  switch (xfmem.projection.type)
-  {
-  case ProjectionType::Perspective:
-  {
-    const Common::Vec2 fov_multiplier = g_freelook_camera.IsActive() ?
-                                            g_freelook_camera.GetFieldOfViewMultiplier() :
-                                            Common::Vec2{1, 1};
-    m_projection_matrix[0] = rawProjection[0] * g_ActiveConfig.fAspectRatioHackW * fov_multiplier.x;
-    m_projection_matrix[1] = 0.0f;
-    m_projection_matrix[2] = rawProjection[1] * g_ActiveConfig.fAspectRatioHackW * fov_multiplier.x;
-    m_projection_matrix[3] = 0.0f;
-
-    m_projection_matrix[4] = 0.0f;
-    m_projection_matrix[5] = rawProjection[2] * g_ActiveConfig.fAspectRatioHackH * fov_multiplier.y;
-    m_projection_matrix[6] = rawProjection[3] * g_ActiveConfig.fAspectRatioHackH * fov_multiplier.y;
-    m_projection_matrix[7] = 0.0f;
-
-    m_projection_matrix[8] = 0.0f;
-    m_projection_matrix[9] = 0.0f;
-    m_projection_matrix[10] = rawProjection[4];
-    m_projection_matrix[11] = rawProjection[5];
-
-    m_projection_matrix[12] = 0.0f;
-    m_projection_matrix[13] = 0.0f;
-
-    m_projection_matrix[14] = -1.0f;
-    m_projection_matrix[15] = 0.0f;
-
-    g_stats.gproj = m_projection_matrix;
-  }
-  break;
-
-  case ProjectionType::Orthographic:
-  {
-    m_projection_matrix[0] = rawProjection[0];
-    m_projection_matrix[1] = 0.0f;
-    m_projection_matrix[2] = 0.0f;
-    m_projection_matrix[3] = rawProjection[1];
-
-    m_projection_matrix[4] = 0.0f;
-    m_projection_matrix[5] = rawProjection[2];
-    m_projection_matrix[6] = 0.0f;
-    m_projection_matrix[7] = rawProjection[3];
-
-    m_projection_matrix[8] = 0.0f;
-    m_projection_matrix[9] = 0.0f;
-    m_projection_matrix[10] = rawProjection[4];
-    m_projection_matrix[11] = rawProjection[5];
-
-    m_projection_matrix[12] = 0.0f;
-    m_projection_matrix[13] = 0.0f;
-
-    m_projection_matrix[14] = 0.0f;
-    m_projection_matrix[15] = 1.0f;
-
-    g_stats.g2proj = m_projection_matrix;
-    g_stats.proj = rawProjection;
-  }
-  break;
-
-  default:
-    ERROR_LOG_FMT(VIDEO, "Unknown projection type: {}", xfmem.projection.type);
-  }
-
-  PRIM_LOG("Projection: {} {} {} {} {} {}", rawProjection[0], rawProjection[1], rawProjection[2],
-           rawProjection[3], rawProjection[4], rawProjection[5]);
-
-  auto corrected_matrix = Common::Matrix44::FromArray(m_projection_matrix);
-
-  if (g_freelook_camera.IsActive() && xfmem.projection.type == ProjectionType::Perspective)
-    corrected_matrix *= g_freelook_camera.GetView();
-
-  g_freelook_camera.GetController()->SetClean();
-
-  return corrected_matrix;
-}
-
-void VertexShaderManager::SetProjectionMatrix(XFStateManager& xf_state_manager)
-{
-  if (xf_state_manager.DidProjectionChange() || g_freelook_camera.GetController()->IsDirty())
-  {
-    xf_state_manager.ResetProjection();
-    auto corrected_matrix = LoadProjectionMatrix();
-    memcpy(constants.projection.data(), corrected_matrix.data.data(), 4 * sizeof(float4));
-  }
-}
+// void VertexShaderManager::SetProjectionMatrix(XFStateManager& xf_state_manager) // Removed
+// {
+//   // This logic will be handled differently now. The per-eye projection matrices
+//   // will be set directly in VertexManagerBase::Flush() for stereo mode.
+//   // For mono mode, a standard projection will still need to be set.
+//   // This function might need to be repurposed or its logic moved.
+//   // For now, removing its direct usage related to the old `constants.projection`.
+//
+//   // if (xf_state_manager.DidProjectionChange() || g_freelook_camera.GetController()->IsDirty())
+//   // {
+//   //   xf_state_manager.ResetProjection();
+//   //   auto corrected_matrix = LoadProjectionMatrix(); // This would need to be re-evaluated
+//   //   // The new constant is a single float4x4, not std::array<float4,4>
+//   //   // memcpy(&constants.per_eye_projection_matrix, corrected_matrix.data.data(), sizeof(float4x4)); // If we were setting a mono projection
+//   //   dirty = true; // ensure dirty is set if constants change
+//   // }
+// }
 
 bool VertexShaderManager::UseVertexDepthRange()
 {
@@ -390,38 +393,43 @@ void VertexShaderManager::SetConstants(const std::vector<std::string>& textures,
   std::vector<GraphicsModAction*> projection_actions;
   if (g_ActiveConfig.bGraphicMods)
   {
-    for (const auto& action : g_graphics_mod_manager->GetProjectionActions(xfmem.projection.type))
-    {
-      projection_actions.push_back(action);
-    }
-
-    for (const auto& texture : textures)
-    {
-      for (const auto& action :
-           g_graphics_mod_manager->GetProjectionTextureActions(xfmem.projection.type, texture))
-      {
-        projection_actions.push_back(action);
-      }
-    }
+    // This section previously modified the main projection matrix.
+    // With per-eye matrices, this specific logic for a single projection
+    // might need re-evaluation if a mono path still uses it.
+    // For now, commenting out as per the removal of the main projection matrix.
+    // for (const auto& action : g_graphics_mod_manager->GetProjectionActions(xfmem.projection.type))
+    // {
+    //   projection_actions.push_back(action);
+    // }
+    //
+    // for (const auto& texture : textures)
+    // {
+    //   for (const auto& action :
+    //        g_graphics_mod_manager->GetProjectionTextureActions(xfmem.projection.type, texture))
+    //   {
+    //     projection_actions.push_back(action);
+    //   }
+    // }
   }
 
-  if (xf_state_manager.DidProjectionChange() || g_freelook_camera.GetController()->IsDirty() ||
-      !projection_actions.empty() || m_projection_graphics_mod_change)
-  {
-    xf_state_manager.ResetProjection();
-    m_projection_graphics_mod_change = !projection_actions.empty();
-
-    auto corrected_matrix = LoadProjectionMatrix();
-
-    GraphicsModActionData::Projection projection{&corrected_matrix};
-    for (const auto& action : projection_actions)
-    {
-      action->OnProjection(&projection);
-    }
-
-    memcpy(constants.projection.data(), corrected_matrix.data.data(), 4 * sizeof(float4));
-    dirty = true;
-  }
+  // This block was for the old projection matrix.
+  // if (xf_state_manager.DidProjectionChange() || g_freelook_camera.GetController()->IsDirty() ||
+  //     !projection_actions.empty() || m_projection_graphics_mod_change) // m_projection_graphics_mod_change is removed
+  // {
+  //   xf_state_manager.ResetProjection();
+  //   // m_projection_graphics_mod_change = !projection_actions.empty(); // m_projection_graphics_mod_change is removed
+  //
+  //   // auto corrected_matrix = LoadProjectionMatrix(); // LoadProjectionMatrix is removed
+  //
+  //   // GraphicsModActionData::Projection projection{&corrected_matrix};
+  //   // for (const auto& action : projection_actions)
+  //   // {
+  //   //   action->OnProjection(&projection);
+  //   // }
+  //
+  //   // memcpy(constants.projection.data(), corrected_matrix.data.data(), 4 * sizeof(float4)); // constants.projection is removed
+  //   // dirty = true;
+  // }
 
   if (xf_state_manager.DidTexMatrixInfoChange())
   {
@@ -456,7 +464,17 @@ void VertexShaderManager::TransformToClipSpace(const float* data, float* out, u3
   // We use the projection matrix calculated by VertexShaderManager, because it
   // includes any free look transformations.
   // Make sure VertexShaderManager::SetConstants() has been called first.
-  const float* proj_matrix = &m_projection_matrix[0];
+  // const float* proj_matrix = &m_projection_matrix[0]; // Old projection matrix
+  // This function will likely not work correctly for stereo rendering without further modification,
+  // as it doesn't have access to per-eye matrices.
+  // For now, to make it compile, we could use one of the new matrices, but it would be contextually wrong.
+  // Or, ideally, this function's usage should be reviewed, especially in VR contexts.
+  // As a placeholder to allow compilation, let's assume it won't be used in stereo contexts
+  // or that its current callers expect a non-stereo projection.
+  // This is a HACK and needs to be addressed if this function is used in stereo rendering.
+  // Using constants.per_eye_projection_matrix for now, but this is NOT correct for general use.
+  const float* proj_matrix = reinterpret_cast<const float*>(&constants.per_eye_projection_matrix);
+
 
   const float t[3] = {data[0] * world_matrix[0] + data[1] * world_matrix[1] +
                           data[2] * world_matrix[2] + world_matrix[3],

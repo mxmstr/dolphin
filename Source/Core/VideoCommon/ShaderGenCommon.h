@@ -259,6 +259,8 @@ void WriteSwitch(ShaderCode& out, APIType ApiType, std::string_view variable,
 }
 
 // Constant variable names
+#define I_PER_EYE_VIEW_MATRIX "per_eye_view_matrix"
+#define I_PER_EYE_PROJECTION_MATRIX "per_eye_projection_matrix"
 #define I_COLORS "color"
 #define I_KCOLORS "k"
 #define I_ALPHA "alphaRef"
@@ -297,7 +299,9 @@ static const char s_shader_uniforms[] = "\tuint    components;\n"
                                         "\tuint    missing_color_hex;\n"
                                         "\tfloat4  missing_color_value;\n"
                                         "\tfloat4 " I_POSNORMALMATRIX "[6];\n"
-                                        "\tfloat4 " I_PROJECTION "[4];\n"
+                                        // "\tfloat4 " I_PROJECTION "[4];\n" // Replaced
+                                        "\tmat4 " I_PER_EYE_VIEW_MATRIX ";\n" // Using mat4 for GLSL UBO
+                                        "\tmat4 " I_PER_EYE_PROJECTION_MATRIX ";\n" // Using mat4 for GLSL UBO
                                         "\tint4 " I_MATERIALS "[4];\n"
                                         "\tLight " I_LIGHTS "[8];\n"
                                         "\tfloat4 " I_TEXMATRICES "[24];\n"

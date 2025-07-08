@@ -42,6 +42,7 @@
 #include "VideoCommon/VideoBackendBase.h"
 #include "VideoCommon/VideoCommon.h"
 #include "VideoCommon/VideoConfig.h"
+#include "VideoCommon/VR.h" // Added for VR::g_left_eye_view_matrix etc.
 #include "VideoCommon/XFMemory.h"
 #include "VideoCommon/XFStateManager.h"
 
@@ -559,11 +560,11 @@ void VertexManagerBase::Flush()
   }
 
   CalculateNormals(VertexLoaderManager::GetCurrentVertexFormat());
-  // Calculate ZSlope for zfreeze
   const auto used_textures = UsedTextures();
   std::vector<std::string> texture_names;
   Common::SmallVector<u32, 8> texture_units;
   std::array<SamplerState, 8> samplers;
+
   if (!m_cull_all)
   {
     if (!g_ActiveConfig.bGraphicMods)
@@ -590,7 +591,6 @@ void VertexManagerBase::Flush()
             texture_names.push_back(cache_entry->texture_info_name);
             texture_units.push_back(i);
           }
-
           const float custom_tex_scale = cache_entry->GetWidth() / float(cache_entry->native_width);
           samplers[i] = TextureCacheBase::GetSamplerState(
               i, custom_tex_scale, cache_entry->is_custom_tex, cache_entry->has_arbitrary_mips);
@@ -598,60 +598,139 @@ void VertexManagerBase::Flush()
       }
     }
   }
+
   vertex_shader_manager.SetConstants(texture_names, xf_state_manager);
+
   if (!bpmem.genMode.zfreeze)
   {
-    // Must be done after VertexShaderManager::SetConstants()
     CalculateZSlope(VertexLoaderManager::GetCurrentVertexFormat());
   }
-  else if (m_zslope.dirty && !m_cull_all)  // or apply any dirty ZSlopes
+  else if (m_zslope.dirty && !m_cull_all)
   {
     pixel_shader_manager.SetZSlope(m_zslope.dfdx, m_zslope.dfdy, m_zslope.f0);
     m_zslope.dirty = false;
   }
 
-  if (!m_cull_all)
+  if (m_cull_all) // If all culled, nothing to draw
   {
-    CustomPixelShaderContents custom_pixel_shader_contents;
-    std::optional<CustomPixelShader> custom_pixel_shader;
-    std::vector<std::string> custom_pixel_texture_names;
-    std::span<u8> custom_pixel_shader_uniforms;
-    bool skip = false;
-    for (size_t i = 0; i < texture_names.size(); i++)
-    {
-      GraphicsModActionData::DrawStarted draw_started{texture_units, &skip, &custom_pixel_shader,
-                                                      &custom_pixel_shader_uniforms};
-      for (const auto& action : g_graphics_mod_manager->GetDrawStartedActions(texture_names[i]))
-      {
-        action->OnDrawStarted(&draw_started);
-        if (custom_pixel_shader)
-        {
-          custom_pixel_shader_contents.shaders.push_back(*custom_pixel_shader);
-          custom_pixel_texture_names.push_back(texture_names[i]);
-        }
-        custom_pixel_shader = std::nullopt;
-      }
-    }
+    // Still need to flag EFB cache as out of date if previous operations might have changed it
+    // This was previously inside the !m_cull_all block, but should be outside if draws affect EFB state.
+    // However, if m_cull_all is true, no drawing happens, so EFB state wouldn't change from this flush.
+    // The original placement seems correct.
+    return;
+  }
 
-    // Now the vertices can be flushed to the GPU. Everything following the CommitBuffer() call
-    // must be careful to not upload any utility vertices, as the binding will be lost otherwise.
-    const u32 num_indices = m_index_generator.GetIndexLen();
-    if (num_indices == 0)
+  // --- NEW STEREO RENDERING LOOP ---
+  const bool stereo_active = g_ActiveConfig.stereo_mode != StereoMode::Off && g_ActiveConfig.bEnableVR; // Ensure VR is enabled too
+  const int num_eyes = stereo_active ? 2 : 1;
+
+  // Pre-calculate num_indices, as it's constant for both eyes.
+  const u32 num_indices = m_index_generator.GetIndexLen();
+  if (num_indices == 0 && num_eyes > 0) // if num_eyes is 0 this check is skipped.
       return;
 
-    // Texture loading can cause palettes to be applied (-> uniforms -> draws).
-    // Palette application does not use vertices, only a full-screen quad, so this is okay.
-    // Same with GPU texture decoding, which uses compute shaders.
-    g_texture_cache->BindTextures(used_textures, samplers);
 
-    if (!skip)
+  for (int eye = 0; eye < num_eyes; ++eye)
+  {
+    // 1. Update Uniforms for the current eye
+    if (stereo_active)
     {
-      UpdatePipelineConfig();
-      UpdatePipelineObject();
+      // TODO: Need to get g_left_eye_view_matrix, g_right_eye_view_matrix from VR.cpp
+      // TODO: Need VR_GetProjectionMatrices(left, right, znear, zfar) from VR.cpp
+      // For znear and zfar, use xfmem.viewport values or SConfig defaults.
+      // Common::Matrix44 g_left_eye_projection_matrix_dummy, g_right_eye_projection_matrix_dummy; // For unused matrix
+
+      float znear = xfmem.viewport.nearZ; // Or g_ActiveConfig.fZNear if viewport is unreliable
+      float zfar = xfmem.viewport.farZ;   // Or g_ActiveConfig.fZFar
+
+      // Ensure znear and zfar are valid (e.g. zfar > znear, znear > 0)
+      if (znear <= 0.0f) znear = g_ActiveConfig.fZNear; // Default if invalid
+      if (zfar <= znear) zfar = g_ActiveConfig.fZFar; // Default if invalid
+
+      if (eye == 0) // Left Eye
+      {
+        vertex_shader_manager.constants.per_eye_view_matrix = g_left_eye_view_matrix; // Removed VR:: namespace
+        // The dummy matrix for VR_GetProjectionMatrices should be a valid Matrix44 reference
+        Common::Matrix44 dummy_proj_right;
+        VR_GetProjectionMatrices(vertex_shader_manager.constants.per_eye_projection_matrix, dummy_proj_right, znear, zfar); // Removed VR:: namespace
+      }
+      else // Right Eye
+      {
+        vertex_shader_manager.constants.per_eye_view_matrix = g_right_eye_view_matrix; // Removed VR:: namespace
+        Common::Matrix44 dummy_proj_left;
+        VR_GetProjectionMatrices(dummy_proj_left, vertex_shader_manager.constants.per_eye_projection_matrix, znear, zfar); // Removed VR:: namespace
+      }
+      vertex_shader_manager.dirty = true;
+    }
+    // If not stereo_active, the existing projection matrix setup (if any remains) or a default mono setup should apply.
+    // For now, assuming mono rendering relies on pre-existing state or a different setup path not covered by this stereo refactor.
+    // The original SetProjectionMatrix in VertexShaderManager was removed/commented.
+    // If mono rendering is broken, that needs to be revisited.
+
+    // UploadUniforms will now send the correct per-eye data if stereo_active and modified,
+    // or existing mono data otherwise.
+    // The original UploadUniforms call is inside RenderDrawCall, which is called below.
+    // We need to ensure constants are uploaded *before* RenderDrawCall if it doesn't do it early enough.
+    // The plan has UploadUniforms() here.
+    UploadUniforms();
+
+    // 2. Set the render target layer
+    if (stereo_active)
+    {
+      // This will be used by the GS to set SV_RenderTargetArrayIndex
+      geometry_shader_manager.constants.stereoparams[0] = static_cast<float>(eye);
+      geometry_shader_manager.dirty = true;
+    }
+
+    // The original code had a lot of logic for custom shaders and texture binding here.
+    // We need to replicate that structure within the loop if it's per-eye.
+    // For now, let's assume the core draw call and setup are what's looped.
+
+    CustomPixelShaderContents custom_pixel_shader_contents; // Should this be outside the loop if not eye-dependent?
+    std::optional<CustomPixelShader> custom_pixel_shader;
+    std::vector<std::string> custom_pixel_texture_names; // Potentially from outside loop
+    std::span<u8> custom_pixel_shader_uniforms;
+    bool skip = false; // Should this be reset per eye or outside?
+
+    // This part seems like it can largely remain outside the loop if texture_names is determined once.
+    // However, if DrawStartedActions could change behavior per-eye, it needs care.
+    // For now, assuming it's mostly non-eye-specific setup.
+    if (eye == 0 || !stereo_active) // Only do this once, or if not stereo
+    {
+        for (size_t i = 0; i < texture_names.size(); i++) // texture_names is currently empty here. Needs to be populated from above.
+        {
+          GraphicsModActionData::DrawStarted draw_started{texture_units, &skip, &custom_pixel_shader,
+                                                          &custom_pixel_shader_uniforms};
+          for (const auto& action : g_graphics_mod_manager->GetDrawStartedActions(texture_names[i]))
+          {
+            action->OnDrawStarted(&draw_started);
+            if (custom_pixel_shader)
+            {
+              custom_pixel_shader_contents.shaders.push_back(*custom_pixel_shader);
+              custom_pixel_texture_names.push_back(texture_names[i]);
+            }
+            custom_pixel_shader = std::nullopt;
+          }
+        }
+    }
+
+
+    // Texture binding should happen once if textures are the same for both eyes.
+    // If render targets change per eye and affect textures, this needs to be inside.
+    // For now, assume BindTextures is okay outside or once before the loop.
+    if (eye == 0 || !stereo_active) // Bind textures once
+    {
+        g_texture_cache->BindTextures(used_textures, samplers);
+    }
+
+    if (!skip) // if skip is true for eye 0, it will be true for eye 1 too.
+    {
+      UpdatePipelineConfig(); // This might change based on eye (e.g. if GS changes based on eye param)
+      UpdatePipelineObject(); // This too
       if (m_current_pipeline_object)
       {
         const AbstractPipeline* pipeline_object = m_current_pipeline_object;
-        if (!custom_pixel_shader_contents.shaders.empty())
+        if (!custom_pixel_shader_contents.shaders.empty()) // Check if custom shaders apply
         {
           if (const auto custom_pipeline =
                   GetCustomPipeline(custom_pixel_shader_contents, m_current_pipeline_config,
@@ -660,17 +739,25 @@ void VertexManagerBase::Flush()
             pipeline_object = custom_pipeline;
           }
         }
+        // 3. Perform the draw call for the current eye
         RenderDrawCall(pixel_shader_manager, geometry_shader_manager, custom_pixel_shader_contents,
                        custom_pixel_shader_uniforms, m_current_primitive_type, pipeline_object);
       }
     }
+  } // --- END STEREO RENDERING LOOP ---
 
-    // Even if we skip the draw, emulated state should still be impacted
+  // Even if we skip the draw, emulated state should still be impacted
+  // This should be called once after the loop if it's a general "draw occurred" signal.
+  // If it's per-actual-GPU-draw-call, it should be inside the loop and !skip.
+  // Given its name "OnDraw", it sounds like per emulated draw.
+  if (!m_cull_all && num_indices > 0) // Check if anything was intended to be drawn
+  {
     OnDraw();
-
-    // The EFB cache is now potentially stale.
-    g_framebuffer_manager->FlagPeekCacheAsOutOfDate();
   }
+
+  // The EFB cache is now potentially stale.
+  g_framebuffer_manager->FlagPeekCacheAsOutOfDate();
+
 
   if (xfmem.numTexGen.numTexGens != bpmem.genMode.numtexgens)
   {

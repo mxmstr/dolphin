@@ -10,7 +10,7 @@
 #include "Common/BitSet.h"
 #include "Common/CommonTypes.h"
 #include "Common/Matrix.h"
-#include "VideoCommon/ConstantManager.h"
+#include "VideoCommon/ConstantManager.h"  // Make sure this includes Matrix44 or has forward decl.
 #include "VideoCommon/NativeVertexFormat.h"
 
 class PointerWrap;
@@ -36,6 +36,13 @@ public:
 
   static bool UseVertexDepthRange();
 
+  // Ensure VertexShaderConstants is defined in ConstantManager.h or here.
+  // Based on the plan, it's defined in ConstantManager.h and includes:
+  // float4x4 projection; (to be removed)
+  // We need to add:
+  // float4x4 per_eye_view_matrix;
+  // float4x4 per_eye_projection_matrix;
+  // So, assuming VertexShaderConstants is accessible and modifiable:
   VertexShaderConstants constants{};
   bool dirty = false;
 
@@ -79,10 +86,7 @@ public:
   }
 
 private:
-  alignas(16) std::array<float, 16> m_projection_matrix;
-
-  // track changes
-  bool m_projection_graphics_mod_change = false;
-
-  Common::Matrix44 LoadProjectionMatrix();
+  // alignas(16) std::array<float, 16> m_projection_matrix; // REMOVED as it's replaced by per_eye_projection_matrix
+  // bool m_projection_graphics_mod_change = false; // REMOVED (related to m_projection_matrix)
+  // Common::Matrix44 LoadProjectionMatrix(); // REMOVED (related to m_projection_matrix)
 };

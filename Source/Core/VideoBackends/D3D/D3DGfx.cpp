@@ -33,7 +33,12 @@
 #include "VideoCommon/Present.h"
 #include "VideoCommon/RenderState.h"
 #include "VideoCommon/VideoConfig.h"
+#include "VideoCommon/VR.h" // For VR submission
 #include "VideoCommon/XFMemory.h"
+
+// Forward declare ID3D11Resource if not included by other D3D headers here.
+// It's likely in D3DBase.h or DXTexture.h.
+// struct ID3D11Resource; // Example, if needed.
 
 namespace DX11
 {
@@ -166,6 +171,43 @@ bool Gfx::BindBackbuffer(const ClearColor& clear_color)
 
 void Gfx::PresentBackbuffer()
 {
+#if defined(HAVE_OPENVR)
+  // Check if OpenVR is active and we should use it for presentation
+  // Ensure g_ActiveConfig is accessible here (it is, via VideoConfig.h)
+  // Ensure g_has_openvr is accessible (it is, via VR.h)
+  // Ensure VR_SubmitFrameD3D is accessible (it is, via VR.h)
+  // Ensure g_framebuffer_manager is accessible (it is, via FramebufferManager.h)
+  if (g_has_openvr && g_ActiveConfig.bEnableVR && g_ActiveConfig.stereo_mode != StereoMode::Off)
+  {
+    AbstractTexture* efb_abstract_texture = g_framebuffer_manager->GetEFBColorTexture();
+    if (efb_abstract_texture)
+    {
+      // We need to cast to DXTexture to get the underlying D3D resource.
+      // This assumes EFB textures are DXTextures in this backend.
+      DXTexture* efb_dx_texture = static_cast<DXTexture*>(efb_abstract_texture);
+      ID3D11Resource* final_resource = efb_dx_texture->GetD3DTexture();
+
+      if (final_resource)
+      {
+        VR_SubmitFrameD3D(final_resource);
+        // Successfully submitted to HMD, bypass normal window presentation.
+        return;
+      }
+      else
+      {
+        ERROR_LOG(VIDEO, "Failed to get D3D resource from EFB texture for VR submission.");
+        // Fall through to normal presentation if resource retrieval fails
+      }
+    }
+    else
+    {
+      ERROR_LOG(VIDEO, "Failed to get EFB color texture for VR submission.");
+      // Fall through to normal presentation if EFB texture retrieval fails
+    }
+  }
+#endif
+
+  // Original presentation path:
   m_swap_chain->Present();
 }
 

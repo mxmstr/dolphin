@@ -49,6 +49,10 @@ LUID* g_hmd_luid = nullptr; // Potentially used for adapter matching with OpenVR
 
 std::mutex g_vr_lock;
 
+// Global variables to store the per-eye view matrices
+Common::Matrix44 g_left_eye_view_matrix;
+Common::Matrix44 g_right_eye_view_matrix;
+
 // Default states for VR flags, assuming OpenVR.
 bool g_vr_cant_motion_blur = true; // Some games/engines might inherently cause blur OpenVR can't stop
 bool g_vr_must_motion_blur = false;
@@ -496,7 +500,59 @@ void UpdateOpenVRHeadTracking()
     g_head_tracking_matrix *= Common::Matrix44::Translate(Common::Vec3(-transformed_pos.x, -transformed_pos.y, -transformed_pos.z));
 
   }
+
+  // Call this new function inside UpdateOpenVRHeadTracking()
+  if (m_rTrackedDevicePose[vr::k_unTrackedDeviceIndex_Hmd].bPoseIsValid)
+  {
+    UpdateEyeViewMatrices(); // Add this call
+  }
 }
+
+void UpdateEyeViewMatrices()
+{
+  if (!g_has_openvr || !m_pHMD)
+    return;
+
+  // Get the main head pose (as a model matrix, not a view matrix)
+  Common::Matrix44 head_pose = g_head_tracking_matrix;
+  head_pose.Inverse(); // Convert from view matrix to model matrix
+
+  // Get eye-to-head transforms from OpenVR
+  vr::HmdMatrix34_t left_eye_to_head_34 = m_pHMD->GetEyeToHeadTransform(vr::Eye_Left);
+  vr::HmdMatrix34_t right_eye_to_head_34 = m_pHMD->GetEyeToHeadTransform(vr::Eye_Right);
+
+  // Convert vr::HmdMatrix34_t to Common::Matrix44
+  // HmdMatrix34_t is row major: m[row][column]
+  // Common::Matrix44 is also row major and takes std::array<float, 16>
+  std::array<float, 16> left_eye_to_head_arr = {
+      left_eye_to_head_34.m[0][0], left_eye_to_head_34.m[0][1], left_eye_to_head_34.m[0][2], left_eye_to_head_34.m[0][3],
+      left_eye_to_head_34.m[1][0], left_eye_to_head_34.m[1][1], left_eye_to_head_34.m[1][2], left_eye_to_head_34.m[1][3],
+      left_eye_to_head_34.m[2][0], left_eye_to_head_34.m[2][1], left_eye_to_head_34.m[2][2], left_eye_to_head_34.m[2][3],
+      0.0f,                        0.0f,                        0.0f,                        1.0f
+  };
+  Common::Matrix44 left_eye_to_head = Common::Matrix44::FromArray(left_eye_to_head_arr);
+
+  std::array<float, 16> right_eye_to_head_arr = {
+      right_eye_to_head_34.m[0][0], right_eye_to_head_34.m[0][1], right_eye_to_head_34.m[0][2], right_eye_to_head_34.m[0][3],
+      right_eye_to_head_34.m[1][0], right_eye_to_head_34.m[1][1], right_eye_to_head_34.m[1][2], right_eye_to_head_34.m[1][3],
+      right_eye_to_head_34.m[2][0], right_eye_to_head_34.m[2][1], right_eye_to_head_34.m[2][2], right_eye_to_head_34.m[2][3],
+      0.0f,                         0.0f,                         0.0f,                         1.0f
+  };
+  Common::Matrix44 right_eye_to_head = Common::Matrix44::FromArray(right_eye_to_head_arr);
+
+  // Final View Matrix = inverse(head_pose * eye_to_head_transform)
+  // which is equivalent to: inverse(eye_to_head_transform) * inverse(head_pose)
+  // inverse(head_pose) is our original g_head_tracking_matrix.
+
+  Common::Matrix44 inv_left_eye_mat = left_eye_to_head;
+  inv_left_eye_mat.Inverse();
+  Common::Matrix44 inv_right_eye_mat = right_eye_to_head;
+  inv_right_eye_mat.Inverse();
+
+  g_left_eye_view_matrix = inv_left_eye_mat * g_head_tracking_matrix;
+  g_right_eye_view_matrix = inv_right_eye_mat * g_head_tracking_matrix;
+}
+
 #endif
 
 void VR_UpdateHeadTrackingIfNeeded()

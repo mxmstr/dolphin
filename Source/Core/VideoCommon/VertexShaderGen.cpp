@@ -437,7 +437,8 @@ ShaderCode GenerateVertexShaderCode(APIType api_type, const ShaderHostConfig& ho
     }
   }
 
-  out.Write("\tvec4 pos = vec4(rawpos * dolphin_position_matrix(), 1.0);\n");
+  // out.Write("\tvec4 pos = vec4(rawpos * dolphin_position_matrix(), 1.0);\n"); // Old logic for world position
+  out.Write("\tvec4 world_pos = vec4(rawpos * dolphin_position_matrix(), 1.0);\n"); // New: world position
 
   if ((uid_data->components & VB_HAS_NORMAL) == 0)
     out.Write("\tvec3 rawnormal = " I_CACHED_NORMAL ".xyz;\n");
@@ -449,8 +450,13 @@ ShaderCode GenerateVertexShaderCode(APIType api_type, const ShaderHostConfig& ho
   if ((uid_data->components & VB_HAS_BINORMAL) == 0)
     out.Write("\tvec3 rawbinormal = " I_CACHED_BINORMAL ".xyz;\n");
 
-  out.Write("o.pos = float4(dot(" I_PROJECTION "[0], pos), dot(" I_PROJECTION
-            "[1], pos), dot(" I_PROJECTION "[2], pos), dot(" I_PROJECTION "[3], pos));\n");
+  // Old projection logic:
+  // out.Write("o.pos = float4(dot(" I_PROJECTION "[0], pos), dot(" I_PROJECTION
+  //           "[1], pos), dot(" I_PROJECTION "[2], pos), dot(" I_PROJECTION "[3], pos));\n");
+  // New logic using per-eye matrices:
+  out.Write("\tvec4 view_pos = " I_PER_EYE_VIEW_MATRIX " * world_pos;\n");
+  out.Write("\to.pos = " I_PER_EYE_PROJECTION_MATRIX " * view_pos;\n");
+
 
   out.Write("int4 lacc;\n"
             "float3 ldir, h, cosAttn, distAttn;\n"
@@ -459,7 +465,7 @@ ShaderCode GenerateVertexShaderCode(APIType api_type, const ShaderHostConfig& ho
   for (u32 chan = 0; chan < NUM_XF_COLOR_CHANNELS; chan++)
   {
     out.Write(
-        "\to.colors_{0} = dolphin_calculate_lighting_chn{0}(vertex_color_{0}, pos.xyz, _normal);\n",
+        "\to.colors_{0} = dolphin_calculate_lighting_chn{0}(vertex_color_{0}, world_pos.xyz, _normal);\n",
         chan);
   }
 
@@ -524,7 +530,7 @@ ShaderCode GenerateVertexShaderCode(APIType api_type, const ShaderHostConfig& ho
     case TexGenType::EmbossMap:  // calculate tex coords into bump map
 
       // transform the light dir into tangent space
-      out.Write("ldir = normalize(" LIGHT_POS ".xyz - pos.xyz);\n",
+      out.Write("ldir = normalize(" LIGHT_POS ".xyz - world_pos.xyz);\n", // Changed pos.xyz to world_pos.xyz
                 LIGHT_POS_PARAMS(texinfo.embosslightshift));
       out.Write("vec3 tangent = rawtangent * dolphin_normal_matrix();\n");
       out.Write("vec3 binormal = rawbinormal * dolphin_normal_matrix();\n");
@@ -613,7 +619,7 @@ ShaderCode GenerateVertexShaderCode(APIType api_type, const ShaderHostConfig& ho
   if (per_pixel_lighting)
   {
     out.Write("o.Normal = _normal;\n"
-              "o.WorldPos = pos.xyz;\n");
+              "o.WorldPos = world_pos.xyz;\n"); // Changed pos.xyz to world_pos.xyz
   }
 
   // If we can disable the incorrect depth clipping planes using depth clamping, then we can do
