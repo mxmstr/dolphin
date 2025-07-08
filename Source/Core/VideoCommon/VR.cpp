@@ -501,7 +501,7 @@ void UpdateOpenVRHeadTracking()
 
 void VR_UpdateHeadTrackingIfNeeded()
 {
-  if (g_new_tracking_frame)
+  if (true)//g_new_tracking_frame)
   {
     g_new_tracking_frame = false;
 #ifdef HAVE_OPENVR
@@ -582,6 +582,19 @@ void VR_GetEyePos(float* posLeft, float* posRight)
     posRight[0] = g_openvr_ipd / 2.0f;
     posLeft[1] = posRight[1] = 0;
     posLeft[2] = posRight[2] = 0;
+
+    // Update g_ActiveConfig.iStereoDepth based on IPD
+    // The user requested: g_ActiveConfig.iStereoDepth = g_openvr_ipd * 1000;
+    // Assuming g_ActiveConfig is accessible here. If not, this needs adjustment.
+    // Accessing g_ActiveConfig directly might not be ideal; a setter function or notification
+    // to the config system would be cleaner if available.
+    // For now, directly setting as requested.
+    if (g_ActiveConfig.bEnableVR) // Only adjust if VR is active
+    {
+        g_ActiveConfig.iStereoDepth = static_cast<int>(g_openvr_ipd * 1000.0f);
+        // It might be good to log this change or notify relevant systems if iStereoDepth is changed.
+        // DEBUG_LOG_FMT(VR, "Updated iStereoDepth to {} based on IPD {:.4f}m", g_ActiveConfig.iStereoDepth, g_openvr_ipd);
+    }
     return;
   }
 #endif
@@ -590,6 +603,10 @@ void VR_GetEyePos(float* posLeft, float* posRight)
   posRight[0] = 0.032f;
   posLeft[1] = posRight[1] = 0;
   posLeft[2] = posRight[2] = 0;
+  // In fallback, perhaps also set a default iStereoDepth if VR is forced without OpenVR?
+  // if (g_force_vr && g_ActiveConfig.bEnableVR) {
+  //    g_ActiveConfig.iStereoDepth = static_cast<int>(0.064f * 1000.0f); // Default IPD
+  // }
 }
 
 void VR_GetFovTextureSize(int* width, int* height)
@@ -1404,3 +1421,58 @@ void OpcodeReplayBufferInline()
                                         // If this needs to be set, it should be via g_ActiveConfig or similar.
                                         // For now, removing this line as the feature is disabled.
 }
+
+#ifdef HAVE_OPENVR
+// Make sure to include D3D11 header for ID3D11Resource if not already included via other headers.
+// It's likely included via D3DBase.h or similar if this file is part of D3D backend compilation unit,
+// but good to be mindful. <d3d11.h>
+// Also, ensure m_pCompositor is valid before calling.
+
+void VR_SubmitFrameD3D(ID3D11Resource* pD3DTexture)
+{
+  if (!g_has_openvr || !m_pCompositor || !pD3DTexture)
+  {
+    // Log an error or warning if submission is attempted without OpenVR, compositor, or texture
+    if (!pD3DTexture) WARN_LOG_FMT(VR, "VR_SubmitFrameD3D called with null texture.");
+    return;
+  }
+
+  // Texture_t for submitting to the compositor.
+  // For D3D11, pHandle is ID3D11Resource*.
+  // The API implies that for texture arrays, submitting Eye_Left uses slice 0 and Eye_Right uses slice 1.
+  // No explicit slice index or bounds seem necessary if the texture array is set up correctly
+  // and the HMD expects full-frame textures per eye.
+  vr::Texture_t eyeTexture = {pD3DTexture, vr::TextureType_DirectX, vr::ColorSpace_Auto};
+
+  // Submit for Left Eye (implicitly slice 0 of the texture array)
+  vr::EVRCompositorError CErrorLeft = vr::VRCompositor()->Submit(vr::Eye_Left, &eyeTexture);
+  if (CErrorLeft != vr::VRCompositorError_None)
+  {
+    ERROR_LOG_FMT(VR, "OpenVR: Failed to submit left eye texture. Error: {}", static_cast<int>(CErrorLeft));
+  }
+
+  // Submit for Right Eye (implicitly slice 1 of the texture array)
+  vr::EVRCompositorError CErrorRight = vr::VRCompositor()->Submit(vr::Eye_Right, &eyeTexture);
+  if (CErrorRight != vr::VRCompositorError_None)
+  {
+    ERROR_LOG_FMT(VR, "OpenVR: Failed to submit right eye texture. Error: {}", static_cast<int>(CErrorRight));
+  }
+
+  // IMPORTANT: After submitting, OpenVR needs to know the application is done with its frame.
+  // This is typically done by calling vr::VRCompositor()->PostPresentHandoff()
+  // if you are managing your own D3D device and swap chain for the HMD.
+  // However, if the application is rendering to a texture that OpenVR then copies or uses,
+  // this might not be strictly necessary, but it's good practice.
+  // The older Dolphin VR fork might not have had this.
+  // Let's assume for now that Submit is enough and PostPresentHandoff is handled by OpenVR runtime
+  // if it's managing the display. If screen flickering or black screen occurs, this is a place to investigate.
+
+  // vr::VRCompositor()->PostPresentHandoff(); // Consider if needed.
+
+  // After submission, it's also common to wait for the frame to be "really" presented
+  // to synchronize game loop with HMD refresh rate. This is done by WaitGetPoses.
+  // Since WaitGetPoses is already called in UpdateOpenVRHeadTracking, it might cover this.
+  // If not, a WaitGetPoses call here might be needed for smooth rendering.
+  // vr::VRCompositor()->WaitGetPoses(m_rTrackedDevicePose, vr::k_unMaxTrackedDeviceCount, nullptr, 0);
+}
+#endif

@@ -17,6 +17,7 @@
 #include "Common/Logging/Log.h"
 
 #include "Core/Config/MainSettings.h"
+#include "Core/Config/GraphicsSettings.h"
 #include "Core/ConfigManager.h"
 #include "Core/Core.h"
 #include "Core/CoreTiming.h"
@@ -65,6 +66,7 @@
 #include "VideoCommon/VideoState.h"
 #include "VideoCommon/Widescreen.h"
 #include "VideoCommon/XFStateManager.h"
+#include "VideoCommon/VR.h" // For VR_Init()
 
 VideoBackendBase* g_video_backend = nullptr;
 
@@ -333,6 +335,13 @@ bool VideoBackendBase::InitializeShared(std::unique_ptr<AbstractGfx> gfx,
 
   g_Config.VerifyValidity();
   UpdateActiveConfig();
+
+  // Initialize VR System
+  // This should be called after main video components are ready and config is initially processed.
+  if (Config::Get(Config::GLOBAL_VR_ENABLE_VR)) // Check if VR is enabled in config before initializing
+  {
+    VR_Init();
+  }
 
   if (g_Config.bDumpTextures)
   {

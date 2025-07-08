@@ -167,6 +167,13 @@ ControllerStyle VR_GetHydraStyle(int hand);
 void OpcodeReplayBuffer();
 void OpcodeReplayBufferInline();
 
+#ifdef HAVE_OPENVR
+// Forward declare ID3D11Resource for the function signature
+struct ID3D11Resource;
+// Submits the rendered D3D texture to OpenVR compositor
+void VR_SubmitFrameD3D(ID3D11Resource* pD3DTexture);
+#endif
+
 // HMD description and capabilities
 extern bool g_force_vr; // User option to force VR mode.
 extern bool g_has_hmd, g_has_openvr, g_openvr_is_vive; // OpenVR related flags.
