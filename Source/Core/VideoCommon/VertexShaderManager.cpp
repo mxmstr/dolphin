@@ -492,7 +492,7 @@ void VertexShaderManager::TransformToClipSpace(const float* data, float* out, u3
 
 void VertexShaderManager::DoState(PointerWrap& p)
 {
-  p.DoArray(m_projection_matrix);
+  //p.DoArray(m_projection_matrix);
   g_freelook_camera.DoState(p);
 
   p.Do(constants);

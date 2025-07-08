@@ -195,13 +195,13 @@ void Gfx::PresentBackbuffer()
       }
       else
       {
-        ERROR_LOG(VIDEO, "Failed to get D3D resource from EFB texture for VR submission.");
+        ERROR_LOG_FMT(VIDEO, "Failed to get D3D resource from EFB texture for VR submission.");
         // Fall through to normal presentation if resource retrieval fails
       }
     }
     else
     {
-      ERROR_LOG(VIDEO, "Failed to get EFB color texture for VR submission.");
+      ERROR_LOG_FMT(VIDEO, "Failed to get EFB color texture for VR submission.");
       // Fall through to normal presentation if EFB texture retrieval fails
     }
   }

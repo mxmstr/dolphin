@@ -154,8 +154,8 @@ bool CPUCull::AreAllVerticesCulled(VertexLoaderBase* loader, OpcodeDecoder::Prim
   }
 
   // transform functions need the projection matrix to tranform to clip space
-  auto& system = Core::System::GetInstance();
-  system.GetVertexShaderManager().SetProjectionMatrix(system.GetXFStateManager());
+  //auto& system = Core::System::GetInstance();
+  //system.GetVertexShaderManager().SetProjectionMatrix(system.GetXFStateManager());
 
   static constexpr Common::EnumMap<CullMode, CullMode::All> cullmode_invert = {
       CullMode::None, CullMode::Front, CullMode::Back, CullMode::All};

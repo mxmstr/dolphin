@@ -46,6 +46,9 @@
 #include "VideoCommon/XFMemory.h"
 #include "VideoCommon/XFStateManager.h"
 
+extern Common::Matrix44 g_left_eye_view_matrix;
+extern Common::Matrix44 g_right_eye_view_matrix;
+
 std::unique_ptr<VertexManagerBase> g_vertex_manager;
 
 using OpcodeDecoder::Primitive;
@@ -640,12 +643,16 @@ void VertexManagerBase::Flush()
       // For znear and zfar, use xfmem.viewport values or SConfig defaults.
       // Common::Matrix44 g_left_eye_projection_matrix_dummy, g_right_eye_projection_matrix_dummy; // For unused matrix
 
-      float znear = xfmem.viewport.nearZ; // Or g_ActiveConfig.fZNear if viewport is unreliable
-      float zfar = xfmem.viewport.farZ;   // Or g_ActiveConfig.fZFar
+      // a more robust solution would be to derive these values from the game's actual projection matrix coefficients (xfmem.projection.rawProjection)
+      float znear = 0.1f;
+      float zfar = 10000.0f;
 
-      // Ensure znear and zfar are valid (e.g. zfar > znear, znear > 0)
-      if (znear <= 0.0f) znear = g_ActiveConfig.fZNear; // Default if invalid
-      if (zfar <= znear) zfar = g_ActiveConfig.fZFar; // Default if invalid
+      //float znear = xfmem.viewport.nearZ; // Or g_ActiveConfig.fZNear if viewport is unreliable
+      //float zfar = xfmem.viewport.farZ;   // Or g_ActiveConfig.fZFar
+
+      //// Ensure znear and zfar are valid (e.g. zfar > znear, znear > 0)
+      //if (znear <= 0.0f) znear = g_ActiveConfig.fZNear; // Default if invalid
+      //if (zfar <= znear) zfar = g_ActiveConfig.fZFar; // Default if invalid
 
       if (eye == 0) // Left Eye
       {

@@ -515,7 +515,7 @@ ATTR_TARGET static void TransformVertices(void* output, const void* vertices, u3
 #ifdef USE_AVX
   __m256 proj0, proj1, proj2, proj3;
   __m256 pos0, pos1, pos2, pos3;
-  LoadTransposedYMM(vsmanager.constants.projection.data(), proj0, proj1, proj2, proj3);
+  LoadTransposedYMM(vsmanager.constants.per_eye_projection_matrix.data.data(), proj0, proj1, proj2, proj3);
   LoadTransposedPosYMM(&xfmem.posMatrices[idx * 4], pos0, pos1, pos2, pos3);
   for (int i = 1; i < count; i += 2)
   {
@@ -539,7 +539,7 @@ ATTR_TARGET static void TransformVertices(void* output, const void* vertices, u3
 #else
   Vector proj0, proj1, proj2, proj3;
   Vector pos0, pos1, pos2, pos3;
-  LoadTransposed(vsmanager.constants.projection.data(), proj0, proj1, proj2, proj3);
+  LoadTransposed(vsmanager.constants.per_eye_projection_matrix.data.data(), proj0, proj1, proj2, proj3);
   LoadTransposedPos(&xfmem.posMatrices[idx * 4], pos0, pos1, pos2, pos3);
   for (int i = 0; i < count; i++)
   {

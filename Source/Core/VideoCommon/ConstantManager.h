@@ -6,6 +6,7 @@
 #include <array>
 
 #include "Common/CommonTypes.h"
+#include "Common/Matrix.h"
 
 // all constant buffer attributes must be 16 bytes aligned, so this are the only allowed components:
 using float4 = std::array<float, 4>;
