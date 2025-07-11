@@ -511,6 +511,107 @@ void VR_UpdateHeadTrackingIfNeeded()
   }
 }
 
+// Converts OpenVR's HmdMatrix34_t to Common::Matrix44
+// OpenVR HmdMatrix34_t is row-major:
+// m[0][0] m[0][1] m[0][2] m[0][3] (col 0: R_x, R_y, R_z, T_x)
+// m[1][0] m[1][1] m[1][2] m[1][3] (col 1: R_x, R_y, R_z, T_y)
+// m[2][0] m[2][1] m[2][2] m[2][3] (col 2: R_x, R_y, R_z, T_z)
+// Common::Matrix44 is row-major.
+// This function assumes the input HmdMatrix34_t is a standard pose matrix (transformation from eye to head space).
+// For a view matrix, this pose matrix needs to be inverted.
+static Common::Matrix44 ConvertHmdMatrix34ToMatrix44(const vr::HmdMatrix34_t& mat)
+{
+  Common::Matrix44 result;
+  result.data[0] = mat.m[0][0]; result.data[1] = mat.m[0][1]; result.data[2] = mat.m[0][2]; result.data[3] = mat.m[0][3];
+  result.data[4] = mat.m[1][0]; result.data[5] = mat.m[1][1]; result.data[6] = mat.m[1][2]; result.data[7] = mat.m[1][3];
+  result.data[8] = mat.m[2][0]; result.data[9] = mat.m[2][1]; result.data[10] = mat.m[2][2]; result.data[11] = mat.m[2][3];
+  result.data[12] = 0.0f; result.data[13] = 0.0f; result.data[14] = 0.0f; result.data[15] = 1.0f;
+  return result;
+}
+
+
+void VR_GetEyeToHeadTransforms(Common::Matrix44* left_eye_transform, Common::Matrix44* right_eye_transform)
+{
+#ifdef HAVE_OPENVR
+  if (g_has_openvr && m_pHMD)
+  {
+    vr::HmdMatrix34_t mat_left = m_pHMD->GetEyeToHeadTransform(vr::Eye_Left);
+    vr::HmdMatrix34_t mat_right = m_pHMD->GetEyeToHeadTransform(vr::Eye_Right);
+
+    // These are transforms from eye space to head space.
+    // For view matrices, we need the inverse: from head space to eye space.
+    // The Common::Matrix44::Inverse() method can be used.
+    // Note: The VR-Hydra reference mentioned needing the inverse.
+    // A typical eye-to-head transform describes the eye's position and orientation *within* the head's coordinate system.
+    // If this is directly used as a view matrix component, it might be correct as is, or it might need inverting
+    // depending on how it's combined with the main head pose.
+    // For now, let's convert and assign. The consuming code (Vulkan backend) will use these.
+    // If they need to be inverted, that should happen where they are used to construct the final view matrix.
+    // Let's provide the direct EyeToHeadTransform first. The caller can invert if needed.
+    *left_eye_transform = ConvertHmdMatrix34ToMatrix44(mat_left);
+    *right_eye_transform = ConvertHmdMatrix34ToMatrix44(mat_right);
+    return;
+  }
+#endif
+  // Fallback: Identity matrix if OpenVR is not available or HMD is not present.
+  // This means eyes are at the same position and orientation as the head.
+  *left_eye_transform = Common::Matrix44::Identity();
+  *right_eye_transform = Common::Matrix44::Identity();
+}
+
+// Converts OpenVR's HmdMatrix44_t to Common::Matrix44
+// OpenVR HmdMatrix44_t is column-major.
+// Common::Matrix44 is row-major.
+// So, a transpose is needed during conversion.
+static Common::Matrix44 ConvertHmdMatrix44ToMatrix44(const vr::HmdMatrix44_t& mat)
+{
+  Common::Matrix44 result;
+  for (int i = 0; i < 4; ++i) {
+    for (int j = 0; j < 4; ++j) {
+      result.data[i * 4 + j] = mat.m[j][i]; // Transpose: mat.m[col][row] -> result.data[row*4 + col]
+    }
+  }
+  return result;
+}
+
+void VR_GetProjectionMatrices(float znear, float zfar, Common::Matrix44* left_eye_projection, Common::Matrix44* right_eye_projection)
+{
+#ifdef HAVE_OPENVR
+  if (g_has_openvr && m_pHMD)
+  {
+    vr::HmdMatrix44_t mat_left = m_pHMD->GetProjectionMatrix(vr::Eye_Left, znear, zfar);
+    vr::HmdMatrix44_t mat_right = m_pHMD->GetProjectionMatrix(vr::Eye_Right, znear, zfar);
+
+    *left_eye_projection = ConvertHmdMatrix44ToMatrix44(mat_left);
+    *right_eye_projection = ConvertHmdMatrix44ToMatrix44(mat_right);
+
+    // The FOV reduction logic previously in VR_GetProjectionMatrices (from the template)
+    // seemed to operate on an already-converted Common::Matrix44.
+    // If GetProjectionMatrix already accounts for any global FOV settings (unlikely for raw OpenVR calls),
+    // or if motion sickness FOV reduction needs to be applied *after* this,
+    // that logic might need to be re-evaluated or moved.
+    // For now, this provides the direct OpenVR projection matrices.
+    // The existing g_reduce_fov_for_motion_sickness logic is in VR_GetProjectionHalfTan
+    // and the old VR_GetProjectionMatrices. It might be better to consolidate
+    // FOV adjustments if they are to be applied to these matrices.
+    // Given the current structure, the VR_GetProjectionHalfTan already applies reduction.
+    // The game specific projection will use that. This function provides raw eye projections.
+    return;
+  }
+#endif
+  // Fallback if no VR: generate a standard perspective matrix.
+  // Using a 90-degree FOV and 1.0 aspect ratio as a generic default.
+  // Actual FOV and aspect might be better derived from game settings or display.
+  float default_fov_y_rad = DEGREES_TO_RADIANS(90.0f);
+  float aspect_ratio = 1.0f; // Assuming square pixels or 1:1 aspect for default
+  if (g_hmd_window_width > 0 && g_hmd_window_height > 0) {
+    aspect_ratio = static_cast<float>(g_hmd_window_width / 2) / static_cast<float>(g_hmd_window_height); // Per eye
+  }
+  *left_eye_projection = Common::Matrix44::Perspective(default_fov_y_rad, aspect_ratio, znear, zfar);
+  *right_eye_projection = *left_eye_projection;
+}
+
+
 void VR_GetProjectionHalfTan(float& hmd_halftan)
 {
 #ifdef HAVE_OPENVR

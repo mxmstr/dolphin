@@ -147,6 +147,9 @@ AbstractTextureFormat FramebufferManager::GetEFBDepthCopyFormat()
 
 static u32 CalculateEFBLayers()
 {
+  // Return 2 layers if any stereo mode is active, which implies multiview/dual-render for VR.
+  // This check might need to be more specific if other non-VR stereo modes exist that don't use 2 layers.
+  // For this task, any non-Off stereo mode implies VR multiview.
   return (g_ActiveConfig.stereo_mode != StereoMode::Off) ? 2 : 1;
 }
 

@@ -109,24 +109,50 @@ std::unique_ptr<VKTexture> VKTexture::Create(const TextureConfig& tex_config, st
   std::unique_ptr<VKTexture> texture = std::make_unique<VKTexture>(
       tex_config, alloc, image, name, VK_IMAGE_LAYOUT_UNDEFINED, ComputeImageLayout::Undefined);
 
-  VkImageViewType image_view_type = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
-  if (tex_config.type == AbstractTextureType::Texture_CubeMap)
+  VkImageViewType image_view_type;
+  if (tex_config.layers > 1)
   {
-    image_view_type = VK_IMAGE_VIEW_TYPE_CUBE;
+    // If layers > 1, it must be a 2D_ARRAY or CUBE.
+    // For EFB with multiview, layers will be 2, and it should be 2D_ARRAY.
+    if (tex_config.type == AbstractTextureType::Texture_CubeMap)
+    {
+      image_view_type = VK_IMAGE_VIEW_TYPE_CUBE_ARRAY; // Though cubemap arrays are less common for EFB
+                                                     // For multiview EFB, it's a 2-layer 2D texture, so 2D_ARRAY.
+                                                     // The original type is Texture_2DArray for EFB.
+      if (tex_config.type == AbstractTextureType::Texture_2DArray) { // This will be true for EFB
+          image_view_type = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
+      } else {
+          // This case should ideally not be hit for EFB.
+          // If it's a cubemap with layers, it's VK_IMAGE_VIEW_TYPE_CUBE_ARRAY.
+          // If it's a simple 2D texture but with layers > 1 (e.g. multiview target), it's 2D_ARRAY.
+          // The TextureConfig.type should reflect this.
+          // Assuming for EFB, config.type will be Texture_2DArray.
+          image_view_type = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
+      }
+    }
+    else // Includes Texture_2DArray and Texture_2D if layers > 1
+    {
+      image_view_type = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
+    }
   }
-  else if (tex_config.type == AbstractTextureType::Texture_2D)
+  else // layers == 1
   {
-    image_view_type = VK_IMAGE_VIEW_TYPE_2D;
+    if (tex_config.type == AbstractTextureType::Texture_CubeMap)
+    {
+      image_view_type = VK_IMAGE_VIEW_TYPE_CUBE;
+    }
+    else if (tex_config.type == AbstractTextureType::Texture_2D || tex_config.type == AbstractTextureType::Texture_2DArray)
+    {
+      // A Texture_2DArray with 1 layer is just a VK_IMAGE_VIEW_TYPE_2D
+      image_view_type = VK_IMAGE_VIEW_TYPE_2D;
+    }
+    else
+    {
+      PanicAlertFmt("Unhandled texture type for single layer.");
+      return nullptr;
+    }
   }
-  else if (tex_config.type == AbstractTextureType::Texture_2DArray)
-  {
-    image_view_type = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
-  }
-  else
-  {
-    PanicAlertFmt("Unhandled texture type.");
-    return nullptr;
-  }
+
   if (!texture->CreateView(image_view_type))
     return nullptr;
 

@@ -68,6 +68,7 @@ VULKAN_INSTANCE_ENTRY_POINT(vkQueueInsertDebugUtilsLabelEXT, false)
 VULKAN_INSTANCE_ENTRY_POINT(vkSetDebugUtilsObjectTagEXT, false)
 VULKAN_INSTANCE_ENTRY_POINT(vkSubmitDebugUtilsMessageEXT, false)
 VULKAN_INSTANCE_ENTRY_POINT(vkGetPhysicalDeviceProperties2, false)
+VULKAN_INSTANCE_ENTRY_POINT(vkGetPhysicalDeviceFeatures2, false)
 VULKAN_INSTANCE_ENTRY_POINT(vkGetPhysicalDeviceSurfaceCapabilities2KHR, false)
 VULKAN_INSTANCE_ENTRY_POINT(vkSetDebugUtilsObjectNameEXT, false)
 

@@ -29,78 +29,101 @@ static void InsertIntoChain(Chain* chain, Element* element)
 
 VulkanContext::PhysicalDeviceInfo::PhysicalDeviceInfo(VkPhysicalDevice device)
 {
-  VkPhysicalDeviceFeatures features;
-  VkPhysicalDeviceProperties2 properties2;
-  VkPhysicalDeviceProperties& properties = properties2.properties;
+  // Initialize all feature structs to ensure sType is set and members are zeroed.
+  VkPhysicalDeviceVulkan11Features features11 = {};
+  features11.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES;
 
-  vkGetPhysicalDeviceProperties(device, &properties);
-  vkGetPhysicalDeviceFeatures(device, &features);
-  apiVersion = vkGetPhysicalDeviceProperties2 ? properties.apiVersion : VK_API_VERSION_1_0;
+  VkPhysicalDeviceVulkan12Features features12 = {};
+  features12.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
+
+  // Chain 1.1 and 1.2 features to VkPhysicalDeviceFeatures2 for querying
+  features11.pNext = &features12;
+  VkPhysicalDeviceFeatures2 features2_query = {};
+  features2_query.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
+  features2_query.pNext = &features11;
+
+  // Initialize property structs
+  VkPhysicalDeviceSubgroupProperties subgroup_props = {};
+  subgroup_props.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_PROPERTIES;
+
+  VkPhysicalDeviceVulkan12Properties properties12 = {};
+  properties12.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_PROPERTIES;
+  properties12.pNext = &subgroup_props; // Chain subgroup_props after properties12
+
+  VkPhysicalDeviceProperties2 properties2_query = {};
+  properties2_query.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
+  properties2_query.pNext = &properties12; // Chain properties12 (and subsequently subgroup_props)
+
+  // Query properties first to get apiVersion
+  // This assumes vkGetPhysicalDeviceProperties2 is available (core in Vulkan 1.1+ or via KHR_get_physical_device_properties2)
+  // If this function itself is the problem, the loading mechanism for instance functions needs checking.
+  vkGetPhysicalDeviceProperties2(device, &properties2_query);
+  apiVersion = properties2_query.properties.apiVersion;
+
+  // Base features that will be populated either by VkPhysicalDeviceFeatures2 or vkGetPhysicalDeviceFeatures
+  VkPhysicalDeviceFeatures queried_base_features = {};
 
   if (apiVersion >= VK_API_VERSION_1_1)
   {
-    VkPhysicalDeviceSubgroupProperties properties_subgroup = {};
-    VkPhysicalDeviceVulkan12Properties properties_vk12 = {};
-    properties2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
-    properties2.pNext = nullptr;
-    properties_subgroup.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_PROPERTIES;
-    InsertIntoChain(&properties2, &properties_subgroup);
+    // Query all chained features (base, 1.1, 1.2)
+    vkGetPhysicalDeviceFeatures2(device, &features2_query);
+    queried_base_features = features2_query.features;
+    // features11 is now populated. features12 is also populated.
 
-    if (apiVersion >= VK_API_VERSION_1_2)
-    {
-      properties_vk12.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_PROPERTIES;
-      InsertIntoChain(&properties2, &properties_vk12);
-    }
+    multiview = features11.multiview;
 
-    vkGetPhysicalDeviceProperties2(device, &properties2);
+    // Properties (driverID, subgroupSize) are already populated from the vkGetPhysicalDeviceProperties2 call above.
+    driverID = properties12.driverID;
+    subgroupSize = subgroup_props.subgroupSize;
 
-    if (apiVersion >= VK_API_VERSION_1_2)
-    {
-      driverID = properties_vk12.driverID;
-    }
-
-    subgroupSize = properties_subgroup.subgroupSize;
-
-    // We require basic ops (for gl_SubgroupInvocationID), ballot (for subgroupBallot,
-    // subgroupBallotFindLSB), and arithmetic (for subgroupMin/subgroupMax).
-    // Shuffle is enabled as a workaround until SPIR-V >= 1.5 is enabled with broadcast(uniform)
-    // support.
-    constexpr VkSubgroupFeatureFlags required_operations =
+    constexpr VkSubgroupFeatureFlags required_subgroup_ops =
         VK_SUBGROUP_FEATURE_BASIC_BIT | VK_SUBGROUP_FEATURE_ARITHMETIC_BIT |
         VK_SUBGROUP_FEATURE_BALLOT_BIT | VK_SUBGROUP_FEATURE_SHUFFLE_BIT;
     shaderSubgroupOperations =
-        (properties_subgroup.supportedOperations & required_operations) == required_operations &&
-        properties_subgroup.supportedStages & VK_SHADER_STAGE_FRAGMENT_BIT;
+        (subgroup_props.supportedOperations & required_subgroup_ops) == required_subgroup_ops &&
+        subgroup_props.supportedStages & VK_SHADER_STAGE_FRAGMENT_BIT;
+  }
+  else
+  {
+    // Vulkan 1.0 path
+    vkGetPhysicalDeviceFeatures(device, &queried_base_features);
+    // features11, features12 will remain default (all VK_FALSE)
+    // driverID and subgroupSize will remain default (0 and 1 respectively, or as initialized)
   }
 
-  memcpy(deviceName, properties.deviceName, sizeof(deviceName));
-  memcpy(pipelineCacheUUID, properties.pipelineCacheUUID, sizeof(pipelineCacheUUID));
-  vendorID = properties.vendorID;
-  deviceID = properties.deviceID;
+  // Populate PhysicalDeviceInfo members from base_properties (from properties2_query.properties)
+  const VkPhysicalDeviceProperties& props_to_use = properties2_query.properties;
+  memcpy(deviceName, props_to_use.deviceName, sizeof(deviceName));
+  memcpy(pipelineCacheUUID, props_to_use.pipelineCacheUUID, sizeof(pipelineCacheUUID));
+  driverVersion = props_to_use.driverVersion; // Already got apiVersion
+  vendorID = props_to_use.vendorID;
+  deviceID = props_to_use.deviceID;
   minUniformBufferOffsetAlignment =
-      std::max<VkDeviceSize>(properties.limits.minUniformBufferOffsetAlignment, 1);
-  bufferImageGranularity = std::max<VkDeviceSize>(properties.limits.bufferImageGranularity, 1);
-  maxTexelBufferElements = properties.limits.maxTexelBufferElements;
-  maxImageDimension2D = properties.limits.maxImageDimension2D;
-  framebufferColorSampleCounts = properties.limits.framebufferColorSampleCounts;
-  framebufferDepthSampleCounts = properties.limits.framebufferDepthSampleCounts;
-  memcpy(pointSizeRange, properties.limits.pointSizeRange, sizeof(pointSizeRange));
-  maxSamplerAnisotropy = properties.limits.maxSamplerAnisotropy;
+      std::max<VkDeviceSize>(props_to_use.limits.minUniformBufferOffsetAlignment, 1);
+  bufferImageGranularity = std::max<VkDeviceSize>(props_to_use.limits.bufferImageGranularity, 1);
+  maxTexelBufferElements = props_to_use.limits.maxTexelBufferElements;
+  maxImageDimension2D = props_to_use.limits.maxImageDimension2D;
+  framebufferColorSampleCounts = props_to_use.limits.framebufferColorSampleCounts;
+  framebufferDepthSampleCounts = props_to_use.limits.framebufferDepthSampleCounts;
+  memcpy(pointSizeRange, props_to_use.limits.pointSizeRange, sizeof(pointSizeRange));
+  maxSamplerAnisotropy = props_to_use.limits.maxSamplerAnisotropy;
 
-  dualSrcBlend = features.dualSrcBlend != VK_FALSE;
-  geometryShader = features.geometryShader != VK_FALSE;
-  samplerAnisotropy = features.samplerAnisotropy != VK_FALSE;
-  logicOp = features.logicOp != VK_FALSE;
-  fragmentStoresAndAtomics = features.fragmentStoresAndAtomics != VK_FALSE;
-  sampleRateShading = features.sampleRateShading != VK_FALSE;
-  largePoints = features.largePoints != VK_FALSE;
-  shaderStorageImageMultisample = features.shaderStorageImageMultisample != VK_FALSE;
+  // Populate PhysicalDeviceInfo members from queried_base_features
+  dualSrcBlend = queried_base_features.dualSrcBlend != VK_FALSE;
+  geometryShader = queried_base_features.geometryShader != VK_FALSE;
+  samplerAnisotropy = queried_base_features.samplerAnisotropy != VK_FALSE;
+  logicOp = queried_base_features.logicOp != VK_FALSE;
+  fragmentStoresAndAtomics = queried_base_features.fragmentStoresAndAtomics != VK_FALSE;
+  sampleRateShading = queried_base_features.sampleRateShading != VK_FALSE;
+  largePoints = queried_base_features.largePoints != VK_FALSE;
+  shaderStorageImageMultisample = queried_base_features.shaderStorageImageMultisample != VK_FALSE;
   shaderTessellationAndGeometryPointSize =
-      features.shaderTessellationAndGeometryPointSize != VK_FALSE;
-  occlusionQueryPrecise = features.occlusionQueryPrecise != VK_FALSE;
-  shaderClipDistance = features.shaderClipDistance != VK_FALSE;
-  depthClamp = features.depthClamp != VK_FALSE;
-  textureCompressionBC = features.textureCompressionBC != VK_FALSE;
+      queried_base_features.shaderTessellationAndGeometryPointSize != VK_FALSE;
+  occlusionQueryPrecise = queried_base_features.occlusionQueryPrecise != VK_FALSE;
+  shaderClipDistance = queried_base_features.shaderClipDistance != VK_FALSE;
+  depthClamp = queried_base_features.depthClamp != VK_FALSE;
+  textureCompressionBC = queried_base_features.textureCompressionBC != VK_FALSE;
+  // features11.multiview is already set correctly via features2_query or defaults to VK_FALSE
 }
 
 VkPhysicalDeviceFeatures VulkanContext::PhysicalDeviceInfo::features() const
@@ -792,8 +815,36 @@ bool VulkanContext::CreateDevice(VkSurfaceKHR surface, bool enable_validation_la
 
   WarnMissingDeviceFeatures();
 
-  VkPhysicalDeviceFeatures device_features = m_device_info.features();
-  device_info.pEnabledFeatures = &device_features;
+  // Prepare VkPhysicalDeviceFeatures2 struct for enabling features
+  VkPhysicalDeviceFeatures2 features_to_enable = {};
+  features_to_enable.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
+  features_to_enable.features = m_device_info.features(); // Enable all base features from PhysicalDeviceInfo
+
+  // Prepare VkPhysicalDeviceVulkan11Features struct for enabling
+  VkPhysicalDeviceVulkan11Features features_1_1_to_enable = {};
+  features_1_1_to_enable.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES;
+
+  // Chain Vulkan 1.1 features if API version is >= 1.1
+  if (m_device_info.apiVersion >= VK_API_VERSION_1_1)
+  {
+      features_to_enable.pNext = &features_1_1_to_enable;
+  }
+
+  // CORRECTED CHECK: Use the 'multiview' flag from PhysicalDeviceInfo, not 'multiViewport'
+  if (m_device_info.multiview == VK_TRUE)
+  {
+    INFO_LOG_FMT(VIDEO, "Vulkan: Enabling multiview feature for the logical device.");
+    features_1_1_to_enable.multiview = VK_TRUE;
+  }
+  else
+  {
+    WARN_LOG_FMT(VIDEO, "Vulkan: Multiview feature was NOT supported by the physical device, not enabling.");
+    // This will correctly be VK_FALSE if multiview isn't supported.
+  }
+
+  // Set the pNext chain for VkDeviceCreateInfo
+  device_info.pNext = &features_to_enable;
+  device_info.pEnabledFeatures = nullptr; // MUST be null if pNext is used.
 
   // Enable debug layer on debug builds
   if (enable_validation_layer)

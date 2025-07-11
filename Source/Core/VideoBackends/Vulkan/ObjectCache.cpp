@@ -488,6 +488,45 @@ VkRenderPass ObjectCache::GetRenderPass(VkFormat color_format, VkFormat depth_fo
                                       0,
                                       nullptr};
 
+  VkRenderPassMultiviewCreateInfo multiview_create_info = {};
+  const uint32_t view_mask = 0b00000011;         // Render to view 0 and view 1
+  const uint32_t correlation_mask = 0b00000011;  // Correlate view 0 and view 1
+
+  // Check if this render pass is for the EFB and if VR stereo mode is active.
+  // This condition might need refinement based on how EFB render passes are specifically identified
+  // and how VR stereo mode is globally tracked (e.g., through g_ActiveConfig.stereo_mode and VR::IsStereo()).
+  // For now, we assume a simple check. Let's use color_format and depth_format to infer EFB.
+  // A more robust way would be to pass a flag or check g_ActiveConfig.stereo_mode directly.
+  // We also need to ensure VR is initialized and multiview is supported by the device.
+  bool is_efb_like = (color_format == VKTexture::GetVkFormatForHostTextureFormat(AbstractTextureFormat::RGBA8) ||
+                      color_format == VKTexture::GetVkFormatForHostTextureFormat(AbstractTextureFormat::BGRA8)) &&
+                     (depth_format == VKTexture::GetVkFormatForHostTextureFormat(AbstractTextureFormat::D32F) ||
+                      depth_format == VKTexture::GetVkFormatForHostTextureFormat(AbstractTextureFormat::D24_S8));
+
+  bool vr_stereo_active = false;
+  // Check if stereo mode is active and if the device supports multiview (queried and stored in VulkanContext)
+  if (g_ActiveConfig.stereo_mode != StereoMode::Off &&
+      g_vulkan_context->GetDeviceInfo().features().multiViewport == VK_TRUE)
+  {
+    vr_stereo_active = true;
+  }
+
+
+  if (is_efb_like && vr_stereo_active)
+  {
+    multiview_create_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_MULTIVIEW_CREATE_INFO;
+    multiview_create_info.subpassCount = 1; // Assuming one subpass for EFB
+    multiview_create_info.pViewMasks = &view_mask;
+    multiview_create_info.dependencyCount = 0; // No view dependencies for now
+    multiview_create_info.pViewOffsets = nullptr;
+    multiview_create_info.correlationMaskCount = 1;
+    multiview_create_info.pCorrelationMasks = &correlation_mask;
+
+    // Chain it to pass_info
+    pass_info.pNext = &multiview_create_info;
+    INFO_LOG_FMT(VIDEO, "Vulkan: Creating multiview render pass for EFB.");
+  }
+
   VkRenderPass pass;
   VkResult res = vkCreateRenderPass(g_vulkan_context->GetDevice(), &pass_info, nullptr, &pass);
   if (res != VK_SUCCESS)

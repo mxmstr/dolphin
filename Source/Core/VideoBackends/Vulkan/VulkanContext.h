@@ -54,6 +54,7 @@ public:
     bool depthClamp;
     bool textureCompressionBC;
     bool shaderSubgroupOperations = false;
+    VkBool32 multiview;
   };
 
   VulkanContext(VkInstance instance, VkPhysicalDevice physical_device);
