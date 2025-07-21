@@ -169,6 +169,8 @@ public:
   // Returns info about the main surface (aka backbuffer)
   virtual SurfaceInfo GetSurfaceInfo() const = 0;
 
+  virtual void VR_SubmitFrame(const AbstractTexture* efb_texture) {}
+
 protected:
   AbstractFramebuffer* m_current_framebuffer = nullptr;
   const AbstractPipeline* m_current_pipeline = nullptr;

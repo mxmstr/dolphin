@@ -22,6 +22,7 @@
 #include "VideoCommon/VideoConfig.h"
 #include "VideoCommon/VideoEvents.h"
 #include "VideoCommon/Widescreen.h"
+#include "VR.h"
 
 std::unique_ptr<VideoCommon::Presenter> g_presenter;
 
@@ -405,7 +406,7 @@ float Presenter::CalculateDrawAspectRatio(bool allow_stretch) const
     aspect_mode = AspectMode::Auto;
 
   // If stretch is enabled, we prefer the aspect ratio of the window.
-  if (aspect_mode == AspectMode::Stretch)
+  if (aspect_mode == AspectMode::Stretch || aspect_mode == AspectMode::VR)
   {
     resulting_aspect_ratio =
         (static_cast<float>(m_backbuffer_width) / static_cast<float>(m_backbuffer_height));
@@ -576,7 +577,7 @@ std::tuple<float, float> Presenter::ApplyStandardAspectCrop(float width, float h
   if (!allow_stretch && aspect_mode == AspectMode::Stretch)
     aspect_mode = AspectMode::Auto;
 
-  if (!g_ActiveConfig.bCrop || aspect_mode == AspectMode::Stretch || aspect_mode == AspectMode::Raw)
+  if (!g_ActiveConfig.bCrop || aspect_mode == AspectMode::Stretch || aspect_mode == AspectMode::Raw || aspect_mode == AspectMode::VR)
     return {width, height};
 
   // Force aspect ratios by cropping the image.
@@ -625,7 +626,7 @@ void Presenter::UpdateDrawRectangle()
   // Update aspect ratio hack values
   // Won't take effect until next frame
   // Don't know if there is a better place for this code so there isn't a 1 frame delay
-  if (g_ActiveConfig.bWidescreenHack)
+  if (g_ActiveConfig.bWidescreenHack || g_ActiveConfig.aspect_mode == AspectMode::VR)
   {
     const auto& vi = Core::System::GetInstance().GetVideoInterface();
     float source_aspect_ratio = vi.GetAspectRatio();
@@ -656,8 +657,18 @@ void Presenter::UpdateDrawRectangle()
   }
 
   // The rendering window size
-  const float win_width = static_cast<float>(m_backbuffer_width);
-  const float win_height = static_cast<float>(m_backbuffer_height);
+  float win_width = static_cast<float>(m_backbuffer_width);
+  float win_height = static_cast<float>(m_backbuffer_height);
+
+  /*if (g_ActiveConfig.bEnableVR && g_ActiveConfig.stereo_mode == StereoMode::OpenVR)
+  {
+    u32 width, height;
+    VR_GetRecommendedRenderTargetSize(&width, &height);
+    win_width = static_cast<float>(width);
+    win_height = static_cast<float>(height);
+
+  }*/
+
   const float win_aspect_ratio = win_width / win_height;
 
   // FIXME: this breaks at very low widget sizes
@@ -721,10 +732,16 @@ void Presenter::UpdateDrawRectangle()
     int_draw_height = m_xfb_rect.GetHeight();
   }
 
-  m_target_rectangle.left = static_cast<int>(std::round(win_width / 2.0 - int_draw_width / 2.0));
-  m_target_rectangle.top = static_cast<int>(std::round(win_height / 2.0 - int_draw_height / 2.0));
-  m_target_rectangle.right = m_target_rectangle.left + int_draw_width;
-  m_target_rectangle.bottom = m_target_rectangle.top + int_draw_height;
+  //INFO_LOG_FMT(VIDEO,
+  //  "Calculated draw rectangle: {}x{} {}x{} ({}x{})",
+  //  win_width, win_height, int_draw_width, int_draw_height, draw_width, draw_height);
+  /*int_draw_width = win_width;
+  int_draw_height = win_height;*/
+
+  m_target_rectangle.left = 0;//static_cast<int>(std::round(win_width / 2.0 - int_draw_width / 2.0));
+  m_target_rectangle.top = 0;//static_cast<int>(std::round(win_height / 2.0 - int_draw_height / 2.0));
+  m_target_rectangle.right = 1920;// m_target_rectangle.left + int_draw_width;
+  m_target_rectangle.bottom = 1584;// m_target_rectangle.top + int_draw_height;
 }
 
 std::tuple<float, float> Presenter::ScaleToDisplayAspectRatio(const int width, const int height,
@@ -836,6 +853,12 @@ void Presenter::Present(std::optional<TimePoint> presentation_time)
     }
     return;
   }
+
+  /*if (g_ActiveConfig.bEnableVR && m_xfb_entry)
+  {
+    VR_UpdateHeadTrackingIfNeeded();
+    g_gfx->VR_SubmitFrame(m_xfb_entry->texture.get());
+  }*/
 
   // Since we use the common pipelines here and draw vertices if a batch is currently being
   // built by the vertex loader, we end up trampling over its pointer, as we share the buffer

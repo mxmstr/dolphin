@@ -180,10 +180,16 @@ ScissorResult ComputeScissorRects()
 void SetScissorAndViewport()
 {
   auto native_rc = ComputeScissorRects().Best();
+  
+  /*INFO_LOG_FMT(VIDEO, "native_rc: x={} y={} width={} height={}", native_rc.rect.left, native_rc.rect.top,
+    native_rc.rect.right, native_rc.rect.bottom);*/
 
   auto target_rc = g_framebuffer_manager->ConvertEFBRectangle(native_rc.rect);
   auto converted_rc = g_gfx->ConvertFramebufferRectangle(target_rc, g_gfx->GetCurrentFramebuffer());
   g_gfx->SetScissorRect(converted_rc);
+
+  /*INFO_LOG_FMT(VIDEO, "Scissor: x={} y={} width={} height={}", converted_rc.left, converted_rc.top,
+    converted_rc.right, converted_rc.bottom);*/
 
   float raw_x = (xfmem.viewport.xOrig - native_rc.x_off) - xfmem.viewport.wd;
   float raw_y = (xfmem.viewport.yOrig - native_rc.y_off) + xfmem.viewport.ht;
@@ -265,7 +271,18 @@ void SetScissorAndViewport()
   if (g_backend_info.bUsesLowerLeftOrigin)
     y = static_cast<float>(g_gfx->GetCurrentFramebuffer()->GetHeight()) - y - height;
 
-  g_gfx->SetViewport(x, y, width, height, near_depth, far_depth);
+  // resize converted_rc to match the viewport size
+  converted_rc.left = static_cast<int>(std::round(x));
+  converted_rc.top = static_cast<int>(std::round(y));
+  converted_rc.right = static_cast<int>(std::round(x + 1920));
+  converted_rc.bottom = static_cast<int>(std::round(y + 1584));
+  g_gfx->SetScissorRect(converted_rc);
+  
+  //INFO_LOG_FMT(VIDEO, "Viewport: x={} y={} width={} height={} near_depth={} far_depth={}",
+  //  x, y, g_gfx->GetCurrentFramebuffer()->GetWidth(), g_gfx->GetCurrentFramebuffer()->GetHeight(), near_depth, far_depth);
+
+  g_gfx->SetViewport(x, y, 1920, 1584, near_depth, far_depth);
+  //g_gfx->SetViewport(x, y, width, height, near_depth, far_depth);
 }
 
 void SetDepthMode()

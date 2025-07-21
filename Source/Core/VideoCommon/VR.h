@@ -147,6 +147,8 @@ void VR_GetProjectionHalfTan(float& hmd_halftan);
 void VR_GetProjectionMatrices(Common::Matrix44& left_eye, Common::Matrix44& right_eye, float znear, float zfar);
 void VR_GetEyePos(float* posLeft, float* posRight);
 void VR_GetFovTextureSize(int* width, int* height);
+void VR_GetRecommendedRenderTargetSize(u32* width, u32* height);
+void VR_GetEyeToHeadTransforms(Common::Matrix44* left, Common::Matrix44* right);
 
 std::wstring VR_GetAudioDeviceId();
 

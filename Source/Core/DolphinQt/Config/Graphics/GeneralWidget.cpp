@@ -71,7 +71,7 @@ void GeneralWidget::CreateWidgets()
   m_previous_backend = m_backend_combo->currentIndex();
 
   m_aspect_combo = new ConfigChoice({tr("Auto"), tr("Force 16:9"), tr("Force 4:3"),
-                                     tr("Stretch to Window"), tr("Custom"), tr("Custom (Stretch)")},
+                                     tr("Stretch to Window"),  tr("VR"), tr("Custom"), tr("Custom (Stretch)")},
                                     Config::GFX_ASPECT_RATIO, m_game_layer);
   m_custom_aspect_label = new QLabel(tr("Custom Aspect Ratio:"));
   constexpr int MAX_CUSTOM_ASPECT_RATIO_RESOLUTION = 10000;

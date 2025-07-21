@@ -56,6 +56,7 @@
 #include "VideoCommon/VertexManagerBase.h"
 #include "VideoCommon/VideoCommon.h"
 #include "VideoCommon/VideoConfig.h"
+#include "VideoCommon/VR.h"
 
 static const u64 TEXHASH_INVALID = 0;
 // Sonic the Fighters (inside Sonic Gems Collection) loops a 64 frames animation
@@ -2174,6 +2175,19 @@ void TextureCacheBase::CopyRenderTargetToTexture(
     float gamma, bool clamp_top, bool clamp_bottom,
     const CopyFilterCoefficients::Values& filter_coefficients)
 {
+  if (g_ActiveConfig.bEnableVR && dstFormat == EFBCopyFormat::XFB && !is_depth_copy)
+  {
+    VR_UpdateHeadTrackingIfNeeded();
+
+    g_gfx->WaitForGPUIdle();
+
+    // Submit the high-resolution EFB texture to the VR runtime.
+    auto rect = g_framebuffer_manager->GetEFBFramebuffer()->GetRect();
+    /*INFO_LOG_FMT(VIDEO, "Submitting EFB texture to VR runtime: {}x{}",
+      rect.GetWidth(), rect.GetHeight());*/
+    g_gfx->VR_SubmitFrame(g_framebuffer_manager->ResolveEFBColorTexture(rect));
+  }
+
   // Emulation methods:
   //
   // - EFB to RAM:

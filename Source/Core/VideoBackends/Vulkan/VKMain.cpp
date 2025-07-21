@@ -18,6 +18,7 @@
 
 #include "VideoCommon/TextureCacheBase.h"
 #include "VideoCommon/VideoConfig.h"
+#include "VideoCommon/VR.h"
 
 #if defined(VK_USE_PLATFORM_METAL_EXT)
 #include <objc/message.h>
@@ -90,6 +91,8 @@ static bool ShouldEnableDebugUtils(bool enable_validation_layers)
 
 bool VideoBackend::Initialize(const WindowSystemInfo& wsi)
 {
+  VR_Init();
+
   if (!LoadVulkanLibrary())
   {
     PanicAlertFmt("Failed to load Vulkan library.");

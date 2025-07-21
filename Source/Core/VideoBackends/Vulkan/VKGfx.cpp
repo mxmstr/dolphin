@@ -24,12 +24,18 @@
 #include "VideoBackends/Vulkan/VKSwapChain.h"
 #include "VideoBackends/Vulkan/VKTexture.h"
 #include "VideoBackends/Vulkan/VKVertexFormat.h"
+#include "VideoBackends/Vulkan/VulkanContext.h"
 
 #include "VideoCommon/DriverDetails.h"
 #include "VideoCommon/FramebufferManager.h"
 #include "VideoCommon/Present.h"
 #include "VideoCommon/RenderState.h"
 #include "VideoCommon/VideoConfig.h"
+#include "VideoCommon/VR.h"
+
+#include <openvr.h>
+
+extern std::unique_ptr<Vulkan::VulkanContext> g_vulkan_context;
 
 namespace Vulkan
 {
@@ -337,6 +343,56 @@ void VKGfx::PresentBackbuffer()
 
   // New cmdbuffer, so invalidate state.
   StateTracker::GetInstance()->InvalidateCachedState();
+}
+
+void VKGfx::VR_SubmitFrame(const AbstractTexture* efb_texture)
+{
+    if (!g_ActiveConfig.bEnableVR || !efb_texture)
+        return;
+
+    const VKTexture* vk_texture = static_cast<const VKTexture*>(efb_texture);
+    VkImage native_texture = vk_texture->GetImage();
+
+    vr::VRVulkanTextureArrayData_t vulkan_data = {};
+    vulkan_data.m_nImage = (uint64_t)native_texture;
+    vulkan_data.m_pDevice = g_vulkan_context->GetDevice();
+    vulkan_data.m_pPhysicalDevice = g_vulkan_context->GetPhysicalDevice();
+    vulkan_data.m_pInstance = g_vulkan_context->GetVulkanInstance();
+    vulkan_data.m_pQueue = g_vulkan_context->GetGraphicsQueue();
+    vulkan_data.m_nQueueFamilyIndex = g_vulkan_context->GetGraphicsQueueFamilyIndex();
+    vulkan_data.m_nWidth = efb_texture->GetWidth();
+    vulkan_data.m_nHeight = efb_texture->GetHeight();
+    //INFO_LOG_FMT(VIDEO, "Submitting VR frame with texture size {}x{}", vulkan_data.m_nWidth,
+    //  vulkan_data.m_nHeight);
+    vulkan_data.m_nFormat = vk_texture->GetVkFormat();
+    vulkan_data.m_nSampleCount = efb_texture->GetSamples();
+
+    vr::Texture_t eye_texture = {};
+    eye_texture.handle = &vulkan_data;
+    eye_texture.eType = vr::TextureType_Vulkan;
+    eye_texture.eColorSpace = vr::ColorSpace_Auto;
+
+    vr::VRTextureBounds_t bounds;
+    bounds.uMin = 0.0f;
+    bounds.uMax = 1.0f;
+    bounds.vMin = 0.0f;
+    bounds.vMax = 1.0f;
+
+    // Left eye
+    vulkan_data.m_unArrayIndex = 0;
+    vr::EVRCompositorError error = vr::VRCompositor()->Submit(vr::Eye_Left, &eye_texture, &bounds, vr::Submit_VulkanTextureWithArrayData);
+    if (error != vr::VRCompositorError_None)
+    {
+        // Handle error
+    }
+
+    // Right eye
+    vulkan_data.m_unArrayIndex = 1;
+    error = vr::VRCompositor()->Submit(vr::Eye_Right, &eye_texture, &bounds, vr::Submit_VulkanTextureWithArrayData);
+    if (error != vr::VRCompositorError_None)
+    {
+        // Handle error
+    }
 }
 
 void VKGfx::SetFullscreen(bool enable_fullscreen)
