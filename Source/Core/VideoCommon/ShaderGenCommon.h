@@ -179,6 +179,7 @@ union ShaderHostConfig
   BitField<27, 1, bool, u32> backend_dynamic_vertex_loader;
   BitField<28, 1, bool, u32> backend_vs_point_line_expand;
   BitField<29, 1, bool, u32> backend_gl_layer_in_fs;
+  BitField<29, 1, bool, u32> backend_multiview;
 
   static ShaderHostConfig GetCurrent();
 };
@@ -297,7 +298,7 @@ static const char s_shader_uniforms[] = "\tuint    components;\n"
                                         "\tuint    missing_color_hex;\n"
                                         "\tfloat4  missing_color_value;\n"
                                         "\tfloat4 " I_POSNORMALMATRIX "[6];\n"
-                                        "\tfloat4 " I_PROJECTION "[4];\n"
+                                        "\tfloat4 " I_PROJECTION "[2][4];\n"
                                         "\tint4 " I_MATERIALS "[4];\n"
                                         "\tLight " I_LIGHTS "[8];\n"
                                         "\tfloat4 " I_TEXMATRICES "[24];\n"

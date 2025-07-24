@@ -1233,7 +1233,7 @@ void MainWindow::ShowRenderWidget()
     // Otherwise, just show it.
     m_rendering_to_main = false;
 
-    m_render_widget->setFixedSize(1920, 1584);
+    //m_render_widget->setFixedSize(1920, 1584);
 
     m_render_widget->showNormal();
     m_render_widget->restoreGeometry(m_render_widget_geometry);

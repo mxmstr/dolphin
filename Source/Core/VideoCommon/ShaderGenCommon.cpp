@@ -47,6 +47,7 @@ ShaderHostConfig ShaderHostConfig::GetCurrent()
   bits.backend_dynamic_vertex_loader = g_backend_info.bSupportsDynamicVertexLoader;
   bits.backend_vs_point_line_expand = g_ActiveConfig.UseVSForLinePointExpand();
   bits.backend_gl_layer_in_fs = g_backend_info.bSupportsGLLayerInFS;
+  bits.backend_multiview = g_backend_info.bSupportsMultiview;
   return bits;
 }
 
@@ -165,54 +166,6 @@ void GenerateVSOutputMembers(ShaderCode& object, APIType api_type, u32 texgens,
                              const ShaderHostConfig& host_config, std::string_view qualifier,
                              ShaderStage stage)
 {
-  // SPIRV-Cross names all semantics as "TEXCOORD"
-  // Unfortunately Geometry shaders (which also uses this function)
-  // aren't supported.  The output semantic name needs to match
-  // up with the input semantic name for both the next stage (pixel shader)
-  // and the previous stage (vertex shader), so
-  // we need to handle geometry in a special way...
-  if (api_type == APIType::D3D && stage == ShaderStage::Geometry)
-  {
-    DefineOutputMember(object, api_type, qualifier, "float4", "pos", -1, stage, "TEXCOORD", 0);
-    DefineOutputMember(object, api_type, qualifier, "float4", "colors_", 0, stage, "TEXCOORD", 1);
-    DefineOutputMember(object, api_type, qualifier, "float4", "colors_", 1, stage, "TEXCOORD", 2);
-
-    const unsigned int index_base = 3;
-    unsigned int index_offset = 0;
-    if (host_config.backend_geometry_shaders)
-    {
-      DefineOutputMember(object, api_type, qualifier, "float", "clipDist", 0, stage, "TEXCOORD",
-                         index_base + index_offset);
-      DefineOutputMember(object, api_type, qualifier, "float", "clipDist", 1, stage, "TEXCOORD",
-                         index_base + index_offset + 1);
-      index_offset += 2;
-    }
-
-    for (unsigned int i = 0; i < texgens; ++i)
-    {
-      DefineOutputMember(object, api_type, qualifier, "float3", "tex", i, stage, "TEXCOORD",
-                         index_base + index_offset + i);
-    }
-    index_offset += texgens;
-
-    if (!host_config.fast_depth_calc)
-    {
-      DefineOutputMember(object, api_type, qualifier, "float4", "clipPos", -1, stage, "TEXCOORD",
-                         index_base + index_offset);
-      index_offset++;
-    }
-
-    if (host_config.per_pixel_lighting)
-    {
-      DefineOutputMember(object, api_type, qualifier, "float3", "Normal", -1, stage, "TEXCOORD",
-                         index_base + index_offset);
-      DefineOutputMember(object, api_type, qualifier, "float3", "WorldPos", -1, stage, "TEXCOORD",
-                         index_base + index_offset + 1);
-      index_offset += 2;
-    }
-  }
-  else
-  {
     DefineOutputMember(object, api_type, qualifier, "float4", "pos", -1, stage, "SV_Position");
     DefineOutputMember(object, api_type, qualifier, "float4", "colors_", 0, stage, "COLOR", 0);
     DefineOutputMember(object, api_type, qualifier, "float4", "colors_", 1, stage, "COLOR", 1);
@@ -239,7 +192,15 @@ void GenerateVSOutputMembers(ShaderCode& object, APIType api_type, u32 texgens,
       DefineOutputMember(object, api_type, qualifier, "float3", "WorldPos", -1, stage, "TEXCOORD",
                          texgens + 2);
     }
-  }
+    
+    // THIS IS THE CRITICAL CORRECTION.
+    // It is now part of this function again, but uses the correct "flat" qualifier.
+    if (host_config.stereo && host_config.backend_multiview)
+    {
+        // For interface blocks, the qualifier must be 'flat'. The 'qualifier' parameter
+        // is for interpolation settings (e.g. 'centroid') which don't apply here.
+        DefineOutputMember(object, api_type, qualifier, "int", "view_index", -1, stage, "TEXCOORD", 10);
+    }
 }
 
 void AssignVSOutputMembers(ShaderCode& object, std::string_view a, std::string_view b, u32 texgens,
@@ -265,6 +226,10 @@ void AssignVSOutputMembers(ShaderCode& object, std::string_view a, std::string_v
   {
     object.Write("\t{}.clipDist0 = {}.clipDist0;\n", a, b);
     object.Write("\t{}.clipDist1 = {}.clipDist1;\n", a, b);
+  }
+  if (host_config.stereo && host_config.backend_multiview)
+  {
+      object.Write("\t{}.view_index = {}.view_index;\n", a, b);
   }
 }
 
@@ -294,9 +259,9 @@ void GenerateLineOffset(ShaderCode& object, std::string_view indent0, std::strin
 void GenerateVSLineExpansion(ShaderCode& object, std::string_view indent, u32 texgens)
 {
   std::string indent1 = std::string(indent) + "  ";
-  object.Write("{0}other_pos = float4(dot(" I_PROJECTION "[0], other_pos), dot(" I_PROJECTION
-               "[1], other_pos), dot(" I_PROJECTION "[2], other_pos), dot(" I_PROJECTION
-               "[3], other_pos));\n"
+  object.Write("{0}other_pos = float4(dot(" I_PROJECTION "[0][0], other_pos), dot(" I_PROJECTION
+               "[0][1], other_pos), dot(" I_PROJECTION "[0][2], other_pos), dot(" I_PROJECTION
+               "[0][3], other_pos));\n"
                "\n"
                "{0}float expand_sign = is_right ? 1.0f : -1.0f;\n",
                indent);

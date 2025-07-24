@@ -738,10 +738,10 @@ void Presenter::UpdateDrawRectangle()
   /*int_draw_width = win_width;
   int_draw_height = win_height;*/
 
-  m_target_rectangle.left = 0;//static_cast<int>(std::round(win_width / 2.0 - int_draw_width / 2.0));
-  m_target_rectangle.top = 0;//static_cast<int>(std::round(win_height / 2.0 - int_draw_height / 2.0));
-  m_target_rectangle.right = 1920;// m_target_rectangle.left + int_draw_width;
-  m_target_rectangle.bottom = 1584;// m_target_rectangle.top + int_draw_height;
+  m_target_rectangle.left = static_cast<int>(std::round(win_width / 2.0 - int_draw_width / 2.0));
+  m_target_rectangle.top = static_cast<int>(std::round(win_height / 2.0 - int_draw_height / 2.0));
+  m_target_rectangle.right = m_target_rectangle.left + int_draw_width;
+  m_target_rectangle.bottom = m_target_rectangle.top + int_draw_height;
 }
 
 std::tuple<float, float> Presenter::ScaleToDisplayAspectRatio(const int width, const int height,

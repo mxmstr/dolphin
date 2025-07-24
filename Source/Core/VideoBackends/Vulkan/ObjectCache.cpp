@@ -506,7 +506,7 @@ VkRenderPass ObjectCache::GetRenderPass(VkFormat color_format, VkFormat depth_fo
   bool vr_stereo_active = false;
   // Check if stereo mode is active and if the device supports multiview (queried and stored in VulkanContext)
   if (g_ActiveConfig.stereo_mode != StereoMode::Off &&
-      g_vulkan_context->GetDeviceInfo().features().multiViewport == VK_TRUE)
+      g_vulkan_context->GetDeviceInfo().multiview == VK_TRUE)
   {
     vr_stereo_active = true;
   }

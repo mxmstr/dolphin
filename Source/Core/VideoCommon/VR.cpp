@@ -539,40 +539,51 @@ static Common::Matrix44 ConvertHmdMatrix44ToMatrix44(const vr::HmdMatrix44_t& ma
   return result;
 }
 
-// Correctly constructs the view matrices for each eye from their poses.
+static Common::Matrix44 CreateViewFromPose(const vr::HmdMatrix34_t& pose)
+{
+    Common::Matrix44 view_matrix;
+
+    // Transposed rotation part (R^T)
+    view_matrix.data[0] = pose.m[0][0]; view_matrix.data[1] = pose.m[1][0]; view_matrix.data[2] = pose.m[2][0];
+    view_matrix.data[4] = pose.m[0][1]; view_matrix.data[5] = pose.m[1][1]; view_matrix.data[6] = pose.m[2][1];
+    view_matrix.data[8] = pose.m[0][2]; view_matrix.data[9] = pose.m[1][2]; view_matrix.data[10] = pose.m[2][2];
+
+    // Inverted and transformed translation part (-R^T * T)
+    Common::Vec3 t = {pose.m[0][3], pose.m[1][3], pose.m[2][3]};
+    view_matrix.data[12] = -(view_matrix.data[0] * t.x + view_matrix.data[4] * t.y + view_matrix.data[8] * t.z);
+    view_matrix.data[13] = -(view_matrix.data[1] * t.x + view_matrix.data[5] * t.y + view_matrix.data[9] * t.z);
+    view_matrix.data[14] = -(view_matrix.data[2] * t.x + view_matrix.data[6] * t.y + view_matrix.data[10] * t.z);
+
+    // Homogeneous coordinate setup
+    view_matrix.data[3] = view_matrix.data[7] = view_matrix.data[11] = 0.0f;
+    view_matrix.data[15] = 1.0f;
+
+    return view_matrix;
+}
+
 void VR_GetEyeToHeadTransforms(Common::Matrix44* left, Common::Matrix44* right)
 {
 #ifdef HAVE_OPENVR
     if (g_has_openvr && m_pHMD)
     {
-        // A view matrix is the inverse of a pose matrix.
-        // For a rigid body transform [R|T], the inverse is [R^T | -R^T * T].
-        auto CreateViewFromPose = [](const vr::HmdMatrix34_t& pose) -> Common::Matrix44 {
+        auto InvertPoseMatrix = [](const vr::HmdMatrix34_t& pose) -> Common::Matrix44 {
+            // This creates a view matrix from an OpenVR pose for a row-major, post-multiplication system.
             Common::Matrix44 view_matrix;
-
-            // Transposed rotation part (R^T)
-            view_matrix.data[0] = pose.m[0][0]; view_matrix.data[1] = pose.m[1][0]; view_matrix.data[2] = pose.m[2][0];
-            view_matrix.data[4] = pose.m[0][1]; view_matrix.data[5] = pose.m[1][1]; view_matrix.data[6] = pose.m[2][1];
-            view_matrix.data[8] = pose.m[0][2]; view_matrix.data[9] = pose.m[1][2]; view_matrix.data[10] = pose.m[2][2];
-
-            // Inverted and transformed translation part (-R^T * T)
-            Common::Vec3 t = {pose.m[0][3], pose.m[1][3], pose.m[2][3]};
-            view_matrix.data[12] = -(view_matrix.data[0] * t.x + view_matrix.data[4] * t.y + view_matrix.data[8] * t.z);
-            view_matrix.data[13] = -(view_matrix.data[1] * t.x + view_matrix.data[5] * t.y + view_matrix.data[9] * t.z);
-            view_matrix.data[14] = -(view_matrix.data[2] * t.x + view_matrix.data[6] * t.y + view_matrix.data[10] * t.z);
-
-            // Homogeneous coordinate setup
-            view_matrix.data[3] = view_matrix.data[7] = view_matrix.data[11] = 0.0f;
+            view_matrix.data[0] = pose.m[0][0]; view_matrix.data[1] = pose.m[1][0]; view_matrix.data[2] = pose.m[2][0]; view_matrix.data[3] = 0.0f;
+            view_matrix.data[4] = pose.m[0][1]; view_matrix.data[5] = pose.m[1][1]; view_matrix.data[6] = pose.m[2][1]; view_matrix.data[7] = 0.0f;
+            view_matrix.data[8] = pose.m[0][2]; view_matrix.data[9] = pose.m[1][2]; view_matrix.data[10] = pose.m[2][2]; view_matrix.data[11] = 0.0f;
+            view_matrix.data[12] = -(pose.m[0][3] * pose.m[0][0] + pose.m[1][3] * pose.m[0][1] + pose.m[2][3] * pose.m[0][2]);
+            view_matrix.data[13] = -(pose.m[0][3] * pose.m[1][0] + pose.m[1][3] * pose.m[1][1] + pose.m[2][3] * pose.m[1][2]);
+            view_matrix.data[14] = -(pose.m[0][3] * pose.m[2][0] + pose.m[1][3] * pose.m[2][1] + pose.m[2][3] * pose.m[2][2]);
             view_matrix.data[15] = 1.0f;
-
             return view_matrix;
         };
 
         vr::HmdMatrix34_t mat_left_pose = m_pHMD->GetEyeToHeadTransform(vr::Eye_Left);
         vr::HmdMatrix34_t mat_right_pose = m_pHMD->GetEyeToHeadTransform(vr::Eye_Right);
 
-        *left = CreateViewFromPose(mat_left_pose);
-        *right = CreateViewFromPose(mat_right_pose);
+        *left = InvertPoseMatrix(mat_left_pose);
+        *right = InvertPoseMatrix(mat_right_pose);
         return;
     }
 #endif
@@ -580,7 +591,6 @@ void VR_GetEyeToHeadTransforms(Common::Matrix44* left, Common::Matrix44* right)
     *left = Common::Matrix44::Identity();
     *right = Common::Matrix44::Identity();
 }
-
 
 void VR_GetProjectionHalfTan(float& hmd_halftan)
 {
@@ -603,7 +613,6 @@ void VR_GetProjectionHalfTan(float& hmd_halftan)
   hmd_halftan = tan(DEGREES_TO_RADIANS(g_ActiveConfig.fMotionSicknessFOV > 0.f ? g_ActiveConfig.fMotionSicknessFOV / 2.0f : 45.0f));
 }
 
-// Builds a standard, row-major, right-handed perspective projection matrix.
 static Common::Matrix44 BuildProjectionMatrix(float left, float right, float top, float bottom, float near_z, float far_z)
 {
     Common::Matrix44 proj = {}; // Zero-initialize
@@ -632,7 +641,6 @@ static Common::Matrix44 BuildProjectionMatrix(float left, float right, float top
     return proj;
 }
 
-// Correctly builds projection matrices from raw OpenVR tangents.
 void VR_GetProjectionMatrices(Common::Matrix44& left_eye, Common::Matrix44& right_eye, float znear, float zfar)
 {
 #ifdef HAVE_OPENVR
@@ -640,39 +648,14 @@ void VR_GetProjectionMatrices(Common::Matrix44& left_eye, Common::Matrix44& righ
     {
         float left, right, top, bottom;
 
-        //left_eye = Common::Matrix44::Identity();
-        //left_eye.data[10] = -znear / (zfar - znear);
-        //left_eye.data[11] = -zfar * znear / (zfar - znear);
-        //left_eye.data[14] = -1.0f;
-        //left_eye.data[15] = 0.0f;
-        //// 32 degrees HFOV, 4:3 aspect ratio
-        //left_eye.data[0 * 4 + 0] = 1.0f / tan(32.0f / 2.0f * 3.1415926535f / 180.0f);
-        //left_eye.data[1 * 4 + 1] = 4.0f / 3.0f * left_eye.data[0 * 4 + 0];
-        //right_eye = Common::Matrix44::FromArray(left_eye.data);
+        // Get the raw frustum tangents for the left eye.
+        m_pHMD->GetProjectionRaw(vr::Eye_Left, &left, &right, &top, &bottom);
+        left_eye = BuildProjectionMatrix(left * znear, right * znear, top * znear, bottom * znear, znear, zfar);
 
-        // vr::HmdMatrix44_t mat = m_pHMD->GetProjectionMatrix(vr::Eye_Left, znear, zfar); 
-        //
-        //for (int r = 0; r < 4; ++r)
-        //  for (int c = 0; c < 4; ++c)
-        //    left_eye.data[r * 4 + c] = mat.m[r][c];
+        // Get the raw frustum tangents for the right eye.
+        m_pHMD->GetProjectionRaw(vr::Eye_Right, &left, &right, &top, &bottom);
+        right_eye = BuildProjectionMatrix(left * znear, right * znear, top * znear, bottom * znear, znear, zfar);
 
-        //// Get the raw frustum tangents for the left eye.
-        ////m_pHMD->GetProjectionRaw(vr::Eye_Left, &left, &right, &top, &bottom);
-        ////left_eye = BuildProjectionMatrix(left, right, top, bottom, znear, zfar);
-
-        //// Get the raw frustum tangents for the right eye.
-        ////m_pHMD->GetProjectionRaw(vr::Eye_Right, &left, &right, &top, &bottom);
-        ////right_eye = BuildProjectionMatrix(left, right, top, bottom, znear, zfar);
-
-        //right_eye = Common::Matrix44::FromArray(left_eye.data);
-
-        vr::HmdMatrix44_t mat_left = m_pHMD->GetProjectionMatrix(vr::Eye_Left, znear, zfar);
-        vr::HmdMatrix44_t mat_right = m_pHMD->GetProjectionMatrix(vr::Eye_Right, znear, zfar);
-
-        // Use your (or a similar) transposing conversion function
-        left_eye = ConvertHmdMatrix44ToMatrix44(mat_left);
-        right_eye = ConvertHmdMatrix44ToMatrix44(mat_right);
-        
         return;
     }
 #endif

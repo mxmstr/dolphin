@@ -507,6 +507,7 @@ void VulkanContext::PopulateBackendInfoFeatures(BackendInfo* backend_info, VkPhy
       info.fragmentStoresAndAtomics;
   backend_info->bSupportsSSAA = info.sampleRateShading;
   backend_info->bSupportsLogicOp = info.logicOp;
+  backend_info->bSupportsMultiview = info.multiview;
 
   // Metal doesn't support this.
   backend_info->bSupportsLodBiasInSampler = info.driverID != VK_DRIVER_ID_MOLTENVK;

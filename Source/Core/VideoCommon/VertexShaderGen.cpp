@@ -238,7 +238,11 @@ ShaderCode GenerateVertexShaderCode(APIType api_type, const ShaderHostConfig& ho
 
   out.Write("struct VS_OUTPUT {{\n");
   GenerateVSOutputMembers(out, api_type, uid_data->numTexGens, host_config, "",
-                          ShaderStage::Vertex);
+                        ShaderStage::Vertex);
+  if (host_config.stereo && host_config.backend_multiview)
+  {
+      //out.Write("\tint view_index;\n");
+  }
   out.Write("}};\n\n");
 
   WriteIsNanHeader(out, api_type);
@@ -359,6 +363,10 @@ ShaderCode GenerateVertexShaderCode(APIType api_type, const ShaderHostConfig& ho
     GenerateVSOutputMembers(out, api_type, uid_data->numTexGens, host_config,
                             GetInterpolationQualifier(msaa, ssaa, true, false),
                             ShaderStage::Vertex);
+    if (host_config.stereo && host_config.backend_multiview)
+    {
+        //out.Write("  flat int view_index;\n");
+    }
     out.Write("}} vs;\n");
   }
   else
@@ -449,8 +457,22 @@ ShaderCode GenerateVertexShaderCode(APIType api_type, const ShaderHostConfig& ho
   if ((uid_data->components & VB_HAS_BINORMAL) == 0)
     out.Write("\tvec3 rawbinormal = " I_CACHED_BINORMAL ".xyz;\n");
 
-  out.Write("o.pos = float4(dot(" I_PROJECTION "[0], pos), dot(" I_PROJECTION
-            "[1], pos), dot(" I_PROJECTION "[2], pos), dot(" I_PROJECTION "[3], pos));\n");
+  //out.Write("o.pos = float4(dot(" I_PROJECTION "[0], pos), dot(" I_PROJECTION
+  //          "[1], pos), dot(" I_PROJECTION "[2], pos), dot(" I_PROJECTION "[3], pos));\n");
+
+  
+  // ADD THIS right after the position calculation
+  if (host_config.stereo && host_config.backend_multiview)
+  {
+    out.Write("uint view_index = gl_ViewIndex;\n");
+    out.Write("o.pos = float4(dot(" I_PROJECTION
+              "[view_index][0], pos), dot(" I_PROJECTION
+              "[view_index][1], pos), dot(" I_PROJECTION
+              "[view_index][2], pos), dot(" I_PROJECTION
+              "[view_index][3], pos));\n");
+
+    out.Write("  o.view_index = gl_ViewIndex;\n");
+  }
 
   out.Write("int4 lacc;\n"
             "float3 ldir, h, cosAttn, distAttn;\n"
@@ -718,6 +740,13 @@ ShaderCode GenerateVertexShaderCode(APIType api_type, const ShaderHostConfig& ho
     }
     out.Write("colors_0 = o.colors_0;\n"
               "colors_1 = o.colors_1;\n");
+  }
+
+  if (host_config.stereo && host_config.backend_multiview)
+  {
+      //out.Write("#ifdef VULKAN_MULTIVIEW\n");
+      out.Write("  vs.view_index = gl_ViewIndex;\n");
+      //out.Write("#endif\n");
   }
 
   if (host_config.backend_depth_clamp)

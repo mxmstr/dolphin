@@ -272,17 +272,17 @@ void SetScissorAndViewport()
     y = static_cast<float>(g_gfx->GetCurrentFramebuffer()->GetHeight()) - y - height;
 
   // resize converted_rc to match the viewport size
-  converted_rc.left = static_cast<int>(std::round(x));
+  /*converted_rc.left = static_cast<int>(std::round(x));
   converted_rc.top = static_cast<int>(std::round(y));
   converted_rc.right = static_cast<int>(std::round(x + 1920));
   converted_rc.bottom = static_cast<int>(std::round(y + 1584));
-  g_gfx->SetScissorRect(converted_rc);
+  g_gfx->SetScissorRect(converted_rc);*/
   
   //INFO_LOG_FMT(VIDEO, "Viewport: x={} y={} width={} height={} near_depth={} far_depth={}",
   //  x, y, g_gfx->GetCurrentFramebuffer()->GetWidth(), g_gfx->GetCurrentFramebuffer()->GetHeight(), near_depth, far_depth);
 
-  g_gfx->SetViewport(x, y, 1920, 1584, near_depth, far_depth);
-  //g_gfx->SetViewport(x, y, width, height, near_depth, far_depth);
+  //g_gfx->SetViewport(x, y, 1920, 1584, near_depth, far_depth);
+  g_gfx->SetViewport(x, y, width, height, near_depth, far_depth);
 }
 
 void SetDepthMode()

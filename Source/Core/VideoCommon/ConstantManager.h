@@ -71,7 +71,7 @@ struct alignas(16) VertexShaderConstants
   float4 missing_color_value;
 
   std::array<float4, 6> posnormalmatrix;
-  std::array<float4, 4> projection;
+  std::array<std::array<float4, 4>, 2> projection;
   std::array<int4, 4> materials;
   struct Light
   {

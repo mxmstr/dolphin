@@ -182,6 +182,7 @@ struct BackendInfo
   bool bSupportsVSLinePointExpand = false;
   bool bSupportsGLLayerInFS = true;
   bool bSupportsHDROutput = false;
+  bool bSupportsMultiview;
 };
 
 extern BackendInfo g_backend_info;

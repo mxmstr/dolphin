@@ -41,50 +41,46 @@ void VertexShaderManager::Init()
   dirty = true;
 }
 
+static void ExtractNearFarFromProjection(const Common::Matrix44& proj, float& _near, float& _far)
+{
+    const float A = proj.data[10];
+    const float B = proj.data[11];
+
+    // Check for orthographic projection (w_clip is constant)
+    if (std::abs(proj.data[14]) < 1e-6f)
+    {
+        _near = (1.0f - B) / A;
+        _far = (-1.0f - B) / A;
+        if (_near > _far) std::swap(_near, _far);
+        return;
+    }
+
+    // Handle infinite far plane cases.
+    // Standard infinite projection has A -> -1.
+    // Some games (due to precision loss) produce A -> 0 for infinite projections.
+    if (std::abs(A + 1.0f) < 1e-5f || std::abs(A) < 1e-5f)
+    {
+        // Infinite far plane. The B term simplifies to -2*near.
+        _near = -B / 2.0f;
+        _far = 1000000.0f; // A large number to represent "infinity" for the VR runtime.
+    }
+    else
+    {
+        // Standard case for finite perspective projection
+        _near = B / (A - 1.0f);
+        _far = B / (A + 1.0f);
+    }
+    
+    if (_near > _far)
+        std::swap(_near, _far);
+    
+    if (_near <= 0.0f)
+        _near = 0.01f; // Clamp to a small positive value to prevent issues
+}
+
 Common::Matrix44 VertexShaderManager::LoadProjectionMatrix()
 {
   const auto& rawProjection = xfmem.projection.rawProjection;
-  Common::Matrix44 final_matrix_left, final_matrix_right;
-
-  // Check if VR is active and we are rendering a perspective scene.
-  if (g_ActiveConfig.bEnableVR && xfmem.projection.type == ProjectionType::Perspective)
-  {
-    // VR Path: IGNORE the game's projection matrix.
-    // Get the pure, unmodified projection matrices from OpenVR.
-    Common::Matrix44 hmd_left, hmd_right;
-    // You will need to determine the correct near/far planes from the game's projection.
-    float zfar = rawProjection[5] / rawProjection[4];
-    float znear = (1 + rawProjection[5]) / rawProjection[4];
-    VR_GetProjectionMatrices(hmd_left, hmd_right, znear, zfar);
-
-    // Get the view matrix (head tracking, etc.)
-    Common::Matrix44 view_matrix = Common::Matrix44::Identity();//g_freelook_camera.GetView();
-
-    // The geometry shader will need both matrices. Store the right one.
-    auto& system = Core::System::GetInstance();
-    auto& geometry_shader_manager = system.GetGeometryShaderManager();
-    
-    // This is tricky because you're using one function to return one matrix, but you need two.
-    // A better way is to pass BOTH matrices to the shader in a UBO.
-    // Let's assume the geometry shader will handle selecting the right matrix.
-    // We will compute BOTH final matrices here and upload them.
-    Common::Matrix44 final_matrix_right;
-    Common::Matrix44::Multiply(hmd_left, view_matrix, &final_matrix_left);
-    Common::Matrix44::Multiply(hmd_right, view_matrix, &final_matrix_right);
-
-    // Upload BOTH matrices to a UBO that both the VS and GS can access.
-    // Your existing 'stereoparams' seems to be for this.
-    // It should contain the full matrices or enough data to reconstruct them.
-    // Let's populate it with the key differing values for the geometry shader.
-    // The vertex shader will use the left eye's matrix by default.
-    geometry_shader_manager.constants.stereoparams[0] = final_matrix_left.data[0];  // Left Proj[0][0]
-    geometry_shader_manager.constants.stereoparams[1] = final_matrix_right.data[0]; // Right Proj[0][0]
-    geometry_shader_manager.constants.stereoparams[2] = final_matrix_left.data[8];  // Left Proj[2][0]
-    geometry_shader_manager.constants.stereoparams[3] = final_matrix_right.data[8]; // Right Proj[2][0]
-    geometry_shader_manager.dirty = true;
-
-    return final_matrix_left; // The VS will use this one. GS will build the right one.
-  }
 
   switch (xfmem.projection.type)
   {
@@ -155,37 +151,78 @@ Common::Matrix44 VertexShaderManager::LoadProjectionMatrix()
 
   auto corrected_matrix = Common::Matrix44::FromArray(m_projection_matrix);
 
+  if (g_ActiveConfig.bEnableVR && xfmem.projection.type == ProjectionType::Perspective)// && g_vulkan_context->GetDeviceInfo().multiview)
+  {
+    Common::Matrix44 head_view_matrix = Common::Matrix44::Identity();// g_freelook_camera.GetView();
+
+      // --- THIS IS THE FINAL FIX ---
+        // 1. Build the game's original projection matrix exactly as it would for non-VR.
+        const auto& rawProjection = xfmem.projection.rawProjection;
+        Common::Matrix44 game_projection_matrix;
+        if (xfmem.projection.type == ProjectionType::Perspective)
+        {
+             // NOTE: We do NOT include fov_multiplier here. That is part of the head_view_matrix.
+            game_projection_matrix.data[0] = rawProjection[0] * g_ActiveConfig.fAspectRatioHackW;
+            game_projection_matrix.data[1] = 0.0f;
+            game_projection_matrix.data[2] = rawProjection[1] * g_ActiveConfig.fAspectRatioHackW;
+            game_projection_matrix.data[3] = 0.0f;
+            game_projection_matrix.data[4] = 0.0f;
+            game_projection_matrix.data[5] = rawProjection[2] * g_ActiveConfig.fAspectRatioHackH;
+            game_projection_matrix.data[6] = rawProjection[3] * g_ActiveConfig.fAspectRatioHackH;
+            game_projection_matrix.data[7] = 0.0f;
+            game_projection_matrix.data[8] = 0.0f;
+            game_projection_matrix.data[9] = 0.0f;
+            game_projection_matrix.data[10] = rawProjection[4];
+            game_projection_matrix.data[11] = rawProjection[5];
+            game_projection_matrix.data[12] = 0.0f;
+            game_projection_matrix.data[13] = 0.0f;
+            game_projection_matrix.data[14] = -1.0f;
+            game_projection_matrix.data[15] = 0.0f;
+        }
+        else // Orthographic
+        {
+            game_projection_matrix = Common::Matrix44::Identity(); // VR on ortho is undefined, but this prevents crashes
+        }
+
+        // 2. Get the eye-to-head VIEW matrices.
+        Common::Matrix44 eye_to_head_left, eye_to_head_right;
+        VR_GetEyeToHeadTransforms(&eye_to_head_left, &eye_to_head_right);
+        
+        //eye_to_head_left.data[2] = -20.2f;
+        //eye_to_head_right.data[2] = -2.2f;
+        
+        // 3. Combine them in the correct order for post-multiplication: Head -> Eye -> Project
+        Common::Matrix44 final_proj_left = head_view_matrix * eye_to_head_left * game_projection_matrix;
+        Common::Matrix44 final_proj_right = head_view_matrix * eye_to_head_right * game_projection_matrix;
+        // --- END OF FINAL FIX ---
+        
+        //final_proj_right.data[2] = 0.5f;
+
+        memcpy(constants.projection[0].data(), final_proj_left.data.data(), sizeof(float4) * 4);
+        memcpy(constants.projection[1].data(), final_proj_right.data.data(), sizeof(float4) * 4);
+
+        //m_projection_matrix = final_proj_left.data;
+        g_freelook_camera.GetController()->SetClean();
+        return final_proj_left;
+  }
+
     // If FreeLook is active for a perspective scene, we override the entire
     // view-projection matrix with the one required for VR.
     if (g_freelook_camera.IsActive() && xfmem.projection.type == ProjectionType::Perspective)
     {
-        // 1. Get the base view matrix from the freelook camera, which includes head tracking.
-        Common::Matrix44 freelook_view = g_freelook_camera.GetView();
-
-        // 2. Get the VR headset's projection and eye-to-head view matrices.
-        //    Using realistic near/far values is important.
-        //float near_z = 0.1f;
-        //float far_z = 30000.0f;
-        //Common::Matrix44 left_proj, right_proj;
-        //VR_GetProjectionMatrices(left_proj, right_proj, near_z, far_z);
-
-        //Common::Matrix44 left_eye_view, right_eye_view;
-        //VR_GetEyeToHeadTransforms(&left_eye_view, &right_eye_view);
-
-        //
-        //// 3. Combine them to create the final view-projection matrix.
-        ////    The order is crucial: P * V_eye * V_freelook
-        ////    This replaces the game's projection entirely.
-        //corrected_matrix = corrected_matrix * left_proj * left_eye_view * freelook_view;
-
-        corrected_matrix = final_matrix_left;
+        corrected_matrix *= g_freelook_camera.GetView();
     }
     
     // The freelook controller state is now incorporated into the matrix.
     g_freelook_camera.GetController()->SetClean();
+    
+    // For non-multiview rendering, just load the same matrix into both slots.
+    memcpy(constants.projection[0].data(), corrected_matrix.data.data(), sizeof(float4) * 4);
+    memcpy(constants.projection[1].data(), corrected_matrix.data.data(), sizeof(float4) * 4);
 
     // Return the final matrix to be uploaded to the shader.
     return corrected_matrix;
+
 }
 
 void VertexShaderManager::SetProjectionMatrix(XFStateManager& xf_state_manager)
@@ -193,8 +230,10 @@ void VertexShaderManager::SetProjectionMatrix(XFStateManager& xf_state_manager)
   if (xf_state_manager.DidProjectionChange() || g_freelook_camera.GetController()->IsDirty())
   {
     xf_state_manager.ResetProjection();
-    auto corrected_matrix = LoadProjectionMatrix();
-    memcpy(constants.projection.data(), corrected_matrix.data.data(), 4 * sizeof(float4));
+
+    // This call now handles both VR and non-VR cases and uploads the correct
+    // matrix/matrices to the constants buffer.
+    LoadProjectionMatrix();
   }
 }
 
@@ -488,7 +527,7 @@ void VertexShaderManager::SetConstants(const std::vector<std::string>& textures,
       action->OnProjection(&projection);
     }
 
-    memcpy(constants.projection.data(), corrected_matrix.data.data(), 4 * sizeof(float4));
+    //memcpy(constants.projection.data(), corrected_matrix.data.data(), 4 * sizeof(float4));
     dirty = true;
   }
 

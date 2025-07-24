@@ -91,6 +91,14 @@ ShaderCode GenerateGeometryShaderCode(APIType api_type, const ShaderHostConfig& 
 
   out.Write("{}", s_lighting_struct);
 
+  // Local struct for intermediate calculations
+  out.Write("struct VS_OUTPUT {{\n");
+  GenerateVSOutputMembers(out, api_type, uid_data->numTexGens, host_config, "",
+                          ShaderStage::Geometry);
+  //if (host_config.stereo && host_config.backend_multiview)
+    //out.Write("\tint view_index;\n"); // Manually add for local struct
+  out.Write("}};\n");
+
   // uniforms
   if (api_type == APIType::OpenGL || api_type == APIType::Vulkan)
     out.Write("UBO_BINDING(std140, 4) uniform GSBlock {{\n");
@@ -100,28 +108,25 @@ ShaderCode GenerateGeometryShaderCode(APIType api_type, const ShaderHostConfig& 
   out.Write("{}", s_geometry_shader_uniforms);
   out.Write("}};\n");
 
-  out.Write("struct VS_OUTPUT {{\n");
-  GenerateVSOutputMembers(out, api_type, uid_data->numTexGens, host_config, "",
-                          ShaderStage::Geometry);
-  out.Write("}};\n");
-
   if (api_type == APIType::OpenGL || api_type == APIType::Vulkan)
   {
-    if (host_config.backend_gs_instancing)
+    if (host_config.backend_gs_instancing && !host_config.backend_multiview)
       out.Write("#define InstanceID gl_InvocationID\n");
 
+    // --- INPUT from Vertex Shader ---
     out.Write("VARYING_LOCATION(0) in VertexData {{\n");
     GenerateVSOutputMembers(out, api_type, uid_data->numTexGens, host_config,
                             GetInterpolationQualifier(msaa, ssaa, true, true),
                             ShaderStage::Geometry);
     out.Write("}} vs[{}];\n", vertex_in);
 
+    // --- OUTPUT to Pixel Shader ---
     out.Write("VARYING_LOCATION(0) out VertexData {{\n");
     GenerateVSOutputMembers(out, api_type, uid_data->numTexGens, host_config,
                             GetInterpolationQualifier(msaa, ssaa, true, false),
                             ShaderStage::Geometry);
-
     out.Write("}} ps;\n");
+
     if (stereo && !host_config.backend_gl_layer_in_fs)
       out.Write("flat out int layer;");
 
@@ -155,6 +160,22 @@ ShaderCode GenerateGeometryShaderCode(APIType api_type, const ShaderHostConfig& 
     }
 
     out.Write("\tVertexData ps;\n");
+  }
+
+  // Determine which eye we are rendering for all stereo paths.
+  out.Write("\tint eye = 0;\n");
+  if (stereo)
+  {
+    if (host_config.backend_multiview)
+    {
+        out.Write("#ifdef VULKAN_MULTIVIEW\n");
+        out.Write("\teye = vs[0].view_index;\n");
+        out.Write("#endif\n");
+    }
+    else if (host_config.backend_gs_instancing)
+    {
+        out.Write("\teye = InstanceID;\n");
+    }
   }
 
   if (primitive_type == PrimitiveType::Lines)
@@ -191,56 +212,43 @@ ShaderCode GenerateGeometryShaderCode(APIType api_type, const ShaderHostConfig& 
               ".x, -" I_LINEPTPARAMS ".w / " I_LINEPTPARAMS ".y) * center.pos.w;\n");
   }
 
-  if (stereo)
+  // Start stereo duplication loop ONLY for non-multiview paths.
+  if (stereo && !host_config.backend_multiview && !host_config.backend_gs_instancing)
   {
-    // If the GPU supports invocation we don't need a for loop and can simply use the
-    // invocation identifier to determine which layer we're rendering.
-    if (host_config.backend_gs_instancing)
-      out.Write("\tint eye = InstanceID;\n");
-    else
       out.Write("\tfor (int eye = 0; eye < 2; ++eye) {{\n");
   }
 
   if (wireframe)
     out.Write("\tVS_OUTPUT first;\n");
 
-  // Avoid D3D warning about forced unrolling of single-iteration loop
   if (vertex_in > 1)
     out.Write("\tfor (int i = 0; i < {}; ++i) {{\n", vertex_in);
   else
     out.Write("\tint i = 0;\n");
 
-  if (api_type == APIType::OpenGL || api_type == APIType::Vulkan)
+  // Create local struct 'f' and populate it
+  out.Write("\tVS_OUTPUT f;\n");
+  AssignVSOutputMembers(out, "f", "vs[i]", uid_data->numTexGens, host_config);
+  if (host_config.stereo && host_config.backend_multiview)
   {
-    out.Write("\tVS_OUTPUT f;\n");
-    AssignVSOutputMembers(out, "f", "vs[i]", uid_data->numTexGens, host_config);
+      // Pass the view_index through
+      out.Write("\tf.view_index = eye;\n");
+  }
 
-    if (host_config.backend_depth_clamp &&
-        DriverDetails::HasBug(DriverDetails::BUG_BROKEN_CLIP_DISTANCE))
-    {
-      // On certain GPUs we have to consume the clip distance from the vertex shader
-      // or else the other vertex shader outputs will get corrupted.
+  if (host_config.backend_depth_clamp &&
+      DriverDetails::HasBug(DriverDetails::BUG_BROKEN_CLIP_DISTANCE))
+  {
       out.Write("\tf.clipDist0 = gl_in[i].gl_ClipDistance[0];\n"
                 "\tf.clipDist1 = gl_in[i].gl_ClipDistance[1];\n");
-    }
-  }
-  else
-  {
-    out.Write("\tVS_OUTPUT f = o[i];\n");
   }
 
   if (stereo)
   {
-    // For stereoscopy add a small horizontal offset in Normalized Device Coordinates proportional
-    // to the depth of the vertex. We retrieve the depth value from the w-component of the projected
-    // vertex which contains the negated z-component of the original vertex.
-    // For negative parallax (out-of-screen effects) we subtract a convergence value from
-    // the depth value. This results in objects at a distance smaller than the convergence
-    // distance to seemingly appear in front of the screen.
-    // This formula is based on page 13 of the "Nvidia 3D Vision Automatic, Best Practices Guide"
+    // Apply stereo offset. The 'eye' variable is now correct for all paths.
     out.Write("\tfloat hoffset = (eye == 0) ? " I_STEREOPARAMS ".x : " I_STEREOPARAMS ".y;\n");
     out.Write("\tf.pos.x += hoffset * (f.pos.w - " I_STEREOPARAMS ".z);\n");
   }
+
 
   if (primitive_type == PrimitiveType::Lines)
   {
@@ -305,8 +313,11 @@ ShaderCode GenerateGeometryShaderCode(APIType api_type, const ShaderHostConfig& 
 
   EndPrimitive(out, host_config, uid_data, api_type, wireframe, stereo);
 
-  if (stereo && !host_config.backend_gs_instancing)
-    out.Write("\t}}\n");
+  // End stereo duplication loop ONLY for non-multiview paths.
+  if (stereo && !host_config.backend_multiview && !host_config.backend_gs_instancing)
+  {
+      out.Write("\t}}\n");
+  }
 
   out.Write("}}\n");
 

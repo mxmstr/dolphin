@@ -52,6 +52,8 @@ static const char SHADER_HEADER[] = R"(
   // These were changed in Vulkan
   #define gl_VertexID gl_VertexIndex
   #define gl_InstanceID gl_InstanceIndex
+
+  #extension GL_EXT_multiview : require
 )";
 static const char COMPUTE_SHADER_HEADER[] = R"(
   // Target GLSL 4.5.
