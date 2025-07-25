@@ -180,6 +180,7 @@ union ShaderHostConfig
   BitField<28, 1, bool, u32> backend_vs_point_line_expand;
   BitField<29, 1, bool, u32> backend_gl_layer_in_fs;
   BitField<29, 1, bool, u32> backend_multiview;
+  BitField<29, 1, bool, u32> backend_shader_output_layer;
 
   static ShaderHostConfig GetCurrent();
 };

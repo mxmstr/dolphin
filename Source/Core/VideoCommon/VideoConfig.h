@@ -183,6 +183,7 @@ struct BackendInfo
   bool bSupportsGLLayerInFS = true;
   bool bSupportsHDROutput = false;
   bool bSupportsMultiview;
+  bool bSupportsShaderOutputLayer;
 };
 
 extern BackendInfo g_backend_info;

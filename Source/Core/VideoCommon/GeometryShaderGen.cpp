@@ -168,9 +168,9 @@ ShaderCode GenerateGeometryShaderCode(APIType api_type, const ShaderHostConfig& 
   {
     if (host_config.backend_multiview)
     {
-        out.Write("#ifdef VULKAN_MULTIVIEW\n");
-        out.Write("\teye = vs[0].view_index;\n");
-        out.Write("#endif\n");
+        //out.Write("#ifdef VULKAN_MULTIVIEW\n");
+        out.Write("\teye = vs[0].view_index - 1;\n");
+        //out.Write("#endif\n");
     }
     else if (host_config.backend_gs_instancing)
     {

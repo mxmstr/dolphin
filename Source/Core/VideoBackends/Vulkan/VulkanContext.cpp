@@ -82,11 +82,13 @@ VulkanContext::PhysicalDeviceInfo::PhysicalDeviceInfo(VkPhysicalDevice device)
     shaderSubgroupOperations =
         (subgroup_props.supportedOperations & required_subgroup_ops) == required_subgroup_ops &&
         subgroup_props.supportedStages & VK_SHADER_STAGE_FRAGMENT_BIT;
+    shaderOutputLayer = features12.shaderOutputLayer;
   }
   else
   {
     // Vulkan 1.0 path
     vkGetPhysicalDeviceFeatures(device, &queried_base_features);
+    shaderOutputLayer = VK_FALSE;
     // features11, features12 will remain default (all VK_FALSE)
     // driverID and subgroupSize will remain default (0 and 1 respectively, or as initialized)
   }
@@ -508,6 +510,7 @@ void VulkanContext::PopulateBackendInfoFeatures(BackendInfo* backend_info, VkPhy
   backend_info->bSupportsSSAA = info.sampleRateShading;
   backend_info->bSupportsLogicOp = info.logicOp;
   backend_info->bSupportsMultiview = info.multiview;
+  backend_info->bSupportsShaderOutputLayer = info.shaderOutputLayer;
 
   // Metal doesn't support this.
   backend_info->bSupportsLodBiasInSampler = info.driverID != VK_DRIVER_ID_MOLTENVK;

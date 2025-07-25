@@ -48,6 +48,7 @@ ShaderHostConfig ShaderHostConfig::GetCurrent()
   bits.backend_vs_point_line_expand = g_ActiveConfig.UseVSForLinePointExpand();
   bits.backend_gl_layer_in_fs = g_backend_info.bSupportsGLLayerInFS;
   bits.backend_multiview = g_backend_info.bSupportsMultiview;
+  bits.backend_shader_output_layer = g_backend_info.bSupportsShaderOutputLayer;
   return bits;
 }
 

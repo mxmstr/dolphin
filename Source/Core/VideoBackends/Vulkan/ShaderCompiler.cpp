@@ -54,6 +54,7 @@ static const char SHADER_HEADER[] = R"(
   #define gl_InstanceID gl_InstanceIndex
 
   #extension GL_EXT_multiview : require
+  #extension GL_ARB_shader_viewport_layer_array : require
 )";
 static const char COMPUTE_SHADER_HEADER[] = R"(
   // Target GLSL 4.5.

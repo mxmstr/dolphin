@@ -746,6 +746,8 @@ ShaderCode GenerateVertexShaderCode(APIType api_type, const ShaderHostConfig& ho
   {
       //out.Write("#ifdef VULKAN_MULTIVIEW\n");
       out.Write("  vs.view_index = gl_ViewIndex;\n");
+      
+      out.Write("  gl_Layer = gl_ViewIndex;\n");
       //out.Write("#endif\n");
   }
 

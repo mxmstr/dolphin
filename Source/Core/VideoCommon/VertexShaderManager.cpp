@@ -153,7 +153,18 @@ Common::Matrix44 VertexShaderManager::LoadProjectionMatrix()
 
   if (g_ActiveConfig.bEnableVR && xfmem.projection.type == ProjectionType::Perspective)// && g_vulkan_context->GetDeviceInfo().multiview)
   {
-    Common::Matrix44 head_view_matrix = Common::Matrix44::Identity();// g_freelook_camera.GetView();
+    //float UnitsPerMetre = g_ActiveConfig.fUnitsPerMetre * fScaleHack / g_ActiveConfig.fScale;
+
+    Common::Matrix44 head_position_matrix = Common::Matrix44::Identity();
+    Common::Vec3 pos;
+    if (g_ActiveConfig.bPositionTracking)
+    {
+      for (int i = 0; i < 3; ++i)
+        pos.data[i] = g_head_tracking_position.data[i];// *UnitsPerMetre;
+      head_position_matrix *= Common::Matrix44::Translate(pos);
+    }
+
+    Common::Matrix44 head_rotation_matrix = g_head_tracking_matrix;//g_freelook_camera.GetView();
 
       // --- THIS IS THE FINAL FIX ---
         // 1. Build the game's original projection matrix exactly as it would for non-VR.
@@ -188,15 +199,24 @@ Common::Matrix44 VertexShaderManager::LoadProjectionMatrix()
         Common::Matrix44 eye_to_head_left, eye_to_head_right;
         VR_GetEyeToHeadTransforms(&eye_to_head_left, &eye_to_head_right);
         
-        //eye_to_head_left.data[2] = -20.2f;
-        //eye_to_head_right.data[2] = -2.2f;
-        
         // 3. Combine them in the correct order for post-multiplication: Head -> Eye -> Project
-        Common::Matrix44 final_proj_left = head_view_matrix * eye_to_head_left * game_projection_matrix;
-        Common::Matrix44 final_proj_right = head_view_matrix * eye_to_head_right * game_projection_matrix;
+        Common::Matrix44 final_proj_left = eye_to_head_left * game_projection_matrix * head_position_matrix * head_rotation_matrix;
+        Common::Matrix44 final_proj_right = eye_to_head_right * game_projection_matrix * head_position_matrix * head_rotation_matrix;
         // --- END OF FINAL FIX ---
         
-        //final_proj_right.data[2] = 0.5f;
+        auto& system = Core::System::GetInstance();
+        auto& geometry_shader_manager = system.GetGeometryShaderManager();
+
+        // get eye offsets from VR_GetEyePos and apply them to the projection matrix
+        float posLeft[3], posRight[3];
+        VR_GetEyePos(posLeft, posRight);
+        geometry_shader_manager.constants.stereoparams[0] = posLeft[0];
+        geometry_shader_manager.constants.stereoparams[1] = posRight[0];
+        geometry_shader_manager.constants.stereoparams[2] = posLeft[1];
+        geometry_shader_manager.constants.stereoparams[3] = posRight[1];
+        
+        //final_proj_left.data[2] += -0.2f;
+        //final_proj_right.data[2] += 0.2f;
 
         memcpy(constants.projection[0].data(), final_proj_left.data.data(), sizeof(float4) * 4);
         memcpy(constants.projection[1].data(), final_proj_right.data.data(), sizeof(float4) * 4);
