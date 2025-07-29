@@ -82,6 +82,180 @@ Common::Matrix44 VertexShaderManager::LoadProjectionMatrix()
 {
   const auto& rawProjection = xfmem.projection.rawProjection;
 
+  if (g_ActiveConfig.bEnableVR && xfmem.projection.type == ProjectionType::Perspective)// && g_vulkan_context->GetDeviceInfo().multiview)
+  {
+    //float UnitsPerMetre = g_ActiveConfig.fUnitsPerMetre * fScaleHack / g_ActiveConfig.fScale;
+
+    //Common::Matrix44 head_position_matrix = Common::Matrix44::Identity();
+    //Common::Vec3 pos;
+    //if (g_ActiveConfig.bPositionTracking)
+    //{
+    //  for (int i = 0; i < 3; ++i)
+    //    pos.data[i] = g_head_tracking_position.data[i];// *UnitsPerMetre;
+    //  head_position_matrix *= Common::Matrix44::Translate(pos);
+    //}
+
+    //Common::Matrix44 head_rotation_matrix = g_head_tracking_matrix;//g_freelook_camera.GetView();
+
+      // --- THIS IS THE FINAL FIX ---
+        // 1. Build the game's original projection matrix exactly as it would for non-VR.
+        Common::Matrix44 game_projection_matrix;
+        if (xfmem.projection.type == ProjectionType::Perspective)
+        {
+             // NOTE: We do NOT include fov_multiplier here. That is part of the head_view_matrix.
+          game_projection_matrix.data[0] = rawProjection[0];// * g_ActiveConfig.fAspectRatioHackW;
+            game_projection_matrix.data[1] = 0.0f;
+            game_projection_matrix.data[2] = rawProjection[1];// *g_ActiveConfig.fAspectRatioHackW;
+            game_projection_matrix.data[3] = 0.0f;
+            game_projection_matrix.data[4] = 0.0f;
+            game_projection_matrix.data[5] = rawProjection[2];// *g_ActiveConfig.fAspectRatioHackH;
+            game_projection_matrix.data[6] = rawProjection[3];// *g_ActiveConfig.fAspectRatioHackH;
+            game_projection_matrix.data[7] = 0.0f;
+            game_projection_matrix.data[8] = 0.0f;
+            game_projection_matrix.data[9] = 0.0f;
+            game_projection_matrix.data[10] = rawProjection[4];
+            game_projection_matrix.data[11] = rawProjection[5];
+            game_projection_matrix.data[12] = 0.0f;
+            game_projection_matrix.data[13] = 0.0f;
+            game_projection_matrix.data[14] = -1.0f;
+            game_projection_matrix.data[15] = 0.0f;
+        }
+        else // Orthographic
+        {
+            game_projection_matrix = Common::Matrix44::Identity(); // VR on ortho is undefined, but this prevents crashes
+        }
+
+        int flipped_x = 1, flipped_y = 1, iTelescopeHack = -1;
+        float fScaleHack = 1, fWidthHack = 1, fHeightHack = 1, fUpHack = 0, fRightHack = 0;
+
+        float fLeftWidthHack = fWidthHack, fRightWidthHack = fWidthHack;
+        float fLeftHeightHack = fHeightHack, fRightHeightHack = fHeightHack;
+
+        float zfar, znear, zNear3D, hfov, vfov;
+        zfar = rawProjection[5] / rawProjection[4];
+        znear = (1 + rawProjection[5]) / rawProjection[4];
+        float zn2 = rawProjection[5] / (rawProjection[4] - 1);
+        float zf2 = rawProjection[5] / (rawProjection[4] + 1);
+        hfov = 2 * atan(1.0f / rawProjection[0]) * 180.0f / 3.1415926535f;
+        vfov = 2 * atan(1.0f / rawProjection[2]) * 180.0f / 3.1415926535f;
+
+        Common::Matrix44 proj_left, proj_right, hmd_left, hmd_right;
+        proj_left = Common::Matrix44::FromArray(game_projection_matrix.data);
+        proj_right = Common::Matrix44::FromArray(game_projection_matrix.data);
+
+        VR_GetProjectionMatrices(hmd_left, hmd_right, znear, zfar);
+                
+        auto& system = Core::System::GetInstance();
+        auto& geometry_shader_manager = system.GetGeometryShaderManager();
+
+        proj_left.data[0 * 4 + 0] =
+        hmd_left.data[0 * 4 + 0] * MathUtil::Sign(proj_left.data[0 * 4 + 0]) * fLeftWidthHack;  // h fov
+        proj_left.data[1 * 4 + 1] =
+            hmd_left.data[1 * 4 + 1] * MathUtil::Sign(proj_left.data[1 * 4 + 1]) * fLeftHeightHack;  // v fov
+        proj_left.data[0 * 4 + 2] =
+            hmd_left.data[0 * 4 + 2] * MathUtil::Sign(proj_left.data[0 * 4 + 0]) - fRightHack;  // h off-axis
+        proj_left.data[1 * 4 + 2] =
+            hmd_left.data[1 * 4 + 2] * MathUtil::Sign(proj_left.data[1 * 4 + 1]) - fUpHack;  // v off-axis
+        proj_right.data[0 * 4 + 0] =
+            hmd_right.data[0 * 4 + 0] * MathUtil::Sign(proj_right.data[0 * 4 + 0]) * fRightWidthHack;
+        proj_right.data[1 * 4 + 1] =
+            hmd_right.data[1 * 4 + 1] * MathUtil::Sign(proj_right.data[1 * 4 + 1]) * fRightHeightHack;
+        proj_right.data[0 * 4 + 2] =
+            hmd_right.data[0 * 4 + 2] * MathUtil::Sign(proj_right.data[0 * 4 + 0]) - fRightHack;
+        proj_right.data[1 * 4 + 2] =
+            hmd_right.data[1 * 4 + 2] * MathUtil::Sign(proj_right.data[1 * 4 + 1]) - fUpHack;
+
+        geometry_shader_manager.constants.stereoparams[0] = proj_left.data[0 * 4 + 2];//proj_left.data[0 * 4 + 0];
+        geometry_shader_manager.constants.stereoparams[1] = proj_right.data[0 * 4 + 2];//proj_right.data[0 * 4 + 0];
+        geometry_shader_manager.constants.stereoparams[2] = 0;// -proj_left.data[0 * 4 + 2];
+        geometry_shader_manager.constants.stereoparams[3] = 0;// -proj_right.data[0 * 4 + 2];
+
+        if (g_backend_info.bSupportsGeometryShaders)
+        {
+          proj_left.data[0 * 4 + 2] = 0;
+        }
+
+        Common::Matrix44 rotation_matrix = Common::Matrix44::Identity();
+        Common::Matrix44 lean_back_matrix = Common::Matrix44::Identity();
+        Common::Matrix44 camera_pitch_matrix = Common::Matrix44::Identity();
+
+        Common::Matrix44 head_position_matrix, free_look_matrix, camera_forward_matrix, camera_position_matrix;
+        head_position_matrix = Common::Matrix44::Identity();
+        free_look_matrix = Common::Matrix44::Identity();
+        camera_forward_matrix = Common::Matrix44::Identity();
+        camera_position_matrix = Common::Matrix44::Identity();
+
+        Common::Vec3 pos;
+        for (int i = 0; i < 3; ++i)
+          pos.data[i] = g_head_tracking_position.data[i];// *UnitsPerMetre;
+        head_position_matrix *= Common::Matrix44::Translate(pos);
+
+        rotation_matrix = g_head_tracking_matrix;
+
+        Common::Matrix44 look_matrix = camera_forward_matrix * camera_position_matrix * camera_pitch_matrix *
+        free_look_matrix * lean_back_matrix * head_position_matrix * rotation_matrix;
+
+        Common::Matrix44 eye_pos_matrix_left, eye_pos_matrix_right;
+        Common::Vec3 posLeft = {0, 0, 0};
+        Common::Vec3 posRight = {0, 0, 0};
+        if (true)//!g_is_skybox)
+        {
+          VR_GetEyePos(posLeft.data.data(), posRight.data.data());
+          /*for (int i = 0; i < 3; ++i)
+          {
+            posLeft.data[i] *= UnitsPerMetre;
+            posRight.data[i] *= UnitsPerMetre;
+          }*/
+        }
+
+        Common::Matrix44 view_matrix_left, view_matrix_right;
+        if (g_backend_info.bSupportsGeometryShaders)
+        {
+          view_matrix_left = Common::Matrix44::FromArray(look_matrix.data);
+          view_matrix_right = Common::Matrix44::FromArray(view_matrix_left.data);
+        }
+        else
+        {
+          eye_pos_matrix_left *= Common::Matrix44::Translate(posLeft);
+          eye_pos_matrix_right *= Common::Matrix44::Translate(posRight);
+          Common::Matrix44::Multiply(eye_pos_matrix_left, look_matrix, &view_matrix_left);
+          Common::Matrix44::Multiply(eye_pos_matrix_right, look_matrix, &view_matrix_right);
+        }
+        Common::Matrix44 final_matrix_left, final_matrix_right;
+        Common::Matrix44::Multiply(proj_left, view_matrix_left, &final_matrix_left);
+        Common::Matrix44::Multiply(proj_right, view_matrix_right, &final_matrix_right);
+
+
+
+
+        //// 2. Get the eye-to-head VIEW matrices.
+        //Common::Matrix44 eye_to_head_left, eye_to_head_right;
+        //VR_GetEyeToHeadTransforms(&eye_to_head_left, &eye_to_head_right);
+        //
+        //// 3. Combine them in the correct order for post-multiplication: Head -> Eye -> Project
+        //Common::Matrix44 final_proj_left = eye_to_head_left * game_projection_matrix * head_position_matrix * head_rotation_matrix;
+        //Common::Matrix44 final_proj_right = eye_to_head_right * game_projection_matrix * head_position_matrix * head_rotation_matrix;
+        //// --- END OF FINAL FIX ---
+        //
+        //// get eye offsets from VR_GetEyePos and apply them to the projection matrix
+        //float posLeft[3], posRight[3];
+        //VR_GetEyePos(posLeft, posRight);
+        //geometry_shader_manager.constants.stereoparams[0] = posLeft[0];
+        //geometry_shader_manager.constants.stereoparams[1] = posRight[0];
+        //geometry_shader_manager.constants.stereoparams[2] = posLeft[1];
+        //geometry_shader_manager.constants.stereoparams[3] = posRight[1];
+        
+        //final_proj_left.data[2] += -0.2f;
+        //final_proj_right.data[2] += 0.2f;
+
+        memcpy(constants.projection[0].data(), final_matrix_left.data.data(), sizeof(float4) * 4);
+        memcpy(constants.projection[1].data(), final_matrix_left.data.data(), sizeof(float4) * 4);
+
+        //m_projection_matrix = final_proj_left.data;
+        g_freelook_camera.GetController()->SetClean();
+        return final_matrix_left;
+  }
+
   switch (xfmem.projection.type)
   {
   case ProjectionType::Perspective:
@@ -150,81 +324,6 @@ Common::Matrix44 VertexShaderManager::LoadProjectionMatrix()
            rawProjection[3], rawProjection[4], rawProjection[5]);
 
   auto corrected_matrix = Common::Matrix44::FromArray(m_projection_matrix);
-
-  if (g_ActiveConfig.bEnableVR && xfmem.projection.type == ProjectionType::Perspective)// && g_vulkan_context->GetDeviceInfo().multiview)
-  {
-    //float UnitsPerMetre = g_ActiveConfig.fUnitsPerMetre * fScaleHack / g_ActiveConfig.fScale;
-
-    Common::Matrix44 head_position_matrix = Common::Matrix44::Identity();
-    Common::Vec3 pos;
-    if (g_ActiveConfig.bPositionTracking)
-    {
-      for (int i = 0; i < 3; ++i)
-        pos.data[i] = g_head_tracking_position.data[i];// *UnitsPerMetre;
-      head_position_matrix *= Common::Matrix44::Translate(pos);
-    }
-
-    Common::Matrix44 head_rotation_matrix = g_head_tracking_matrix;//g_freelook_camera.GetView();
-
-      // --- THIS IS THE FINAL FIX ---
-        // 1. Build the game's original projection matrix exactly as it would for non-VR.
-        const auto& rawProjection = xfmem.projection.rawProjection;
-        Common::Matrix44 game_projection_matrix;
-        if (xfmem.projection.type == ProjectionType::Perspective)
-        {
-             // NOTE: We do NOT include fov_multiplier here. That is part of the head_view_matrix.
-            game_projection_matrix.data[0] = rawProjection[0] * g_ActiveConfig.fAspectRatioHackW;
-            game_projection_matrix.data[1] = 0.0f;
-            game_projection_matrix.data[2] = rawProjection[1] * g_ActiveConfig.fAspectRatioHackW;
-            game_projection_matrix.data[3] = 0.0f;
-            game_projection_matrix.data[4] = 0.0f;
-            game_projection_matrix.data[5] = rawProjection[2] * g_ActiveConfig.fAspectRatioHackH;
-            game_projection_matrix.data[6] = rawProjection[3] * g_ActiveConfig.fAspectRatioHackH;
-            game_projection_matrix.data[7] = 0.0f;
-            game_projection_matrix.data[8] = 0.0f;
-            game_projection_matrix.data[9] = 0.0f;
-            game_projection_matrix.data[10] = rawProjection[4];
-            game_projection_matrix.data[11] = rawProjection[5];
-            game_projection_matrix.data[12] = 0.0f;
-            game_projection_matrix.data[13] = 0.0f;
-            game_projection_matrix.data[14] = -1.0f;
-            game_projection_matrix.data[15] = 0.0f;
-        }
-        else // Orthographic
-        {
-            game_projection_matrix = Common::Matrix44::Identity(); // VR on ortho is undefined, but this prevents crashes
-        }
-
-        // 2. Get the eye-to-head VIEW matrices.
-        Common::Matrix44 eye_to_head_left, eye_to_head_right;
-        VR_GetEyeToHeadTransforms(&eye_to_head_left, &eye_to_head_right);
-        
-        // 3. Combine them in the correct order for post-multiplication: Head -> Eye -> Project
-        Common::Matrix44 final_proj_left = eye_to_head_left * game_projection_matrix * head_position_matrix * head_rotation_matrix;
-        Common::Matrix44 final_proj_right = eye_to_head_right * game_projection_matrix * head_position_matrix * head_rotation_matrix;
-        // --- END OF FINAL FIX ---
-        
-        auto& system = Core::System::GetInstance();
-        auto& geometry_shader_manager = system.GetGeometryShaderManager();
-
-        // get eye offsets from VR_GetEyePos and apply them to the projection matrix
-        float posLeft[3], posRight[3];
-        VR_GetEyePos(posLeft, posRight);
-        geometry_shader_manager.constants.stereoparams[0] = posLeft[0];
-        geometry_shader_manager.constants.stereoparams[1] = posRight[0];
-        geometry_shader_manager.constants.stereoparams[2] = posLeft[1];
-        geometry_shader_manager.constants.stereoparams[3] = posRight[1];
-        
-        //final_proj_left.data[2] += -0.2f;
-        //final_proj_right.data[2] += 0.2f;
-
-        memcpy(constants.projection[0].data(), final_proj_left.data.data(), sizeof(float4) * 4);
-        memcpy(constants.projection[1].data(), final_proj_right.data.data(), sizeof(float4) * 4);
-
-        //m_projection_matrix = final_proj_left.data;
-        g_freelook_camera.GetController()->SetClean();
-        return final_proj_left;
-  }
 
     // If FreeLook is active for a perspective scene, we override the entire
     // view-projection matrix with the one required for VR.

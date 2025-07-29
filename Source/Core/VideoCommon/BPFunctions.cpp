@@ -23,6 +23,7 @@
 #include "VideoCommon/VideoCommon.h"
 #include "VideoCommon/VideoConfig.h"
 #include "VideoCommon/XFMemory.h"
+#include "VideoCommon/VR.h"
 
 namespace BPFunctions
 {
@@ -186,7 +187,9 @@ void SetScissorAndViewport()
 
   auto target_rc = g_framebuffer_manager->ConvertEFBRectangle(native_rc.rect);
   auto converted_rc = g_gfx->ConvertFramebufferRectangle(target_rc, g_gfx->GetCurrentFramebuffer());
-  g_gfx->SetScissorRect(converted_rc);
+
+  if (!g_ActiveConfig.bEnableVR)
+    g_gfx->SetScissorRect(converted_rc);
 
   /*INFO_LOG_FMT(VIDEO, "Scissor: x={} y={} width={} height={}", converted_rc.left, converted_rc.top,
     converted_rc.right, converted_rc.bottom);*/
@@ -209,6 +212,19 @@ void SetScissorAndViewport()
   float y = g_framebuffer_manager->EFBToScaledYf(raw_y);
   float width = g_framebuffer_manager->EFBToScaledXf(raw_width);
   float height = g_framebuffer_manager->EFBToScaledYf(raw_height);
+
+  // --> ADD THIS LOGGING BLOCK <--
+  /*if (g_ActiveConfig.bEnableVR)
+  {
+      const u32 fb_width = g_gfx->GetCurrentFramebuffer()->GetWidth();
+      const u32 fb_height = g_gfx->GetCurrentFramebuffer()->GetHeight();
+      INFO_LOG_FMT(VIDEO, "[VR DEBUG] SetScissorAndViewport called. VR Active.");
+      INFO_LOG_FMT(VIDEO, "[VR DEBUG]   - Game Viewport (raw): x={}, w={}, y={}, h={}", raw_x, raw_width, raw_y, raw_height);
+      INFO_LOG_FMT(VIDEO, "[VR DEBUG]   - Game Viewport (scaled): x={}, y={}, w={}, h={}", x, y, width, height);
+      INFO_LOG_FMT(VIDEO, "[VR DEBUG]   - Framebuffer Dimensions: {}x{}", fb_width, fb_height);
+  }*/
+  // --> END LOGGING BLOCK <--
+
   float min_depth = (xfmem.viewport.farZ - xfmem.viewport.zRange) / 16777216.0f;
   float max_depth = xfmem.viewport.farZ / 16777216.0f;
   if (width < 0.f)
@@ -267,9 +283,57 @@ void SetScissorAndViewport()
     far_depth = 1.0f - min_depth;
   }
 
+  if (g_ActiveConfig.bEnableVR && g_ActiveConfig.stereo_mode == StereoMode::OpenVR)
+  {
+    // VR Path: Ignore all of the game's viewport geometry calculations.
+    const u32 fb_width = g_gfx->GetCurrentFramebuffer()->GetWidth();
+    const u32 fb_height = g_gfx->GetCurrentFramebuffer()->GetHeight();
+    
+    // Force the viewport and scissor to the full EFB dimensions.
+    g_gfx->SetViewport(0.0f, 0.0f, static_cast<float>(fb_width), static_cast<float>(fb_height), near_depth, far_depth);
+    const MathUtil::Rectangle<int> full_rect(0, 0, fb_width, fb_height);
+    g_gfx->SetScissorRect(g_gfx->ConvertFramebufferRectangle(full_rect, g_gfx->GetCurrentFramebuffer()));
+    return;
+  }
+
+  // --- START OF NEW VR OVERRIDE LOGIC ---
+  //if (g_ActiveConfig.bEnableVR && g_ActiveConfig.stereo_mode == StereoMode::OpenVR)
+  //{
+  //  // For VR, we IGNORE the game's viewport dimensions. The 3D scene must be rendered
+  //  // to the entire EFB to match the VR headset's field of view.
+  //  const u32 fb_width = g_gfx->GetCurrentFramebuffer()->GetWidth();
+  //  const u32 fb_height = g_gfx->GetCurrentFramebuffer()->GetHeight();
+
+  //  // Set the viewport to cover the entire framebuffer.
+  //  g_gfx->SetViewport(0.0f, 0.0f, static_cast<float>(fb_width), static_cast<float>(fb_height), near_depth, far_depth);
+
+  //  // Set the scissor rectangle to also cover the entire framebuffer.
+  //  const MathUtil::Rectangle<int> full_rect(0, 0, fb_width, fb_height);
+  //  g_gfx->SetScissorRect(g_gfx->ConvertFramebufferRectangle(full_rect, g_gfx->GetCurrentFramebuffer()));
+  //  
+  //  // We are done. Do not execute the original viewport/scissor logic below.
+  //  return;
+  //}
+  // --- END OF NEW VR OVERRIDE LOGIC ---
+
   // Lower-left flip.
   if (g_backend_info.bUsesLowerLeftOrigin)
     y = static_cast<float>(g_gfx->GetCurrentFramebuffer()->GetHeight()) - y - height;
+
+  /*if (g_ActiveConfig.bEnableVR && g_ActiveConfig.stereo_mode == StereoMode::OpenVR && g_framebuffer_manager->GetEFBColorTexture())
+  {
+    u32 width, height;
+    width = g_framebuffer_manager->GetEFBWidth();
+    height = g_framebuffer_manager->GetEFBHeight();
+
+    converted_rc.left = static_cast<int>(std::round(x));
+    converted_rc.top = static_cast<int>(std::round(y));
+    converted_rc.right = static_cast<int>(std::round(x + width));
+    converted_rc.bottom = static_cast<int>(std::round(y + height));
+    g_gfx->SetScissorRect(converted_rc);
+    g_gfx->SetViewport(x, y, width, height, near_depth, far_depth);
+    return;
+  }*/
 
   // resize converted_rc to match the viewport size
   /*converted_rc.left = static_cast<int>(std::round(x));

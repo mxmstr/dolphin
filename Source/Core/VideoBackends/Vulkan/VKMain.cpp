@@ -168,6 +168,8 @@ bool VideoBackend::Initialize(const WindowSystemInfo& wsi)
     selected_adapter_index = 0;
   }
 
+  //MessageBox(0, L"Vulkan Adapter Selection", L"Asdf", MB_OK | MB_ICONINFORMATION);
+
   // Now we can create the Vulkan device. VulkanContext takes ownership of the instance and surface.
   g_vulkan_context =
       VulkanContext::Create(instance, gpu_list[selected_adapter_index], surface, enable_debug_utils,

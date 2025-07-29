@@ -660,14 +660,26 @@ void Presenter::UpdateDrawRectangle()
   float win_width = static_cast<float>(m_backbuffer_width);
   float win_height = static_cast<float>(m_backbuffer_height);
 
-  /*if (g_ActiveConfig.bEnableVR && g_ActiveConfig.stereo_mode == StereoMode::OpenVR)
-  {
-    u32 width, height;
-    VR_GetRecommendedRenderTargetSize(&width, &height);
-    win_width = static_cast<float>(width);
-    win_height = static_cast<float>(height);
+  //if (g_ActiveConfig.bEnableVR && g_ActiveConfig.stereo_mode == StereoMode::OpenVR && g_framebuffer_manager->GetEFBColorTexture())
+  //{
+  //  u32 width, height;
+  //  //VR_GetRecommendedRenderTargetSize(&width, &height);
 
-  }*/
+  //  win_width = static_cast<float>(g_framebuffer_manager->GetEFBWidth());
+  //  win_height = static_cast<float>(g_framebuffer_manager->GetEFBHeight());
+  //}
+
+  // --- START OF NEW VR OVERRIDE LOGIC ---
+  if (g_ActiveConfig.bEnableVR && g_ActiveConfig.stereo_mode == StereoMode::OpenVR && g_gfx->GetCurrentFramebuffer())
+  {
+    // For VR, we IGNORE the game's viewport dimensions. The 3D scene must be rendered
+    // to the entire EFB to match the VR headset's field of view.
+    const u32 fb_width = g_gfx->GetCurrentFramebuffer()->GetWidth();
+    const u32 fb_height = g_gfx->GetCurrentFramebuffer()->GetHeight();
+    win_width = static_cast<float>(fb_width);
+    win_height = static_cast<float>(fb_height);
+  }
+  // --- END OF NEW VR OVERRIDE LOGIC ---
 
   const float win_aspect_ratio = win_width / win_height;
 
@@ -735,8 +747,20 @@ void Presenter::UpdateDrawRectangle()
   //INFO_LOG_FMT(VIDEO,
   //  "Calculated draw rectangle: {}x{} {}x{} ({}x{})",
   //  win_width, win_height, int_draw_width, int_draw_height, draw_width, draw_height);
-  /*int_draw_width = win_width;
-  int_draw_height = win_height;*/
+  
+
+  //if (g_ActiveConfig.bEnableVR && g_ActiveConfig.stereo_mode == StereoMode::OpenVR)
+  //{
+  //  int_draw_width = win_width;
+  //  int_draw_height = win_height;
+  //  /*u32 width, height;
+  //  VR_GetRecommendedRenderTargetSize(&width, &height);
+  //  m_target_rectangle.left = 0;
+  //  m_target_rectangle.top = 0;
+  //  m_target_rectangle.right = m_target_rectangle.left + width;
+  //  m_target_rectangle.bottom = m_target_rectangle.top + height;
+  //  return;*/
+  //}
 
   m_target_rectangle.left = static_cast<int>(std::round(win_width / 2.0 - int_draw_width / 2.0));
   m_target_rectangle.top = static_cast<int>(std::round(win_height / 2.0 - int_draw_height / 2.0));

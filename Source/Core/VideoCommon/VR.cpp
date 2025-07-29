@@ -646,17 +646,29 @@ void VR_GetProjectionMatrices(Common::Matrix44& left_eye, Common::Matrix44& righ
 #ifdef HAVE_OPENVR
     if (g_has_openvr && m_pHMD)
     {
-        float left, right, top, bottom;
+        //float left, right, top, bottom;
 
-        // Get the raw frustum tangents for the left eye.
-        m_pHMD->GetProjectionRaw(vr::Eye_Left, &left, &right, &top, &bottom);
-        left_eye = BuildProjectionMatrix(left * znear, right * znear, top * znear, bottom * znear, znear, zfar);
+        //// Get the raw frustum tangents for the left eye.
+        //m_pHMD->GetProjectionRaw(vr::Eye_Left, &left, &right, &top, &bottom);
+        //left_eye = BuildProjectionMatrix(left * znear, right * znear, top * znear, bottom * znear, znear, zfar);
 
-        // Get the raw frustum tangents for the right eye.
-        m_pHMD->GetProjectionRaw(vr::Eye_Right, &left, &right, &top, &bottom);
-        right_eye = BuildProjectionMatrix(left * znear, right * znear, top * znear, bottom * znear, znear, zfar);
+        //// Get the raw frustum tangents for the right eye.
+        //m_pHMD->GetProjectionRaw(vr::Eye_Right, &left, &right, &top, &bottom);
+        //right_eye = BuildProjectionMatrix(left * znear, right * znear, top * znear, bottom * znear, znear, zfar);
 
-        return;
+      vr::HmdMatrix44_t mat = m_pHMD->GetProjectionMatrix(vr::Eye_Left, znear, zfar); 
+        
+      for (int r = 0; r < 4; ++r)
+        for (int c = 0; c < 4; ++c)
+          left_eye.data[r * 4 + c] = mat.m[r][c];
+
+      mat = m_pHMD->GetProjectionMatrix(vr::Eye_Right, znear, zfar);
+
+      for (int r = 0; r < 4; ++r)
+        for (int c = 0; c < 4; ++c)
+          right_eye.data[r * 4 + c] = mat.m[r][c];
+
+      return;
     }
 #endif
     // Fallback if no VR

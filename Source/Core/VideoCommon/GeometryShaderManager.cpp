@@ -52,7 +52,7 @@ void GeometryShaderManager::SetConstants(PrimitiveType prim)
   {
     m_projection_changed = false;
 
-    if (xfmem.projection.type == ProjectionType::Perspective)
+   /* if (xfmem.projection.type == ProjectionType::Perspective)
     {
       float offset = (g_ActiveConfig.iStereoDepth / 1000.0f) *
                      (g_ActiveConfig.iStereoDepthPercentage / 100.0f);
@@ -65,7 +65,7 @@ void GeometryShaderManager::SetConstants(PrimitiveType prim)
     }
 
     constants.stereoparams[2] = (float)(g_ActiveConfig.iStereoConvergence *
-                                        (g_ActiveConfig.iStereoConvergencePercentage / 100.0f));
+                                        (g_ActiveConfig.iStereoConvergencePercentage / 100.0f));*/
 
     dirty = true;
   }

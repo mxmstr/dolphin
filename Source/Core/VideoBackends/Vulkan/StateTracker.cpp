@@ -286,6 +286,14 @@ void StateTracker::BeginRenderPass()
   if (InRenderPass())
     return;
 
+  // --> ADD THIS LOG <--
+  /*if (g_ActiveConfig.bEnableVR)
+  {
+    INFO_LOG_FMT(VIDEO, "[VR DEBUG] StateTracker::BeginRenderPass - renderArea: x={}, y={}, w={}, h={}",
+                 m_framebuffer_render_area.offset.x, m_framebuffer_render_area.offset.y,
+                 m_framebuffer_render_area.extent.width, m_framebuffer_render_area.extent.height);
+  }*/
+
   m_current_render_pass = m_framebuffer->GetLoadRenderPass();
   m_framebuffer_render_area = m_framebuffer->GetRect();
 
@@ -335,6 +343,13 @@ void StateTracker::BeginClearRenderPass(const VkRect2D& area, const VkClearValue
 {
   ASSERT(!InRenderPass());
 
+  // --> ADD THIS LOG <--
+  /*if (g_ActiveConfig.bEnableVR)
+  {
+    INFO_LOG_FMT(VIDEO, "[VR DEBUG] StateTracker::BeginClearRenderPass - renderArea: x={}, y={}, w={}, h={}",
+                 area.offset.x, area.offset.y, area.extent.width, area.extent.height);
+  }*/
+
   m_current_render_pass = m_framebuffer->GetClearRenderPass();
   m_framebuffer_render_area = area;
 
@@ -352,6 +367,11 @@ void StateTracker::BeginClearRenderPass(const VkRect2D& area, const VkClearValue
 
 void StateTracker::SetViewport(const VkViewport& viewport)
 {
+  //if (g_ActiveConfig.bEnableVR) // <-- ADD THIS WRAPPER
+  //{
+  //  INFO_LOG_FMT(VIDEO, "[VR DEBUG] StateTracker::SetViewport: x={}, y={}, w={}, h={}", viewport.x, viewport.y, viewport.width, viewport.height);
+  //}
+
   if (memcmp(&m_viewport, &viewport, sizeof(viewport)) == 0)
     return;
 
@@ -361,6 +381,11 @@ void StateTracker::SetViewport(const VkViewport& viewport)
 
 void StateTracker::SetScissor(const VkRect2D& scissor)
 {
+  //if (g_ActiveConfig.bEnableVR) // <-- ADD THIS WRAPPER
+  //{
+  //  INFO_LOG_FMT(VIDEO, "[VR DEBUG] StateTracker::SetScissor: x={}, y={}, w={}, h={}", scissor.offset.x, scissor.offset.y, scissor.extent.width, scissor.extent.height);
+  //}
+
   if (memcmp(&m_scissor, &scissor, sizeof(scissor)) == 0)
     return;
 

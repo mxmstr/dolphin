@@ -247,6 +247,12 @@ ShaderCode GenerateGeometryShaderCode(APIType api_type, const ShaderHostConfig& 
     // Apply stereo offset. The 'eye' variable is now correct for all paths.
     out.Write("\tfloat hoffset = (eye == 0) ? " I_STEREOPARAMS ".x : " I_STEREOPARAMS ".y;\n");
     out.Write("\tf.pos.x += hoffset * (f.pos.w - " I_STEREOPARAMS ".z);\n");
+
+    // StereoParams[eye] = camera shift in game units * projection[0][0]
+    // StereoParams[eye+2] = offaxis shift from Oculus projection[0][2]
+    //out.Write("\tf.clipPos.x += " I_STEREOPARAMS "[eye] - " I_STEREOPARAMS
+    //          "[eye+2] * f.clipPos.w;\n");
+    //out.Write("\tf.pos.x += " I_STEREOPARAMS "[eye+2] * f.pos.w;\n");
   }
 
 
