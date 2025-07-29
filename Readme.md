@@ -1,3 +1,30 @@
+# Dolphin VR Reloaded
+
+A WIP reimplementation of Cark Kenner's Dolphin VR for the latest Dolphin 2506a branch.
+Uses Vulkan for GPU side single-pass stereo rendering.
+
+What works:
+* Stereoscopic 3D rendering
+* 6DOF head tracking
+
+Todo:
+* Fix projection on 2D graphics
+* Stabilization and timewarp
+* Scaling
+* VR controller mapping
+
+To use VR you must set the following:
+Backend: Vulkan
+Aspect Ratio: VR
+Shader Compilation: Default
+Stereoscopic 3D Mode: OpenVR
+
+In Dolphin.ini, set `EnableVR = True` under the `[VR]` section.
+
+Make sure SteamVR is installed and running.
+
+----------------------------------------------------------------------------------------
+
 # Dolphin - A GameCube and Wii Emulator
 
 [Homepage](https://dolphin-emu.org/) | [Project Site](https://github.com/dolphin-emu/dolphin) | [Buildbot](https://dolphin.ci/) | [Forums](https://forums.dolphin-emu.org/) | [Wiki](https://wiki.dolphin-emu.org/) | [GitHub Wiki](https://github.com/dolphin-emu/dolphin/wiki) | [Issue Tracker](https://bugs.dolphin-emu.org/projects/emulator/issues) | [Coding Style](https://github.com/dolphin-emu/dolphin/blob/master/Contributing.md) | [Transifex Page](https://app.transifex.com/dolphinemu/dolphin-emu/dashboard/) | [Analytics](https://mon.dolphin-emu.org/)
