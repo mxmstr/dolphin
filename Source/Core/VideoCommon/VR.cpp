@@ -432,6 +432,7 @@ void UpdateOpenVRHeadTracking()
   if (!m_pHMD)
     return;
 
+  // Process OpenVR events
   vr::VREvent_t event;
   while (m_pHMD->PollNextEvent(&event, sizeof(event)))
   {
@@ -448,51 +449,26 @@ void UpdateOpenVRHeadTracking()
     m_pHMD->GetDeviceToAbsoluteTrackingPose(vr::TrackingUniverseSeated, 0, m_rTrackedDevicePose, vr::k_unMaxTrackedDeviceCount);
   }
 
-  g_older_tracking_time = g_old_tracking_time;
-  g_old_tracking_time = g_last_tracking_time;
-  g_last_tracking_time = Common::Timer::NowMs() / 1000.0; // Ensure Timer::GetTimeMs exists and is appropriate
 
   m_iValidPoseCount = 0;
+
   if (m_rTrackedDevicePose[vr::k_unTrackedDeviceIndex_Hmd].bPoseIsValid)
   {
-    m_iValidPoseCount++;
-    const vr::HmdMatrix34_t& mat = m_rTrackedDevicePose[vr::k_unTrackedDeviceIndex_Hmd].mDeviceToAbsoluteTracking;
-
-    // Convert OpenVR matrix (column-major) to our Matrix44 (row-major)
-    // And OpenVR's +Y up, -Z forward to Dolphin's +Y up, +Z forward convention if necessary.
-    // OpenVR HmdMatrix34_t is:
-    // m[0][0] m[0][1] m[0][2] m[0][3] (right_x, up_x, back_x, pos_x)
-    // m[1][0] m[1][1] m[1][2] m[1][3] (right_y, up_y, back_y, pos_y)
-    // m[2][0] m[2][1] m[2][2] m[2][3] (right_z, up_z, back_z, pos_z)
-    // Dolphin's Matrix44 is row-major.
-
-    Common::Matrix44 openvr_pose_matrix;
-    openvr_pose_matrix.data[0] = mat.m[0][0]; openvr_pose_matrix.data[1] = mat.m[0][1]; openvr_pose_matrix.data[2] = mat.m[0][2]; openvr_pose_matrix.data[3] = mat.m[0][3];
-    openvr_pose_matrix.data[4] = mat.m[1][0]; openvr_pose_matrix.data[5] = mat.m[1][1]; openvr_pose_matrix.data[6] = mat.m[1][2]; openvr_pose_matrix.data[7] = mat.m[1][3];
-    openvr_pose_matrix.data[8] = mat.m[2][0]; openvr_pose_matrix.data[9] = mat.m[2][1]; openvr_pose_matrix.data[10] = mat.m[2][2]; openvr_pose_matrix.data[11] = mat.m[2][3];
-    openvr_pose_matrix.data[12] = 0; openvr_pose_matrix.data[13] = 0; openvr_pose_matrix.data[14] = 0; openvr_pose_matrix.data[15] = 1;
-
-    // Assuming OpenVR provides pose in its standard coordinate system (+Y up, -Z forward, +X right)
-    // And g_head_tracking_matrix is expected to be view matrix (camera transform)
-    // The pose from OpenVR is HMD_tracking_reference_to_HMD_actual.
-    // To get a view matrix, we need its inverse.
-    // Also, positions from OpenVR are usually direct world positions.
-    // g_head_tracking_position should store the HMD's world position.
-    // g_head_tracking_matrix should store the HMD's world orientation as a view matrix.
-
-    g_head_tracking_position = Common::Vec3(mat.m[0][3], mat.m[1][3], mat.m[2][3]);
-
-    // Extract rotation part for g_head_tracking_matrix (as a view matrix, it's the inverse of HMD world orientation)
-    Common::Matrix33 rot_matrix;
-    rot_matrix.data[0] = mat.m[0][0]; rot_matrix.data[1] = mat.m[1][0]; rot_matrix.data[2] = mat.m[2][0]; // Transpose for view
-    rot_matrix.data[3] = mat.m[0][1]; rot_matrix.data[4] = mat.m[1][1]; rot_matrix.data[5] = mat.m[2][1];
-    rot_matrix.data[6] = mat.m[0][2]; rot_matrix.data[7] = mat.m[1][2]; rot_matrix.data[8] = mat.m[2][2];
-
-    g_head_tracking_matrix = Common::Matrix44::FromMatrix33(rot_matrix);
-    // The translation part of the view matrix is -R^T * T_world
-    Common::Vec3 transformed_pos = rot_matrix * g_head_tracking_position;
-    g_head_tracking_matrix *= Common::Matrix44::Translate(Common::Vec3(-transformed_pos.x, -transformed_pos.y, -transformed_pos.z));
-
+    float x =
+        m_rTrackedDevicePose[vr::k_unTrackedDeviceIndex_Hmd].mDeviceToAbsoluteTracking.m[0][3];
+    float y =
+        m_rTrackedDevicePose[vr::k_unTrackedDeviceIndex_Hmd].mDeviceToAbsoluteTracking.m[1][3];
+    float z =
+        m_rTrackedDevicePose[vr::k_unTrackedDeviceIndex_Hmd].mDeviceToAbsoluteTracking.m[2][3];
+    g_head_tracking_position.data[0] = -x;
+    g_head_tracking_position.data[1] = -y;
+    g_head_tracking_position.data[2] = -z;
+    Common::Matrix33 m;
+    for (int r = 0; r < 3; r++)
+      for (int c = 0; c < 3; c++)
+        m.data[r * 3 + c] =
+            m_rTrackedDevicePose[vr::k_unTrackedDeviceIndex_Hmd].mDeviceToAbsoluteTracking.m[c][r];
+    g_head_tracking_matrix = Common::Matrix44::FromMatrix33(m);
   }
 }
 #endif
