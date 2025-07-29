@@ -14,10 +14,10 @@ Todo:
 * VR controller mapping
 
 To use VR you must set the following:
-Backend: Vulkan
-Aspect Ratio: VR
-Shader Compilation: Default
-Stereoscopic 3D Mode: OpenVR
+* Backend: Vulkan
+* Aspect Ratio: VR
+* Shader Compilation: Default
+* Stereoscopic 3D Mode: OpenVR
 
 In Dolphin.ini, set `EnableVR = True` under the `[VR]` section.
 
