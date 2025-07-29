@@ -1,6 +1,6 @@
 # Dolphin VR Reloaded
 
-A WIP reimplementation of Cark Kenner's Dolphin VR for the latest Dolphin 2506a branch.
+A WIP reimplementation of Carl Kenner's Dolphin VR for the latest Dolphin 2506a branch.
 Uses Vulkan for GPU side single-pass stereo rendering.
 
 What works:
