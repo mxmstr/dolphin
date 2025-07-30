@@ -3,6 +3,8 @@
 A WIP reimplementation of Carl Kenner's Dolphin VR for the latest Dolphin 2506a branch.
 Uses Vulkan for GPU side single-pass stereo rendering.
 
+![Recording_2025-07-30-15-05-52(1) (1)](https://github.com/user-attachments/assets/493cef4e-b99f-4eab-ab16-fe5982a6baa2)
+
 What works:
 * Stereoscopic 3D rendering
 * 6DOF head tracking
