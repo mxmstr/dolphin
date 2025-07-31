@@ -164,9 +164,9 @@ bool CalculateViewMatrix(int kind, Common::Matrix44& look_matrix)
     // camera position stabilisation
     if (g_ActiveConfig.bStabilizeX || g_ActiveConfig.bStabilizeY || g_ActiveConfig.bStabilizeZ)
     {
-      pos.x = -g_game_camera_pos[0] * UnitsPerMetre;
-      pos.y = -g_game_camera_pos[1] * UnitsPerMetre;
-      pos.z = -g_game_camera_pos[2] * UnitsPerMetre;
+      pos.x = -g_game_camera_pos.data[0] * UnitsPerMetre;
+      pos.y = -g_game_camera_pos.data[1] * UnitsPerMetre;
+      pos.z = -g_game_camera_pos.data[2] * UnitsPerMetre;
       camera_position_matrix *= Common::Matrix44::Translate(pos);
     }
     else
@@ -607,9 +607,9 @@ bool CalculateTrackingSpaceToViewSpaceMatrix(int kind, Common::Matrix44& look_ma
     // camera position stabilisation
     if (g_ActiveConfig.bStabilizeX || g_ActiveConfig.bStabilizeY || g_ActiveConfig.bStabilizeZ)
     {
-      pos.x = -g_game_camera_pos[0] * UnitsPerMetre;
-      pos.y = -g_game_camera_pos[1] * UnitsPerMetre;
-      pos.z = -g_game_camera_pos[2] * UnitsPerMetre;
+      pos.x = -g_game_camera_pos.data[0] * UnitsPerMetre;
+      pos.y = -g_game_camera_pos.data[1] * UnitsPerMetre;
+      pos.z = -g_game_camera_pos.data[2] * UnitsPerMetre;
       camera_position_matrix *= Common::Matrix44::Translate(pos);
     }
     else

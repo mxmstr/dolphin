@@ -80,7 +80,7 @@ struct Statistics
     int num_token = 0;
     int num_token_int = 0;
   };
-  ThisFrame this_frame;
+  ThisFrame this_frame, last_frame;
   void ResetFrame();
   void SwapDL();
   void AddScissorRect();

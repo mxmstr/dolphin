@@ -91,7 +91,26 @@ extern const char* scm_vr_sdk_str;
 //#define RECURSIVE_OPCODE
 #define INLINE_OPCODE
 
+#include "VideoCommon/VideoCommon.h"
+
 #define HAVE_OPENVR
+
+extern MathUtil::Rectangle<int> g_final_screen_region;
+
+enum ViewportType
+{
+  VIEW_FULLSCREEN = 0,
+  VIEW_LETTERBOXED,
+  VIEW_HUD_ELEMENT,
+  VIEW_SKYBOX,
+  VIEW_PLAYER_1,
+  VIEW_PLAYER_2,
+  VIEW_PLAYER_3,
+  VIEW_PLAYER_4,
+  VIEW_OFFSCREEN,
+  VIEW_RENDER_TO_TEXTURE,
+};
+extern enum ViewportType g_viewport_type, g_old_viewport_type;
 
 typedef enum {
   CS_HYDRA_LEFT,
@@ -195,7 +214,8 @@ extern float vr_widest_3d_HFOV;
 extern float vr_widest_3d_VFOV;
 extern float vr_widest_3d_zNear;
 extern float vr_widest_3d_zFar;
-extern float g_game_camera_pos[3];
+extern bool g_is_skybox;
+extern Common::Vec3 g_game_camera_pos;
 extern Common::Matrix44 g_game_camera_rotmat;
 
 extern double g_older_tracking_time, g_old_tracking_time, g_last_tracking_time;

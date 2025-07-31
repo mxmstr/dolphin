@@ -12,6 +12,7 @@
 #include "Common/Matrix.h"
 #include "VideoCommon/ConstantManager.h"
 #include "VideoCommon/NativeVertexFormat.h"
+#include "VideoCommon/XFMemory.h"
 
 class PointerWrap;
 struct PortableVertexDeclaration;
@@ -79,6 +80,10 @@ public:
   }
 
 private:
+  void SetViewportType(const Viewport& v);
+  void CheckOrientationConstants();
+  void CheckSkybox();
+  void LockSkybox();
   alignas(16) std::array<float, 16> m_projection_matrix;
 
   // track changes

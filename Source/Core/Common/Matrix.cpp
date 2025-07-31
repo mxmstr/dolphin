@@ -291,6 +291,24 @@ float Matrix33::Determinant() const
          m(0, 2) * (m(1, 0) * m(2, 1) - m(1, 1) * m(2, 0));
 }
 
+// GlovePIE function for extracting yaw, pitch, and roll from a rotation matrix
+void Matrix33::GetPieYawPitchRollR(const Matrix33& m, float& yaw, float& pitch, float& roll)
+{
+  float s, c, cp;
+  pitch = asin(m.data[2 * 3 + 1]);
+  cp = cos(pitch);
+
+  // yaw:=arcsin(m[2][0]/cp);
+  s = m.data[2 * 3 + 0] / cp;
+  c = m.data[2 * 3 + 2] / cp;
+  yaw = atan2(s, c);
+
+  s = -m.data[0 * 3 + 1] / cp;
+  c = m.data[1 * 3 + 1] / cp;
+  roll = atan2(s, c);
+}
+
+
 Matrix44 Matrix44::Identity()
 {
   Matrix44 mtx = {};
@@ -589,6 +607,19 @@ float Matrix44::Determinant() const
          m[0] * m[13] * m[6] * m[11] + m[4] * m[1] * m[14] * m[11] - m[0] * m[5] * m[14] * m[11] -
          m[8] * m[5] * m[2] * m[15] + m[4] * m[9] * m[2] * m[15] + m[8] * m[1] * m[6] * m[15] -
          m[0] * m[9] * m[6] * m[15] - m[4] * m[1] * m[10] * m[15] + m[0] * m[5] * m[10] * m[15];
+}
+
+Matrix44 Matrix44::Transposed() const
+{
+  Matrix44 result;
+  for (int i = 0; i < 4; ++i)
+  {
+    for (int j = 0; j < 4; ++j)
+    {
+      result.data[j + i * 4] = data[i + j * 4];
+    }
+  }
+  return result;
 }
 
 }  // namespace Common

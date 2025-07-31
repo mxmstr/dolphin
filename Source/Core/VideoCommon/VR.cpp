@@ -92,8 +92,11 @@ float vr_widest_3d_HFOV = 0;
 float vr_widest_3d_VFOV = 0;
 float vr_widest_3d_zNear = 0;
 float vr_widest_3d_zFar = 0;
-float g_game_camera_pos[3] = {0};
+bool g_is_skybox = false;
+Common::Vec3 g_game_camera_pos = {0, 0, 0};
 Common::Matrix44 g_game_camera_rotmat;
+ViewportType g_viewport_type, g_old_viewport_type;
+MathUtil::Rectangle<int> g_final_screen_region;
 
 double g_older_tracking_time = 0, g_old_tracking_time = 0, g_last_tracking_time = 0;
 float g_openvr_ipd = 0.064f; // Default IPD, updated by OpenVR

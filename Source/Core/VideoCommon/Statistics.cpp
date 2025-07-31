@@ -36,6 +36,7 @@ static bool clear_scissors;
 
 void Statistics::ResetFrame()
 {
+  last_frame = this_frame;
   this_frame = {};
   clear_scissors = true;
   if (scissors.size() > 1)

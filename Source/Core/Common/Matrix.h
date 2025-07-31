@@ -395,6 +395,8 @@ public:
   Matrix33 Inverted() const;
   float Determinant() const;
 
+  static void GetPieYawPitchRollR(const Matrix33& m, float& yaw, float& pitch, float& roll);
+
   Matrix33& operator*=(const Matrix33& rhs)
   {
     Multiply(*this, rhs, this);
@@ -449,6 +451,7 @@ public:
 
   Matrix44 Inverted() const;
   float Determinant() const;
+  Matrix44 Transposed() const;
 
   Matrix44& operator*=(const Matrix44& rhs)
   {
