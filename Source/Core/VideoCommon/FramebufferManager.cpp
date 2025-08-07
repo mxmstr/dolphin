@@ -228,25 +228,25 @@ std::tuple<u32, u32> FramebufferManager::CalculateTargetSize()
   u32 new_efb_width = std::max(EFB_WIDTH * static_cast<int>(m_efb_scale), 1u);
   u32 new_efb_height = std::max(EFB_HEIGHT * static_cast<int>(m_efb_scale), 1u);
 
-  if (g_ActiveConfig.bEnableVR && g_ActiveConfig.stereo_mode == StereoMode::OpenVR)
-  {
-    u32 width;
-    u32 height;
-    VR_GetRecommendedRenderTargetSize(&width, &height);
-    //return std::make_tuple(width, height);
-    // scale the efb size to the render target aspect ratio
-    /*float aspect_ratio = static_cast<float>(width) / static_cast<float>(height);
-    if (aspect_ratio > 1.0f)
-    {
-      new_efb_width = static_cast<u32>(new_efb_height * aspect_ratio);
-    }
-    else
-    {
-      new_efb_height = static_cast<u32>(new_efb_width / aspect_ratio);
-    }*/
-    INFO_LOG_FMT(VIDEO, "[VR DEBUG] Creating EFB Framebuffer with dimensions: {}x{}", width, height); // <-- ADD THIS
-    return std::make_tuple(width, height);
-  }
+  //if (g_ActiveConfig.bEnableVR && g_ActiveConfig.stereo_mode == StereoMode::OpenVR)
+  //{
+  //  u32 width;
+  //  u32 height;
+  //  VR_GetRecommendedRenderTargetSize(&width, &height);
+  //  //return std::make_tuple(width, height);
+  //  // scale the efb size to the render target aspect ratio
+  //  /*float aspect_ratio = static_cast<float>(width) / static_cast<float>(height);
+  //  if (aspect_ratio > 1.0f)
+  //  {
+  //    new_efb_width = static_cast<u32>(new_efb_height * aspect_ratio);
+  //  }
+  //  else
+  //  {
+  //    new_efb_height = static_cast<u32>(new_efb_width / aspect_ratio);
+  //  }*/
+  //  INFO_LOG_FMT(VIDEO, "[VR DEBUG] Creating EFB Framebuffer with dimensions: {}x{}", width, height); // <-- ADD THIS
+  //  return std::make_tuple(width, height);
+  //}
 
   return std::make_tuple(new_efb_width, new_efb_height);
 }

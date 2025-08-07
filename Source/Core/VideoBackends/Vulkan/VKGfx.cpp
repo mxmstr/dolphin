@@ -353,6 +353,10 @@ void VKGfx::VR_SubmitFrame(const AbstractTexture* efb_texture)
     const VKTexture* vk_texture = static_cast<const VKTexture*>(efb_texture);
     VkImage native_texture = vk_texture->GetImage();
 
+    //Vulkan::VKGfx::GetInstance()->ExecuteCommandBuffer(false, true);
+
+    //vk_texture->TransitionToLayout(g_command_buffer_mgr->GetCurrentCommandBuffer(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
     vr::VRVulkanTextureArrayData_t vulkan_data = {};
     vulkan_data.m_nImage = (uint64_t)native_texture;
     vulkan_data.m_pDevice = g_vulkan_context->GetDevice();
@@ -362,8 +366,6 @@ void VKGfx::VR_SubmitFrame(const AbstractTexture* efb_texture)
     vulkan_data.m_nQueueFamilyIndex = g_vulkan_context->GetGraphicsQueueFamilyIndex();
     vulkan_data.m_nWidth = efb_texture->GetWidth();
     vulkan_data.m_nHeight = efb_texture->GetHeight();
-    //INFO_LOG_FMT(VIDEO, "Submitting VR frame with texture size {}x{}", vulkan_data.m_nWidth,
-    //  vulkan_data.m_nHeight);
     vulkan_data.m_nFormat = vk_texture->GetVkFormat();
     vulkan_data.m_nSampleCount = efb_texture->GetSamples();
 

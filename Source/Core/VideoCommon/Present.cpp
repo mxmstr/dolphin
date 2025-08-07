@@ -660,26 +660,17 @@ void Presenter::UpdateDrawRectangle()
   float win_width = static_cast<float>(m_backbuffer_width);
   float win_height = static_cast<float>(m_backbuffer_height);
 
-  //if (g_ActiveConfig.bEnableVR && g_ActiveConfig.stereo_mode == StereoMode::OpenVR && g_framebuffer_manager->GetEFBColorTexture())
+  //// --- START OF NEW VR OVERRIDE LOGIC ---
+  //if (g_ActiveConfig.bEnableVR && g_ActiveConfig.stereo_mode == StereoMode::OpenVR && g_gfx->GetCurrentFramebuffer())
   //{
-  //  u32 width, height;
-  //  //VR_GetRecommendedRenderTargetSize(&width, &height);
-
-  //  win_width = static_cast<float>(g_framebuffer_manager->GetEFBWidth());
-  //  win_height = static_cast<float>(g_framebuffer_manager->GetEFBHeight());
+  //  // For VR, we IGNORE the game's viewport dimensions. The 3D scene must be rendered
+  //  // to the entire EFB to match the VR headset's field of view.
+  //  const u32 fb_width = g_gfx->GetCurrentFramebuffer()->GetWidth();
+  //  const u32 fb_height = g_gfx->GetCurrentFramebuffer()->GetHeight();
+  //  win_width = static_cast<float>(fb_width);
+  //  win_height = static_cast<float>(fb_height);
   //}
-
-  // --- START OF NEW VR OVERRIDE LOGIC ---
-  if (g_ActiveConfig.bEnableVR && g_ActiveConfig.stereo_mode == StereoMode::OpenVR && g_gfx->GetCurrentFramebuffer())
-  {
-    // For VR, we IGNORE the game's viewport dimensions. The 3D scene must be rendered
-    // to the entire EFB to match the VR headset's field of view.
-    const u32 fb_width = g_gfx->GetCurrentFramebuffer()->GetWidth();
-    const u32 fb_height = g_gfx->GetCurrentFramebuffer()->GetHeight();
-    win_width = static_cast<float>(fb_width);
-    win_height = static_cast<float>(fb_height);
-  }
-  // --- END OF NEW VR OVERRIDE LOGIC ---
+  //// --- END OF NEW VR OVERRIDE LOGIC ---
 
   const float win_aspect_ratio = win_width / win_height;
 
@@ -743,24 +734,6 @@ void Presenter::UpdateDrawRectangle()
     int_draw_width = m_xfb_rect.GetWidth();
     int_draw_height = m_xfb_rect.GetHeight();
   }
-
-  //INFO_LOG_FMT(VIDEO,
-  //  "Calculated draw rectangle: {}x{} {}x{} ({}x{})",
-  //  win_width, win_height, int_draw_width, int_draw_height, draw_width, draw_height);
-  
-
-  //if (g_ActiveConfig.bEnableVR && g_ActiveConfig.stereo_mode == StereoMode::OpenVR)
-  //{
-  //  int_draw_width = win_width;
-  //  int_draw_height = win_height;
-  //  /*u32 width, height;
-  //  VR_GetRecommendedRenderTargetSize(&width, &height);
-  //  m_target_rectangle.left = 0;
-  //  m_target_rectangle.top = 0;
-  //  m_target_rectangle.right = m_target_rectangle.left + width;
-  //  m_target_rectangle.bottom = m_target_rectangle.top + height;
-  //  return;*/
-  //}
 
   m_target_rectangle.left = static_cast<int>(std::round(win_width / 2.0 - int_draw_width / 2.0));
   m_target_rectangle.top = static_cast<int>(std::round(win_height / 2.0 - int_draw_height / 2.0));
@@ -860,6 +833,8 @@ void Presenter::Present(std::optional<TimePoint> presentation_time)
 {
   m_present_count++;
 
+  VR_NewVRFrame();
+
   if (g_gfx->IsHeadless() || (!m_onscreen_ui && !m_xfb_entry))
     return;
 
@@ -877,12 +852,6 @@ void Presenter::Present(std::optional<TimePoint> presentation_time)
     }
     return;
   }
-
-  /*if (g_ActiveConfig.bEnableVR && m_xfb_entry)
-  {
-    VR_UpdateHeadTrackingIfNeeded();
-    g_gfx->VR_SubmitFrame(m_xfb_entry->texture.get());
-  }*/
 
   // Since we use the common pipelines here and draw vertices if a batch is currently being
   // built by the vertex loader, we end up trampling over its pointer, as we share the buffer
@@ -911,6 +880,41 @@ void Presenter::Present(std::optional<TimePoint> presentation_time)
     if (backbuffer_bound)
       m_onscreen_ui->DrawImGui();
   }
+
+  if (g_ActiveConfig.bEnableVR && m_xfb_entry)
+  {
+    //VR_UpdateHeadTrackingIfNeeded();
+    //auto* efb_texture = g_framebuffer_manager->ResolveEFBColorTexture(g_framebuffer_manager->GetEFBFramebuffer()->GetRect());
+    //g_gfx->VR_SubmitFrame(efb_texture);
+    //g_gfx->WaitForGPUIdle();
+    g_gfx->VR_SubmitFrame(m_xfb_entry->texture.get());
+  }
+
+  //if (g_ActiveConfig.bEnableVR)
+  //{
+  //    // Step A: Finalize all commands for the mirror view. Execute them and wait for completion.
+  //    // This ensures the EFB texture is in a stable state (SHADER_READ_ONLY_OPTIMAL).
+  //    //g_gfx->ExecuteCommandBuffer(false, true);
+  //    //Vulkan::VKGfx::GetInstance()->ExecuteCommandBuffer(false, true);
+
+  //    // Step B: Update VR tracking for the HMD pose.
+  //    VR_UpdateHeadTrackingIfNeeded();
+  //      
+  //    // Step C: Now, in a NEW command buffer, submit the EFB texture to the HMD.
+  //    // g_gfx->VR_SubmitFrame will perform the necessary layout transition to TRANSFER_SRC.
+  //    // Because this is a new command buffer, there is no hazard with the previous usage.
+  //    if(m_xfb_entry)
+  //    {
+  //          g_gfx->VR_SubmitFrame(m_xfb_entry->texture.get());
+  //    }
+  //}
+
+  //if (g_ActiveConfig.bEnableVR && g_framebuffer_manager->GetEFBColorTexture())
+  //{
+  //    // This ensures the EFB is fully rendered and resolved before we submit it.
+  //    auto* efb_texture = g_framebuffer_manager->ResolveEFBColorTexture(g_framebuffer_manager->GetEFBFramebuffer()->GetRect());
+  //    g_gfx->VR_SubmitFrame(efb_texture);
+  //}
 
   // Present to the window system.
   {

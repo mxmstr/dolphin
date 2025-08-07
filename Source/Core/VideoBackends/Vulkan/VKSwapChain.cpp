@@ -296,46 +296,9 @@ bool SwapChain::CreateSwapChain()
   if (surface_capabilities.maxImageCount > 0)
     image_count = std::min(image_count, surface_capabilities.maxImageCount);
 
-  if (g_ActiveConfig.bEnableVR && g_ActiveConfig.stereo_mode == StereoMode::OpenVR)
-  {
-    u32 width, height;
-    VR_GetRecommendedRenderTargetSize(&width, &height);
-
-    /*float aspect_ratio = static_cast<float>(width) / static_cast<float>(height);
-    if (aspect_ratio > 1.0f)
-    {
-      surface_capabilities.currentExtent.width = static_cast<u32>(surface_capabilities.currentExtent.height * aspect_ratio);
-      surface_capabilities.minImageExtent.width = static_cast<u32>(surface_capabilities.minImageExtent.height * aspect_ratio);
-      surface_capabilities.maxImageExtent.width = static_cast<u32>(surface_capabilities.maxImageExtent.height * aspect_ratio);
-    }
-    else
-    {
-      surface_capabilities.currentExtent.height = static_cast<u32>(surface_capabilities.currentExtent.width / aspect_ratio);
-      surface_capabilities.minImageExtent.height = static_cast<u32>(surface_capabilities.minImageExtent.width / aspect_ratio);
-      surface_capabilities.maxImageExtent.height = static_cast<u32>(surface_capabilities.maxImageExtent.width / aspect_ratio);
-    }*/
-
-    /*surface_capabilities.currentExtent.width = width;
-    surface_capabilities.currentExtent.height = height;
-    surface_capabilities.minImageExtent.width = width;
-    surface_capabilities.minImageExtent.height = height;
-    surface_capabilities.maxImageExtent.width = width;
-    surface_capabilities.maxImageExtent.height = height;*/
-  }
-
   // Determine the dimensions of the swap chain. Values of -1 indicate the size we specify here
   // determines window size?
   VkExtent2D size = surface_capabilities.currentExtent;
-  INFO_LOG_FMT(VIDEO, "Swap chain surface capabilities: minImageCount={}, maxImageCount={}, "
-    "currentExtent={{{}, {}}}, minImageExtent={{{}, {}}}, "
-    "maxImageExtent={{{}, {}}}, supportedTransforms=0x{:x}",
-    surface_capabilities.minImageCount, surface_capabilities.maxImageCount,
-    size.width, size.height,
-    surface_capabilities.minImageExtent.width,
-    surface_capabilities.minImageExtent.height,
-    surface_capabilities.maxImageExtent.width,
-    surface_capabilities.maxImageExtent.height,
-    surface_capabilities.supportedTransforms);
   if (size.width == UINT32_MAX)
   {
     size.width = std::max(g_presenter->GetBackbufferWidth(), 1);
