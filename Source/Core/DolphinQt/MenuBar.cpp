@@ -96,6 +96,7 @@ MenuBar::MenuBar(QWidget* parent) : QMenuBar(parent)
   AddMovieMenu();
   AddOptionsMenu();
   AddToolsMenu();
+  AddLuaMenu();
   AddViewMenu();
   AddJITMenu();
   AddSymbolsMenu();
@@ -370,6 +371,12 @@ void MenuBar::AddToolsMenu()
   m_wii_remotes[4] =
       menu->addAction(tr("Connect Balance Board"), this, [this] { emit ConnectWiiRemote(4); });
   m_wii_remotes[4]->setCheckable(true);
+}
+
+void MenuBar::AddLuaMenu()
+{
+  QMenu* lua_menu = addMenu(tr("&LUA"));
+  lua_menu->addAction(tr("&Script..."), this, &MenuBar::ShowLuaScriptDialog);
 }
 
 void MenuBar::AddEmulationMenu()

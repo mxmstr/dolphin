@@ -18,6 +18,7 @@
 #include "Core/HW/SI/SI_Device.h"
 #include "Core/HW/SystemTimers.h"
 #include "Core/Movie.h"
+#include "Core/LUA/Lua.h"
 #include "Core/NetPlayProto.h"
 #include "Core/System.h"
 #include "InputCommon/GCPadStatus.h"
@@ -154,6 +155,7 @@ GCPadStatus CSIDevice_GCController::GetPadStatus()
     pad_status = Pad::GetStatus(m_device_number);
   }
 
+  Lua::UpdateScripts(&pad_status);
   HandleMoviePadStatus(m_system.GetMovie(), m_device_number, &pad_status);
 
   // Our GCAdapter code sets PAD_GET_ORIGIN when a new device has been connected.

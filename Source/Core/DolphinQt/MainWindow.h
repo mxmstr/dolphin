@@ -41,6 +41,7 @@ class InfinityBaseWindow;
 class JITWidget;
 class LogConfigWidget;
 class LogWidget;
+class LuaWindow;
 class MappingWindow;
 class MemoryWidget;
 class MenuBar;
@@ -92,6 +93,7 @@ public:
 
   bool eventFilter(QObject* object, QEvent* event) override;
   QMenu* createPopupMenu() override;
+  Core::System& GetSystem() { return m_system; }
 
 signals:
   void ReadOnlyModeChanged(bool read_only);
@@ -182,6 +184,7 @@ private:
   void ShowMemcardManager();
   void ShowResourcePackManager();
   void ShowCheatsManager();
+  void ShowLuaScriptDialog();
   void ShowRiivolutionBootWidget(const UICommon::GameFile& game);
 
 #ifdef USE_RETRO_ACHIEVEMENTS
@@ -255,6 +258,7 @@ private:
   WiiSpeakWindow* m_wii_speak_window = nullptr;
   MappingWindow* m_hotkey_window = nullptr;
   FreeLookWindow* m_freelook_window = nullptr;
+  LuaWindow* m_lua_window = nullptr;
 
   HotkeyScheduler* m_hotkey_scheduler;
   NetPlayDialog* m_netplay_dialog;

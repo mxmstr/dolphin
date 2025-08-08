@@ -60,6 +60,7 @@
 #include "Core/HW/Wiimote.h"
 #include "Core/Host.h"
 #include "Core/IOS/IOS.h"
+#include "Core/LUA/Lua.h"
 #include "Core/MemTools.h"
 #include "Core/Movie.h"
 #include "Core/NetPlayClient.h"
@@ -532,7 +533,11 @@ static void EmuThread(Core::System& system, std::unique_ptr<BootParameters> boot
   Common::ScopeGuard asset_loader_guard([&system] { system.GetCustomAssetLoader().Shutdown(); });
 
   system.GetMovie().Init(*boot);
-  Common::ScopeGuard movie_guard([&system] { system.GetMovie().Shutdown(); });
+  Lua::Init();
+  Common::ScopeGuard movie_guard([&system] {
+    Lua::Shutdown();
+    system.GetMovie().Shutdown();
+ });
 
   AudioCommon::InitSoundStream(system);
   Common::ScopeGuard audio_guard([&system] { AudioCommon::ShutdownSoundStream(system); });

@@ -100,6 +100,7 @@
 #include "DolphinQt/GCMemcardManager.h"
 #include "DolphinQt/GameList/GameList.h"
 #include "DolphinQt/Host.h"
+#include "DolphinQt/LUA/LaunchLuaScript.h"
 #include "DolphinQt/HotkeyScheduler.h"
 #include "DolphinQt/InfinityBase/InfinityBaseWindow.h"
 #include "DolphinQt/MenuBar.h"
@@ -486,6 +487,7 @@ void MainWindow::CreateComponents()
   m_breakpoint_widget = new BreakpointWidget(this);
   m_code_widget = new CodeWidget(this);
   m_cheats_manager = new CheatsManager(m_system, this);
+  m_lua_window = new LuaWindow(this);
   m_assembler_widget = new AssemblerWidget(this);
 
   const auto request_watch = [this](QString name, u32 addr) {
@@ -569,6 +571,7 @@ void MainWindow::ConnectMenuBar()
   connect(m_menu_bar, &MenuBar::ConfigureFreelook, this, &MainWindow::ShowFreeLookWindow);
 
   // Tools
+  connect(m_menu_bar, &MenuBar::ShowLuaScriptDialog, this, &MainWindow::ShowLuaScriptDialog);
   connect(m_menu_bar, &MenuBar::ShowMemcardManager, this, &MainWindow::ShowMemcardManager);
   connect(m_menu_bar, &MenuBar::ShowResourcePackManager, this,
           &MainWindow::ShowResourcePackManager);
@@ -2062,6 +2065,14 @@ void MainWindow::ShowCheatsManager()
 {
   SetQWidgetWindowDecorations(m_cheats_manager);
   m_cheats_manager->show();
+}
+
+void MainWindow::ShowLuaScriptDialog()
+{
+  SetQWidgetWindowDecorations(m_lua_window);
+  m_lua_window->show();
+  m_lua_window->raise();
+  m_lua_window->activateWindow();
 }
 
 void MainWindow::ShowRiivolutionBootWidget(const UICommon::GameFile& game)

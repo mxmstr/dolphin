@@ -86,6 +86,7 @@ signals:
   void PerformOnlineUpdate(const std::string& region);
 
   // Tools
+  void ShowLuaScriptDialog();
   void ShowMemcardManager();
   void BootGameCubeIPL(DiscIO::Region region);
   void ShowFIFOPlayer();
@@ -140,6 +141,7 @@ private:
   void AddStateSaveMenu(QMenu* emu_menu);
   void AddStateSlotMenu(QMenu* emu_menu);
 
+  void AddLuaMenu();
   void AddViewMenu();
   void AddGameListTypeSection(QMenu* view_menu);
   void AddListColumnsMenu(QMenu* view_menu);
