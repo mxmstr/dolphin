@@ -15,9 +15,10 @@
 #include "Common/StringUtil.h"
 #include "Core/ConfigManager.h"
 #include "Core/Core.h"
+#include "Core/System.h"
 #include "Core/CoreTiming.h"
 #include "Core/HW/Memmap.h"
-#include "Core/HW/SI_Device.h"
+//#include "Core/HW/SI_Device.h"
 #include "Core/Host.h"
 #include "Core/LUA/Lua.h"
 #include "Core/Movie.h"
@@ -42,9 +43,8 @@ int ReadValue8(lua_State* L)
 	{
 		u32 address = lua_tointeger(L, 1);
 
-    auto& system = GetSystem();
-    auto& memory = system.GetMemory();
-		result = MemoryManager::Read_U8(address);
+    auto& memory = Core::System::GetInstance().GetMemory();
+		result = memory.Read_U8(address);
 
 		lua_pushinteger(L, result); // return value
 		return 1;                   // number of return values
@@ -53,7 +53,8 @@ int ReadValue8(lua_State* L)
 	
 	if (Lua::ExecuteMultilevelLoop(L) != 0)
 	{
-		result = Memory::Read_U8(Lua::ExecuteMultilevelLoop(L));
+    auto& memory = Core::System::GetInstance().GetMemory();
+		result = memory.Read_U8(Lua::ExecuteMultilevelLoop(L));
 	}
 
 	lua_pushinteger(L, result);
@@ -73,7 +74,8 @@ int ReadValue16(lua_State* L)
 	{
 		u32 address = lua_tointeger(L, 1);
 
-		result = Memory::Read_U16(address);
+		auto& memory = Core::System::GetInstance().GetMemory();
+		result = memory.Read_U16(address);
 
 		lua_pushinteger(L, result); // return value
 		return 1;
@@ -81,7 +83,8 @@ int ReadValue16(lua_State* L)
 	// if more than 1 argument, read multilelve pointer
 	if (Lua::ExecuteMultilevelLoop(L) != 0)
 	{
-		result = Memory::Read_U16(Lua::ExecuteMultilevelLoop(L));
+		auto& memory = Core::System::GetInstance().GetMemory();
+		result = memory.Read_U16(Lua::ExecuteMultilevelLoop(L));
 	}
 
 	lua_pushinteger(L, result);
@@ -101,7 +104,8 @@ int ReadValue32(lua_State* L)
 	{
 		u32 address = lua_tointeger(L, 1);
 
-		result = Memory::Read_U32(address);
+		auto& memory = Core::System::GetInstance().GetMemory();
+		result = memory.Read_U32(address);
 
 		lua_pushinteger(L, result); // return value
 		return 1;
@@ -109,7 +113,8 @@ int ReadValue32(lua_State* L)
 	// if more than 1 argument, read multilelve pointer
 	if (Lua::ExecuteMultilevelLoop(L) != 0)
 	{
-		result = Memory::Read_U32(Lua::ExecuteMultilevelLoop(L));
+		auto& memory = Core::System::GetInstance().GetMemory();
+		result = memory.Read_U32(Lua::ExecuteMultilevelLoop(L));
 		// result = Memory::Read_U8(LastOffset);
 	}
 
@@ -130,7 +135,8 @@ int ReadValueFloat(lua_State* L)
 	{
 		u32 address = lua_tointeger(L, 1);
 
-		result = PowerPC::Read_F32(address);
+		Core::CPUThreadGuard guard(Core::System::GetInstance());
+		result = PowerPC::MMU::HostRead_F32(guard, address);
 
 		lua_pushnumber(L, result); // return value
 		return 1;
@@ -138,7 +144,8 @@ int ReadValueFloat(lua_State* L)
 	// if more than 1 argument, read multilelve pointer
 	if (Lua::ExecuteMultilevelLoop(L) != 0)
 	{
-		result = PowerPC::Read_F32(Lua::ExecuteMultilevelLoop(L));
+		Core::CPUThreadGuard guard(Core::System::GetInstance());
+		result = PowerPC::MMU::HostRead_F32(guard, Lua::ExecuteMultilevelLoop(L));
 	}
 
 	lua_pushnumber(L, result); // return value
@@ -154,8 +161,9 @@ int ReadValueString(lua_State* L)
 	// can't do the multilevel loop properly unless i'm not lazy
 	u32 address = lua_tointeger(L, 1);
 	int count = lua_tointeger(L, 2);
-
-	std::string result = PowerPC::Read_String(address, count);
+  
+  Core::CPUThreadGuard guard(Core::System::GetInstance());
+	std::string result = PowerPC::MMU::HostGetString(guard, address, count);
 
 	lua_pushstring(L, result.c_str()); // return value
 	return 1; // number of return values
@@ -164,7 +172,8 @@ int ReadValueString(lua_State* L)
 //Write Stuff
 int WriteValue8(lua_State* L)
 {
-	if (Movie::IsPlayingInput())
+  auto& movie = Core::System::GetInstance().GetMovie();
+	if (movie.IsPlayingInput())
 		return 0;
 	
 	int argc = lua_gettop(L);
@@ -175,14 +184,16 @@ int WriteValue8(lua_State* L)
 	u32 address = lua_tointeger(L, 1);
 	u8 value = lua_tointeger(L, 2);
 
-	Memory::Write_U8(value, address);
+	auto& memory = Core::System::GetInstance().GetMemory();
+	memory.Write_U8(value, address);
 
 	return 0; // number of return values
 }
 
 int WriteValue16(lua_State* L)
 {
-	if (Movie::IsPlayingInput())
+  auto& movie = Core::System::GetInstance().GetMovie();
+	if (movie.IsPlayingInput())
 		return 0;
 	
 	int argc = lua_gettop(L);
@@ -193,14 +204,16 @@ int WriteValue16(lua_State* L)
 	u32 address = lua_tointeger(L, 1);
 	u16 value = lua_tointeger(L, 2);
 
-	Memory::Write_U16(value, address);
+	auto& memory = Core::System::GetInstance().GetMemory();
+	memory.Write_U16(value, address);
 
 	return 0; // number of return values
 }
 
 int WriteValue32(lua_State* L)
 {
-	if (Movie::IsPlayingInput())
+  auto& movie = Core::System::GetInstance().GetMovie();
+	if (movie.IsPlayingInput())
 		return 0;
 	
 	int argc = lua_gettop(L);
@@ -211,14 +224,16 @@ int WriteValue32(lua_State* L)
 	u32 address = lua_tointeger(L, 1);
 	u32 value = lua_tointeger(L, 2);
 
-	Memory::Write_U32(value, address);
+	auto& memory = Core::System::GetInstance().GetMemory();
+	memory.Write_U32(value, address);
 
 	return 0; // number of return values
 }
 
 int WriteValueFloat(lua_State* L)
 {
-	if (Movie::IsPlayingInput())
+  auto& movie = Core::System::GetInstance().GetMovie();
+	if (movie.IsPlayingInput())
 		return 0;
 	
 	int argc = lua_gettop(L);
@@ -229,14 +244,16 @@ int WriteValueFloat(lua_State* L)
 	u32 address = lua_tointeger(L, 1);
 	double value = lua_tonumber(L, 2);
 
-	PowerPC::Write_F32((float)value, address);
+	Core::CPUThreadGuard guard(Core::System::GetInstance());
+	PowerPC::MMU::HostWrite_F32(guard, (float)value, address);
 
 	return 0; // number of return values
 }
 
 int WriteValueString(lua_State* L)
 {
-	if (Movie::IsPlayingInput())
+  auto& movie = Core::System::GetInstance().GetMovie();
+	if (movie.IsPlayingInput())
 		return 0;
 	
 	int argc = lua_gettop(L);
@@ -292,7 +309,8 @@ int GetScriptsDir(lua_State* L)
 
 int PressButton(lua_State* L)
 {
-	if (Movie::IsPlayingInput())
+  auto& movie = Core::System::GetInstance().GetMovie();
+	if (movie.IsPlayingInput())
 		return 0;
 	
 	int argc = lua_gettop(L);
@@ -309,7 +327,8 @@ int PressButton(lua_State* L)
 
 int ReleaseButton(lua_State* L)
 {
-	if (Movie::IsPlayingInput())
+  auto& movie = Core::System::GetInstance().GetMovie();
+	if (movie.IsPlayingInput())
 		return 0;
 	
 	int argc = lua_gettop(L);
@@ -326,7 +345,8 @@ int ReleaseButton(lua_State* L)
 
 int SetMainStickX(lua_State* L)
 {
-	if (Movie::IsPlayingInput())
+  auto& movie = Core::System::GetInstance().GetMovie();
+	if (movie.IsPlayingInput())
 		return 0;
 	
 	int argc = lua_gettop(L);
@@ -342,7 +362,8 @@ int SetMainStickX(lua_State* L)
 }
 int SetMainStickY(lua_State* L)
 {
-	if (Movie::IsPlayingInput())
+  auto& movie = Core::System::GetInstance().GetMovie();
+	if (movie.IsPlayingInput())
 		return 0;
 	
 	int argc = lua_gettop(L);
@@ -359,7 +380,8 @@ int SetMainStickY(lua_State* L)
 
 int SetCStickX(lua_State* L)
 {
-	if (Movie::IsPlayingInput())
+  auto& movie = Core::System::GetInstance().GetMovie();
+	if (movie.IsPlayingInput())
 		return 0;
 	
 	int argc = lua_gettop(L);
@@ -375,7 +397,8 @@ int SetCStickX(lua_State* L)
 }
 int SetCStickY(lua_State* L)
 {
-	if (Movie::IsPlayingInput())
+  auto& movie = Core::System::GetInstance().GetMovie();
+	if (movie.IsPlayingInput())
 		return 0;
 	
 	int argc = lua_gettop(L);
@@ -421,7 +444,8 @@ int SaveState(lua_State* L)
 
 int LoadState(lua_State* L)
 {
-	if (Movie::IsPlayingInput())
+  auto& movie = Core::System::GetInstance().GetMovie();
+	if (movie.IsPlayingInput())
 		return 0;
 	
 	int argc = lua_gettop(L);
@@ -454,16 +478,18 @@ int LoadState(lua_State* L)
 int GetFrameCount(lua_State* L)
 {
 	int argc = lua_gettop(L);
-
-	lua_pushinteger(L, Movie::g_currentFrame); // return value
+  
+  auto& movie = Core::System::GetInstance().GetMovie();
+	lua_pushinteger(L, movie.GetCurrentFrame()); // return value
 	return 1; // number of return values
 }
 
 int GetInputFrameCount(lua_State* L)
 {
 	int argc = lua_gettop(L);
-
-	lua_pushinteger(L, Movie::g_currentInputCount + 1); // return value
+  
+  auto& movie = Core::System::GetInstance().GetMovie();
+	lua_pushinteger(L, movie.GetCurrentInputCount() + 1); // return value
 	return 1; // number of return values
 }
 
@@ -533,7 +559,7 @@ void HandleLuaErrors(lua_State* L, int status)
 	{
 		std::string message = StringFromFormat("Lua Error: %s", lua_tostring(L, -1));
 
-		PanicAlert(message.c_str());
+		PanicAlertFmtT("{0}", message.c_str());
 
 		lua_pop(L, 1); // remove error message
 	}
@@ -675,7 +701,8 @@ namespace Lua
 
 	u32 readPointer(u32 startAddress, u32 offset)
 	{
-	    u32 pointer = Memory::Read_U32(startAddress) + offset;
+		auto& memory = Core::System::GetInstance().GetMemory();
+	    u32 pointer = memory.Read_U32(startAddress) + offset;
 	    // check if pointer is not in the mem1 or mem2
 	    if (Lua::IsInMEMArea(pointer))
 	    {
