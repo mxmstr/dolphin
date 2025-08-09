@@ -5,12 +5,12 @@
 #pragma once
 
 #include <string>
-#include <lua.hpp>
-#include <lua.h>
-#include <luaconf.h>
 
 #include "Common/CommonTypes.h"
+#include "Common/FileUtil.h"
 #include "InputCommon/GCPadStatus.h"
+
+extern struct lua_State;
 
 typedef int                 BOOL;
 int ReadValue8(lua_State *L);
@@ -41,6 +41,24 @@ int SetInfoDisplay(lua_State *L);
 int MsgBox(lua_State *L);
 int CancelScript(lua_State *L);
 void HandleLuaErrors(lua_State *L, int status);
+
+namespace
+{
+void GetFileListing(const File::FSTEntry& entry, std::vector<std::string>& files)
+{
+    if (entry.isDirectory)
+    {
+        for (const auto& child : entry.children)
+        {
+            GetFileListing(child, files);
+        }
+    }
+    else
+    {
+        files.push_back(entry.physicalName);
+    }
+}
+}
 
 namespace Lua
 {

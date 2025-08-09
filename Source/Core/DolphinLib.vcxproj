@@ -69,13 +69,13 @@
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <ClCompile>
-      <AdditionalIncludeDirectories>$(ExternalsDir)OpenVR\headers;$(ExternalsDir)zstd\zstd\lib;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ExternalsDir)lua\include;$(ExternalsDir)OpenVR\headers;$(ExternalsDir)zstd\zstd\lib;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <TreatWarningAsError>false</TreatWarningAsError>
     </ClCompile>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <ClCompile>
-      <AdditionalIncludeDirectories>$(ExternalsDir)lua-5.4.8/src;$(ExternalsDir)OpenVR/headers;$(ExternalsDir)zstd\zstd\lib;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ExternalsDir)lua\include;$(ExternalsDir)OpenVR/headers;$(ExternalsDir)zstd\zstd\lib;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <TreatWarningAsError>false</TreatWarningAsError>
     </ClCompile>
   </ItemDefinitionGroup>
@@ -84,7 +84,6 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Core\LUA\Lua.h" />
-    <ClInclude Include="DolphinQt\LUA\LaunchLuaScript.h" />
     <ClInclude Include="VideoBackends\D3D\tiny_obj_loader.h" />
     <ClInclude Include="VideoBackends\D3D\VRD3D.h" />
     <ClInclude Include="VideoCommon\VR.h" />
@@ -93,7 +92,6 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Core\LUA\Lua.cpp" />
-    <ClCompile Include="DolphinQt\LUA\LaunchLuaScript.cpp" />
     <ClCompile Include="VideoCommon\VR.cpp" />
     <ClCompile Include="VideoCommon\VRGameMatrices.cpp" />
   </ItemGroup>

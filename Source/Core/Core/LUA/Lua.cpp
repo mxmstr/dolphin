@@ -11,22 +11,21 @@
 #include <luaconf.h>
 
 #include "Common/CommonPaths.h"
-#include "Common/FileUtil.h"
 #include "Common/StringUtil.h"
 #include "Core/ConfigManager.h"
 #include "Core/Core.h"
 #include "Core/System.h"
 #include "Core/CoreTiming.h"
 #include "Core/HW/Memmap.h"
-//#include "Core/HW/SI_Device.h"
 #include "Core/Host.h"
 #include "Core/LUA/Lua.h"
 #include "Core/Movie.h"
 #include "Core/PowerPC/PowerPC.h"
+#include "Core/PowerPC/MMU.h"
 #include "Core/State.h"
 #include "InputCommon/GCPadStatus.h"
-#include "VideoCommon/Statistics.h"
-#include <DolphinQt/MainWindow.h>
+//#include <DolphinQt/MainWindow.h>
+#include <VideoCommon/OnScreenDisplay.h>
 
 //Lua Functions (C)
 int ReadValue8(lua_State* L)
@@ -266,7 +265,11 @@ int WriteValueString(lua_State* L)
 
 	std::string string = StringFromFormat("%s", value);
 
-	PowerPC::Write_String(string, address);
+	Core::CPUThreadGuard guard(Core::System::GetInstance());
+	for (char c : string)
+	{
+		PowerPC::MMU::HostWrite_U8(guard, c, address++);
+	}
 
 	return 0; // number of return values
 }
@@ -297,7 +300,7 @@ int GetPointerNormal(lua_State* L)
 
 int GetGameID(lua_State* L)
 {
-	lua_pushstring(L, SConfig::GetInstance().GetUniqueID().c_str());
+	lua_pushstring(L, SConfig::GetInstance().GetGameID().c_str());
 	return 1;
 }
 
@@ -505,7 +508,7 @@ int SetScreenText(lua_State* L)
 	std::string screen_text = StringFromFormat("%s", text);
 	screen_text.append("\n");
 
-	Statistics::SetString(screen_text);
+	OSD::AddMessage(screen_text, 5000);
 
 	return 0;
 }
@@ -514,7 +517,9 @@ int PauseEmulation(lua_State* L)
 {
 	int argc = lua_gettop(L);
 
-	Core::SetState(Core::CORE_PAUSE);
+	Core::QueueHostJob([](Core::System& system) {
+		Core::SetState(system, Core::State::Paused);
+	});
 
 	return 0;
 }
@@ -881,14 +886,15 @@ namespace Lua
 		memset(&PadLocal, 0, sizeof(PadLocal));
 
 		//Auto launch Scripts that start with _
-		std::vector<std::string> rFilenames = File::ScanDirectoryTree(File::GetUserPath(D_SCRIPTS_IDX), ".lua", true);
+		std::vector<std::string> rFilenames;
+		GetFileListing(File::ScanDirectoryTree(File::GetUserPath(D_SCRIPTS_IDX), true), rFilenames);
 
 		if (rFilenames.size() > 0)
 		{
 			for (u32 i = 0; i < rFilenames.size(); i++)
 			{
 				std::string P, F, E;
-				File::SplitPath(rFilenames[i], &P, &F, &E);
+				SplitPath(rFilenames[i], &P, &F, &E);
 
 				if (!F.substr(0, 1).compare("_"))
 				{
@@ -971,7 +977,7 @@ namespace Lua
 	//Called every input frame (60 times per second in TP)
 	void UpdateScripts(GCPadStatus* PadStatus)
 	{
-		if (!Core::IsRunningAndStarted())
+		if (!Core::IsRunning(Core::System::GetInstance()))
 			return;
 
 		//Update Local Pad

@@ -11,6 +11,7 @@
 #include <QVBoxLayout>
 
 #include "Common/FileUtil.h"
+#include "Core/System.h"
 #include "Core/Core.h"
 #include "Core/LUA/Lua.h"
 
@@ -49,12 +50,14 @@ void LuaWindow::PopulateScriptList()
 	m_script_choice->clear();
 
 	const std::string scripts_path = File::GetUserPath(D_SCRIPTS_IDX);
-	const std::vector<std::string> scripts = File::ScanDirectoryTree(scripts_path, ".lua", true);
+  
+	std::vector<std::string> scripts;
+	GetFileListing(File::ScanDirectoryTree(File::GetUserPath(D_SCRIPTS_IDX), true), scripts);
 
 	for (const auto& script : scripts)
 	{
 		std::string P, F, E;
-		File::SplitPath(script, &P, &F, &E);
+		SplitPath(script, &P, &F, &E);
 		if (F.substr(0, 1) != "_")
 			m_script_choice->addItem(QString::fromStdString(F + E));
 	}
@@ -62,10 +65,8 @@ void LuaWindow::PopulateScriptList()
 
 void LuaWindow::OnButtonPressed()
 {
-	if (!Core::IsRunningAndStarted())
-	{
-		return;
-	}
+  if (!Core::IsRunning(Core::System::GetInstance()))
+    return;
 
 	const std::string script_name = m_script_choice->currentText().toStdString();
 

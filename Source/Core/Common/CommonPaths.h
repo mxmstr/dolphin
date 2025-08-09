@@ -69,6 +69,7 @@
 #define DUMP_DEBUG_DIR "Debug"
 #define DUMP_DEBUG_BRANCHWATCH_DIR "BranchWatch"
 #define DUMP_DEBUG_JITBLOCKS_DIR "JitBlocks"
+#define SCRIPTS_DIR "Scripts"
 #define LOGS_DIR "Logs"
 #define MAIL_LOGS_DIR "Mail"
 #define SHADERS_DIR "Shaders"
