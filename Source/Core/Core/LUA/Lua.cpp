@@ -9,7 +9,11 @@
 #include <lua.hpp>
 #include <lua.h>
 #include <luaconf.h>
+#include <mutex>
+#include <deque>
+#include <map>
 
+#include "Common/Assembler/GekkoAssembler.h"
 #include "Common/CommonPaths.h"
 #include "Common/StringUtil.h"
 #include "Core/ConfigManager.h"
@@ -20,12 +24,90 @@
 #include "Core/Host.h"
 #include "Core/LUA/Lua.h"
 #include "Core/Movie.h"
+#include "Core/State.h"
 #include "Core/PowerPC/PowerPC.h"
 #include "Core/PowerPC/MMU.h"
-#include "Core/State.h"
+#include "Core/PowerPC/JitInterface.h"
+#include "Core/PowerPC/BreakPoints.h"
 #include "InputCommon/GCPadStatus.h"
 //#include <DolphinQt/MainWindow.h>
 #include <VideoCommon/OnScreenDisplay.h>
+
+// New function callable from Lua: memory.register(address, function)
+int RegisterMemoryCallback(lua_State* L)
+{
+    int argc = lua_gettop(L);
+    if (argc != 2 || !lua_isinteger(L, 1) || !lua_isfunction(L, 2))
+    {
+        lua_pushstring(L, "Usage: memory.register(address, callback_function)");
+        lua_error(L);
+        return 0;
+    }
+
+    u32 address = lua_tointeger(L, 1);
+
+    // Check if a callback is already registered for this address
+    if (Lua::g_memory_callbacks.count(address))
+    {
+        // Unregister the old one first
+        luaL_unref(Lua::g_memory_callbacks[address].state, LUA_REGISTRYINDEX, Lua::g_memory_callbacks[address].function_ref);
+    }
+    
+    // Store the function in the Lua registry to prevent garbage collection
+    lua_pushvalue(L, 2); // Duplicate the function on the stack
+    int function_ref = luaL_ref(L, LUA_REGISTRYINDEX);
+
+    // Store the info
+    Lua::g_memory_callbacks[address] = {function_ref, L};
+
+    // Create a MemCheck to trigger our callback
+    TMemCheck memcheck;
+    memcheck.start_address = address;
+    memcheck.end_address = address; // We are watching a single address
+    memcheck.is_ranged = false;
+    memcheck.is_break_on_read = true; // For now, let's catch both reads and writes
+    memcheck.is_break_on_write = true;
+    memcheck.is_enabled = true;
+    memcheck.log_on_hit = false;    // We do our own logging/callback
+    memcheck.break_on_hit = false;  // IMPORTANT: We do not want to pause the emulator
+
+    // Add it to the system
+    auto& system = Core::System::GetInstance();
+    system.GetPowerPC().GetMemChecks().Add(std::move(memcheck));
+    Host_PPCBreakpointsChanged();
+
+    return 0;
+}
+
+// New function callable from Lua: memory.unregister(address)
+int UnregisterMemoryCallback(lua_State* L)
+{
+    int argc = lua_gettop(L);
+    if (argc != 1 || !lua_isinteger(L, 1))
+    {
+        lua_pushstring(L, "Usage: memory.unregister(address)");
+        lua_error(L);
+        return 0;
+    }
+
+    u32 address = lua_tointeger(L, 1);
+    
+    if (Lua::g_memory_callbacks.count(address))
+    {
+        // Remove the function from the registry
+        luaL_unref(Lua::g_memory_callbacks[address].state, LUA_REGISTRYINDEX, Lua::g_memory_callbacks[address].function_ref);
+        
+        // Remove from our map
+        Lua::g_memory_callbacks.erase(address);
+        
+        // Remove the underlying MemCheck
+        auto& system = Core::System::GetInstance();
+        system.GetPowerPC().GetMemChecks().Remove(address);
+        Host_PPCBreakpointsChanged();
+    }
+
+    return 0;
+}
 
 //Lua Functions (C)
 int ReadValue8(lua_State* L)
@@ -272,6 +354,60 @@ int WriteValueString(lua_State* L)
 	}
 
 	return 0; // number of return values
+}
+
+int WriteAssembly(lua_State* L)
+{
+  auto& movie = Core::System::GetInstance().GetMovie();
+  if (movie.IsPlayingInput())
+    return 0;
+
+  int argc = lua_gettop(L);
+  if (argc < 2)
+  {
+    lua_pushstring(L, "Error: WriteAssembly requires an address and an assembly string.");
+    lua_error(L);
+    return 0;
+  }
+
+  u32 address = lua_tointeger(L, 1);
+  const char* assembly_code_str = lua_tostring(L, 2);
+
+  Common::GekkoAssembler::FailureOr<std::vector<Common::GekkoAssembler::CodeBlock>> assembled_code =
+      Common::GekkoAssembler::Assemble(assembly_code_str, address);
+
+  if (IsFailure(assembled_code))
+  {
+    std::string full_error = "Assembly failed: " + GetFailure(assembled_code).message;
+    lua_pushstring(L, full_error.c_str());
+    lua_error(L);
+    MessageBoxA(nullptr, full_error.c_str(), "Lua Error", MB_OK | MB_ICONERROR);
+    return 0;
+  }
+
+  auto& system = Core::System::GetInstance();
+  Core::CPUThreadGuard guard(system);
+
+  u32 total_size = 0;
+  for (const auto& block : GetT(assembled_code))
+  {
+    u32 current_address = block.block_address;
+    const std::vector<u8>& machine_code = block.instructions;
+    for (size_t i = 0; i < machine_code.size(); i += 4)
+    {
+      u32 instruction = (machine_code[i] << 24) | (machine_code[i + 1] << 16) |
+                        (machine_code[i + 2] << 8) | machine_code[i + 3];
+      system.GetMemory().Write_U32(instruction, current_address);
+      current_address += 4;
+    }
+    total_size += machine_code.size();
+  }
+
+  // This is the crucial step to make the new code runnable
+  //system.GetJitInterface().InvalidateICache(address, total_size, true);
+  system.GetJitInterface().ClearCache(guard);
+
+  return 0;  // No return values
 }
 
 int GetPointerNormal(lua_State* L)
@@ -549,6 +685,22 @@ int MsgBox(lua_State* L)
 	return 0; // number of return values
 }
 
+int ConsoleLog(lua_State* L)
+{
+	int argc = lua_gettop(L);
+
+	if (argc < 1)
+		return 0;
+
+	const char* text = lua_tostring(L, 1);
+
+	std::string message = StringFromFormat("Lua Msg: %s", text);
+
+  NOTICE_LOG_FMT(CORE, "{0}", message.c_str());
+
+	return 0; // number of return values
+}
+
 int CancelScript(lua_State* L)
 {
 	int argc = lua_gettop(L);
@@ -572,9 +724,18 @@ void HandleLuaErrors(lua_State* L, int status)
 
 namespace Lua
 {
+    std::mutex g_memory_event_mutex;
+    std::deque<LuaMemoryEvent> g_memory_event_queue;
+    std::map<u32, LuaCallbackInfo> g_memory_callbacks;
 	//Dragonbane: Lua Stuff
 	static std::list<LuaScript> scriptList;
 	static int currScriptID;
+
+void Lua::QueueMemoryEvent(u32 address, u64 value, u32 size, bool is_write)
+{
+    std::lock_guard<std::mutex> lk(g_memory_event_mutex);
+    g_memory_event_queue.push_back({address, value, size, is_write});
+}
 
 	static GCPadStatus PadLocal;
 
@@ -859,6 +1020,8 @@ namespace Lua
 		lua_register(luaState, "WriteValueFloat", WriteValueFloat);
 		lua_register(luaState, "WriteValueString", WriteValueString);
 
+    lua_register(luaState, "WriteAssembly", WriteAssembly);
+
 		lua_register(luaState, "GetGameID", GetGameID);
 		lua_register(luaState, "GetScriptsDir", GetScriptsDir);
 
@@ -875,9 +1038,18 @@ namespace Lua
 		lua_register(luaState, "GetFrameCount", GetFrameCount);
 		lua_register(luaState, "GetInputFrameCount", GetInputFrameCount);
 		lua_register(luaState, "MsgBox", MsgBox);
+		lua_register(luaState, "ConsoleLog", ConsoleLog);
 		
 		lua_register(luaState, "SetScreenText", SetScreenText);
 		lua_register(luaState, "PauseEmulation", PauseEmulation);
+
+		// Create the 'memory' table
+		lua_newtable(luaState);
+		lua_pushcfunction(luaState, RegisterMemoryCallback);
+		lua_setfield(luaState, -2, "register");
+		lua_pushcfunction(luaState, UnregisterMemoryCallback);
+		lua_setfield(luaState, -2, "unregister");
+		lua_setglobal(luaState, "memory");
 	}
 
 	void Init()
@@ -979,6 +1151,41 @@ namespace Lua
 	{
 		if (!Core::IsRunning(Core::System::GetInstance()))
 			return;
+
+    // Process memory events at the beginning of the update cycle
+    std::deque<LuaMemoryEvent> events;
+    {
+        std::lock_guard<std::mutex> lk(g_memory_event_mutex);
+        if (!g_memory_event_queue.empty())
+        {
+            events.swap(g_memory_event_queue);
+        }
+    }
+    
+    for (const auto& event : events)
+    {
+        if (g_memory_callbacks.count(event.address))
+        {
+            const auto& callback_info = g_memory_callbacks.at(event.address);
+            lua_State* L = callback_info.state;
+            
+            // Push the callback function onto the stack
+            lua_rawgeti(L, LUA_REGISTRYINDEX, callback_info.function_ref);
+
+            // Push arguments
+            lua_pushinteger(L, event.address);
+            lua_pushinteger(L, event.value);
+            lua_pushinteger(L, event.size);
+            lua_pushboolean(L, event.is_write);
+            
+            // Call the function (4 arguments, 0 return values)
+            int status = lua_pcall(L, 4, 0, 0);
+            if (status != 0)
+            {
+                HandleLuaErrors(L, status);
+            }
+        }
+    }
 
 		//Update Local Pad
 		PadLocal = *PadStatus;

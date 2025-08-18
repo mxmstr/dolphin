@@ -19,6 +19,7 @@
 #include "Core/PowerPC/MMU.h"
 #include "Core/PowerPC/PowerPC.h"
 #include "Core/System.h"
+#include "Core/LUA/Lua.h"
 
 BreakPoints::BreakPoints(Core::System& system) : m_system(system)
 {
@@ -390,18 +391,26 @@ bool TMemCheck::Action(Core::System& system, u64 value, u32 addr, bool write, si
   if (!is_enabled)
     return false;
 
-  if (((write && is_break_on_write) || (!write && is_break_on_read)) &&
-      EvaluateCondition(system, this->condition))
+  if (((write && is_break_on_write) || (!write && is_break_on_read)))
   {
-    if (log_on_hit)
+    // --- OUR NEW HOOK GOES HERE ---
+    // This will queue the event for any active memory breakpoint.
+    // The Lua script will decide if it has a callback for it.
+    Lua::QueueMemoryEvent(addr, value, size, write);
+    // --- END OF HOOK ---
+      
+    if (EvaluateCondition(system, this->condition))
     {
-      auto& ppc_symbol_db = system.GetPPCSymbolDB();
-      NOTICE_LOG_FMT(MEMMAP, "MBP {:08x} ({}) {}{} {:x} at {:08x} ({})", pc,
-                     ppc_symbol_db.GetDescription(pc), write ? "Write" : "Read", size * 8, value,
-                     addr, ppc_symbol_db.GetDescription(addr));
+        if (log_on_hit)
+        {
+            auto& ppc_symbol_db = system.GetPPCSymbolDB();
+            NOTICE_LOG_FMT(MEMMAP, "MBP {:08x} ({}) {}{} {:x} at {:08x} ({})", pc,
+                           ppc_symbol_db.GetDescription(pc), write ? "Write" : "Read", size * 8, value,
+                           addr, ppc_symbol_db.GetDescription(addr));
+        }
+        if (break_on_hit)
+          return true;
     }
-    if (break_on_hit)
-      return true;
   }
   return false;
 }
