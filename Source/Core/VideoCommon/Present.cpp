@@ -16,6 +16,7 @@
 #include "VideoCommon/AbstractGfx.h"
 #include "VideoCommon/FrameDumper.h"
 #include "VideoCommon/FramebufferManager.h"
+#include "VideoCommon/DebugSpriteManager.h"
 #include "VideoCommon/OnScreenUI.h"
 #include "VideoCommon/PostProcessing.h"
 #include "VideoCommon/VertexManagerBase.h"
@@ -873,6 +874,13 @@ void Presenter::Present(std::optional<TimePoint> presentation_time)
                                 m_backbuffer_height);
     RenderXFBToScreen(render_target_rc, m_xfb_entry->texture.get(), render_source_rc);
   }
+
+  // --- NEW CODE: Render Debug Sprites ---
+  if (backbuffer_bound)
+  {
+    VideoCommon::DebugSpriteManager::GetInstance()->Render();
+  }
+  // --- END NEW CODE ---
 
   if (m_onscreen_ui)
   {

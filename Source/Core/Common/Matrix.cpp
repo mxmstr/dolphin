@@ -326,6 +326,20 @@ Matrix44 Matrix44::Zero()
   return mtx;
 }
 
+Matrix44 Matrix44::GenerateOrthoMatrix(
+  float left, float right, float top, float bottom, float znear, float zfar)
+{
+  Matrix44 mtx = Matrix44::Zero();
+  mtx.data[0] = 2.0f / (right - left);
+  mtx.data[5] = 2.0f / (top - bottom);
+  mtx.data[10] = -2.0f / (zfar - znear);
+  mtx.data[3] = -(right + left) / (right - left);
+  mtx.data[7] = -(top + bottom) / (top - bottom);
+  mtx.data[11] = -(zfar + znear) / (zfar - znear);
+  mtx.data[15] = 1.0f;
+  return mtx;
+}
+
 Matrix44 Matrix44::FromMatrix33(const Matrix33& m33)
 {
   Matrix44 mtx;

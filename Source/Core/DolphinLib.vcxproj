@@ -86,12 +86,14 @@
     <ClInclude Include="Core\LUA\Lua.h" />
     <ClInclude Include="VideoBackends\D3D\tiny_obj_loader.h" />
     <ClInclude Include="VideoBackends\D3D\VRD3D.h" />
+    <ClInclude Include="VideoCommon\DebugSpriteManager.h" />
     <ClInclude Include="VideoCommon\VR.h" />
     <ClInclude Include="VideoCommon\VRGameMatrices.h" />
     <ClInclude Include="VideoCommon\VROpenVR.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Core\LUA\Lua.cpp" />
+    <ClCompile Include="VideoCommon\DebugSpriteManager.cpp" />
     <ClCompile Include="VideoCommon\VR.cpp" />
     <ClCompile Include="VideoCommon\VRGameMatrices.cpp" />
   </ItemGroup>

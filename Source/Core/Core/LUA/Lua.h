@@ -48,6 +48,7 @@ int CancelScript(lua_State *L);
 void HandleLuaErrors(lua_State *L, int status);
 int RegisterMemoryCallback(lua_State* L);
 int UnregisterMemoryCallback(lua_State* L);
+int VROverlayDrawSprite(lua_State* L);
 
 namespace
 {

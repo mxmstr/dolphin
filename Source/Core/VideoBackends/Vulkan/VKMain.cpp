@@ -18,6 +18,7 @@
 
 #include "VideoCommon/TextureCacheBase.h"
 #include "VideoCommon/VideoConfig.h"
+#include "VideoCommon/DebugSpriteManager.h"
 #include "VideoCommon/VR.h"
 
 #if defined(VK_USE_PLATFORM_METAL_EXT)
@@ -233,8 +234,20 @@ bool VideoBackend::Initialize(const WindowSystemInfo& wsi)
   auto perf_query = std::make_unique<PerfQuery>();
   auto bounding_box = std::make_unique<VKBoundingBox>();
 
-  return InitializeShared(std::move(gfx), std::move(vertex_manager), std::move(perf_query),
-                          std::move(bounding_box));
+  if (!InitializeShared(std::move(gfx), std::move(vertex_manager), std::move(perf_query),
+                        std::move(bounding_box)))
+  {
+    return false;
+  }
+
+  // In VideoBackend::Initialize()
+  // ... after g_presenter->Initialize()
+  if (!VideoCommon::DebugSpriteManager::GetInstance()->Initialize())
+  {
+    PanicAlertFmtT("Failed to initialize Debug Sprite Manager.");
+    // No need to fail initialization for a debug feature
+  }
+  return true;
 }
 
 void VideoBackend::Shutdown()
@@ -245,6 +258,9 @@ void VideoBackend::Shutdown()
   if (g_object_cache)
     g_object_cache->Shutdown();
 
+  // In VideoBackend::Shutdown()
+  // ... before g_presenter.reset()
+  VideoCommon::DebugSpriteManager::GetInstance()->Shutdown();
   ShutdownShared();
 
   g_object_cache.reset();

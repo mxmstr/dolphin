@@ -235,6 +235,8 @@ DepthState GetAlwaysWriteDepthState();
 BlendingState GetInvalidBlendingState();
 BlendingState GetNoBlendingBlendState();
 BlendingState GetNoColorWriteBlendState();
+BlendingState GetAlphaBlendBlendState();
+SamplerState GetSpriteSamplerState();
 SamplerState GetInvalidSamplerState();
 SamplerState GetPointSamplerState();
 SamplerState GetLinearSamplerState();

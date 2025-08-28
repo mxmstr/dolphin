@@ -407,6 +407,45 @@ BlendingState GetNoColorWriteBlendState()
   return state;
 }
 
+BlendingState GetAlphaBlendBlendState()
+{
+  BlendingState state = {};
+  state.blendenable = true;
+  state.usedualsrc = false;
+  state.subtract = false;
+  state.subtractAlpha = false;
+  state.logicopenable = false;
+  state.colorupdate = true;
+  state.alphaupdate = true;
+
+  // FinalColor.rgb = SrcColor.rgb * SrcColor.a + DstColor.rgb * (1 - SrcColor.a)
+  state.srcfactor = SrcBlendFactor::SrcAlpha;
+  state.dstfactor = DstBlendFactor::InvSrcAlpha;
+
+  // FinalColor.a = SrcColor.a * SrcColor.a + DstColor.a * (1 - SrcColor.a)
+  state.srcfactoralpha = SrcBlendFactor::SrcAlpha;
+  state.dstfactoralpha = DstBlendFactor::InvSrcAlpha;
+
+  return state;
+}
+
+SamplerState GetSpriteSamplerState()
+{
+    SamplerState state = {};
+    state.tm0.min_filter = FilterMode::Linear;
+    state.tm0.mag_filter = FilterMode::Linear;
+    state.tm0.mipmap_filter = FilterMode::Near;
+    state.tm0.wrap_u = WrapMode::Clamp; // <-- CHANGE THIS
+    state.tm0.wrap_v = WrapMode::Clamp; // <-- CHANGE THIS
+    state.tm1.min_lod = 0;
+    state.tm1.max_lod = 0;
+    state.tm0.lod_bias = 0;
+    state.tm0.anisotropic_filtering = false;
+    state.tm0.diag_lod = LODType::Edge;
+    state.tm0.lod_clamp = false;
+    return state;
+}
+
 SamplerState GetInvalidSamplerState()
 {
   SamplerState state;

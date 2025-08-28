@@ -30,8 +30,76 @@
 #include "Core/PowerPC/JitInterface.h"
 #include "Core/PowerPC/BreakPoints.h"
 #include "InputCommon/GCPadStatus.h"
+#include "VideoCommon/DebugSpriteManager.h"
 //#include <DolphinQt/MainWindow.h>
 #include <VideoCommon/OnScreenDisplay.h>
+
+// Lua function: vr_debug.draw_sprite{ texture="path/to/image.png", x=0.5, y=0.5, width=0.1, height=0.1, rotation=0, color={r=1,g=1,b=1,a=1}, eye=0 }
+int VROverlayDrawSprite(lua_State* L)
+{
+    if (!lua_istable(L, 1))
+    {
+        lua_pushstring(L, "Usage: vr_debug.draw_sprite({table of arguments})");
+        lua_error(L);
+        return 0;
+    }
+
+    VideoCommon::DebugSpriteManager::SpriteDrawInfo info;
+
+    // Texture Path (required)
+    lua_getfield(L, 1, "texture");
+    if (!lua_isstring(L, -1)) {
+        lua_pushstring(L, "vr_debug.draw_sprite error: 'texture' field is required and must be a string.");
+        lua_error(L);
+        return 0;
+    }
+    info.texture_path = lua_tostring(L, -1);
+    lua_pop(L, 1);
+
+    // Position (normalized coordinates)
+    lua_getfield(L, 1, "x");
+    info.x = lua_isnumber(L, -1) ? lua_tonumber(L, -1) : 0.5f;
+    lua_pop(L, 1);
+
+    lua_getfield(L, 1, "y");
+    info.y = lua_isnumber(L, -1) ? lua_tonumber(L, -1) : 0.5f;
+    lua_pop(L, 1);
+
+    // Size (normalized coordinates)
+    lua_getfield(L, 1, "width");
+    info.width = lua_isnumber(L, -1) ? lua_tonumber(L, -1) : 0.1f;
+    lua_pop(L, 1);
+
+    lua_getfield(L, 1, "height");
+    info.height = lua_isnumber(L, -1) ? lua_tonumber(L, -1) : 0.1f;
+    lua_pop(L, 1);
+    
+    // Rotation (degrees)
+    lua_getfield(L, 1, "rotation");
+    info.rotation_deg = lua_isnumber(L, -1) ? lua_tonumber(L, -1) : 0.0f;
+    lua_pop(L, 1);
+    
+    // Eye Target (-1 for both, 0 for left, 1 for right)
+    lua_getfield(L, 1, "eye");
+    info.eye = lua_isinteger(L, -1) ? lua_tointeger(L, -1) : -1;
+    lua_pop(L, 1);
+
+    // Color Tint
+    lua_getfield(L, 1, "color");
+    if (lua_istable(L, -1))
+    {
+        lua_getfield(L, -1, "r"); info.color[0] = lua_isnumber(L, -1) ? lua_tonumber(L, -1) : 1.0f; lua_pop(L, 1);
+        lua_getfield(L, -1, "g"); info.color[1] = lua_isnumber(L, -1) ? lua_tonumber(L, -1) : 1.0f; lua_pop(L, 1);
+        lua_getfield(L, -1, "b"); info.color[2] = lua_isnumber(L, -1) ? lua_tonumber(L, -1) : 1.0f; lua_pop(L, 1);
+        lua_getfield(L, -1, "a"); info.color[3] = lua_isnumber(L, -1) ? lua_tonumber(L, -1) : 1.0f; lua_pop(L, 1);
+    }
+    lua_pop(L, 1);
+
+    // Add to the manager's queue for this frame
+    VideoCommon::DebugSpriteManager::GetInstance()->AddSprite(info);
+
+    return 0;
+}
 
 // New function callable from Lua: memory.register(address, function)
 int RegisterMemoryCallback(lua_State* L)
@@ -1050,6 +1118,12 @@ void Lua::QueueMemoryEvent(u32 address, u64 value, u32 size, bool is_write)
 		lua_pushcfunction(luaState, UnregisterMemoryCallback);
 		lua_setfield(luaState, -2, "unregister");
 		lua_setglobal(luaState, "memory");
+
+		// Create the 'vr_debug' table
+		lua_newtable(luaState);
+		lua_pushcfunction(luaState, VROverlayDrawSprite);
+		lua_setfield(luaState, -2, "draw_sprite");
+		lua_setglobal(luaState, "vr_debug");
 	}
 
 	void Init()

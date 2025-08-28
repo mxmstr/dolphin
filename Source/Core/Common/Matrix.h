@@ -423,6 +423,8 @@ class Matrix44
 public:
   static Matrix44 Identity();
   static Matrix44 Zero();
+  static Matrix44 GenerateOrthoMatrix(
+    float left, float right, float top, float bottom, float z_near, float z_far);
   static Matrix44 FromMatrix33(const Matrix33& m33);
   static Matrix44 FromQuaternion(const Quaternion& q);
   static Matrix44 FromArray(const std::array<float, 16>& arr);

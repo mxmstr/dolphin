@@ -13,6 +13,7 @@
 #include "Core/System.h"
 
 #include "VideoCommon/BPFunctions.h"
+#include "VideoCommon/DebugSpriteManager.h"
 #include "VideoCommon/VideoCommon.h"
 #include "VideoCommon/VideoConfig.h"
 #include "VideoCommon/VideoEvents.h"
@@ -29,6 +30,7 @@ static Common::EventHook s_after_frame_event = AfterFrameEvent::Register(
           .num_prims = g_stats.this_frame.num_prims + g_stats.this_frame.num_dl_prims,
           .num_draw_calls = g_stats.this_frame.num_draw_calls,
       });
+      //VideoCommon::DebugSpriteManager::GetInstance()->OnFrameEnd();
     },
     "Statistics::PerformanceSample");
 
