@@ -84,6 +84,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Core\LUA\Lua.h" />
+    <ClInclude Include="InputCommon\ControllerInterface\OpenVR\OpenVR.h" />
     <ClInclude Include="VideoBackends\D3D\tiny_obj_loader.h" />
     <ClInclude Include="VideoBackends\D3D\VRD3D.h" />
     <ClInclude Include="VideoCommon\DebugSpriteManager.h" />
@@ -93,6 +94,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Core\LUA\Lua.cpp" />
+    <ClCompile Include="InputCommon\ControllerInterface\OpenVR\OpenVR.cpp" />
     <ClCompile Include="VideoCommon\DebugSpriteManager.cpp" />
     <ClCompile Include="VideoCommon\VR.cpp" />
     <ClCompile Include="VideoCommon\VRGameMatrices.cpp" />

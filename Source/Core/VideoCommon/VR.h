@@ -32,47 +32,47 @@ const int DEFAULT_VR_EXTRA_VIDEO_LOOPS_DIVIDER = 0;
 #define VR_MIRROR_WARPED 3
 #define VR_MIRROR_BOTH 4
 
-#define VIVE_BUTTON_LEFT_SYSTEM 0x01
-#define VIVE_BUTTON_LEFT_MENU 0x02
-#define VIVE_BUTTON_LEFT_GRIP 0x04
-#define VIVE_BUTTON_LEFT_LEFT 0x08
-#define VIVE_BUTTON_LEFT_UP 0x10
-#define VIVE_BUTTON_LEFT_RIGHT 0x20
-#define VIVE_BUTTON_LEFT_DOWN 0x40
-#define VIVE_BUTTON_LEFT_A 0x80
-#define VIVE_BUTTON_LEFT_TOUCHPAD 0x0100
-#define VIVE_BUTTON_LEFT_TRIGGER 0x0200
-#define VIVE_BUTTON_RIGHT_SYSTEM 0x010000
-#define VIVE_BUTTON_RIGHT_MENU 0x020000
-#define VIVE_BUTTON_RIGHT_GRIP 0x040000
-#define VIVE_BUTTON_RIGHT_LEFT 0x080000
-#define VIVE_BUTTON_RIGHT_UP 0x100000
-#define VIVE_BUTTON_RIGHT_RIGHT 0x200000
-#define VIVE_BUTTON_RIGHT_DOWN 0x400000
-#define VIVE_BUTTON_RIGHT_A 0x800000
-#define VIVE_BUTTON_RIGHT_TOUCHPAD 0x01000000
-#define VIVE_BUTTON_RIGHT_TRIGGER 0x02000000
+#define OPENVR_BUTTON_LEFT_SYSTEM 0x01
+#define OPENVR_BUTTON_LEFT_MENU 0x02
+#define OPENVR_BUTTON_LEFT_GRIP 0x04
+#define OPENVR_BUTTON_LEFT_LEFT 0x08
+#define OPENVR_BUTTON_LEFT_UP 0x10
+#define OPENVR_BUTTON_LEFT_RIGHT 0x20
+#define OPENVR_BUTTON_LEFT_DOWN 0x40
+#define OPENVR_BUTTON_LEFT_A 0x80
+#define OPENVR_BUTTON_LEFT_TOUCHPAD 0x0100
+#define OPENVR_BUTTON_LEFT_TRIGGER 0x0200
+#define OPENVR_BUTTON_RIGHT_SYSTEM 0x010000
+#define OPENVR_BUTTON_RIGHT_MENU 0x020000
+#define OPENVR_BUTTON_RIGHT_GRIP 0x040000
+#define OPENVR_BUTTON_RIGHT_LEFT 0x080000
+#define OPENVR_BUTTON_RIGHT_UP 0x100000
+#define OPENVR_BUTTON_RIGHT_RIGHT 0x200000
+#define OPENVR_BUTTON_RIGHT_DOWN 0x400000
+#define OPENVR_BUTTON_RIGHT_A 0x800000
+#define OPENVR_BUTTON_RIGHT_TOUCHPAD 0x01000000
+#define OPENVR_BUTTON_RIGHT_TRIGGER 0x02000000
 
-#define VIVE_SPECIAL_DPAD_UP 0x1
-#define VIVE_SPECIAL_DPAD_DOWN 0x2
-#define VIVE_SPECIAL_DPAD_LEFT 0x4
-#define VIVE_SPECIAL_DPAD_RIGHT 0x8
-#define VIVE_SPECIAL_DPAD_MIDDLE 0x10
-#define VIVE_SPECIAL_GC_A 0x20
-#define VIVE_SPECIAL_GC_B 0x40
-#define VIVE_SPECIAL_GC_X 0x80
-#define VIVE_SPECIAL_GC_Y 0x100
-#define VIVE_SPECIAL_GC_EMPTY 0x200
-#define VIVE_SPECIAL_SIX_A 0x400
-#define VIVE_SPECIAL_SIX_B 0x800
-#define VIVE_SPECIAL_SIX_C 0x1000
-#define VIVE_SPECIAL_SIX_X 0x2000
-#define VIVE_SPECIAL_SIX_Y 0x4000
-#define VIVE_SPECIAL_SIX_Z 0x8000
-#define VIVE_SPECIAL_TOPLEFT 0x10000
-#define VIVE_SPECIAL_TOPRIGHT 0x20000
-#define VIVE_SPECIAL_BOTTOMLEFT 0x40000
-#define VIVE_SPECIAL_BOTTOMRIGHT 0x80000
+#define OPENVR_SPECIAL_DPAD_UP 0x1
+#define OPENVR_SPECIAL_DPAD_DOWN 0x2
+#define OPENVR_SPECIAL_DPAD_LEFT 0x4
+#define OPENVR_SPECIAL_DPAD_RIGHT 0x8
+#define OPENVR_SPECIAL_DPAD_MIDDLE 0x10
+#define OPENVR_SPECIAL_GC_A 0x20
+#define OPENVR_SPECIAL_GC_B 0x40
+#define OPENVR_SPECIAL_GC_X 0x80
+#define OPENVR_SPECIAL_GC_Y 0x100
+#define OPENVR_SPECIAL_GC_EMPTY 0x200
+#define OPENVR_SPECIAL_SIX_A 0x400
+#define OPENVR_SPECIAL_SIX_B 0x800
+#define OPENVR_SPECIAL_SIX_C 0x1000
+#define OPENVR_SPECIAL_SIX_X 0x2000
+#define OPENVR_SPECIAL_SIX_Y 0x4000
+#define OPENVR_SPECIAL_SIX_Z 0x8000
+#define OPENVR_SPECIAL_TOPLEFT 0x10000
+#define OPENVR_SPECIAL_TOPRIGHT 0x20000
+#define OPENVR_SPECIAL_BOTTOMLEFT 0x40000
+#define OPENVR_SPECIAL_BOTTOMRIGHT 0x80000
 
 extern const char* scm_vr_sdk_str;
 
@@ -171,15 +171,15 @@ void VR_GetEyeToHeadTransforms(Common::Matrix44* left, Common::Matrix44* right);
 
 std::wstring VR_GetAudioDeviceId();
 
-bool VR_GetViveButtons(u32* buttons, u32* touches, u64* specials, float triggers[], float axes[]);
-bool VR_ViveHapticPulse(int hands, int microseconds);
+bool VR_GetOpenVRButtons(u32* buttons, u32* touches, u64* specials, float triggers[], float axes[]);
+bool VR_OpenVRHapticPulse(int hands, int microseconds);
 bool VR_GetAccel(int index, bool sideways, bool has_extension, float* gx, float* gy, float* gz);
 bool VR_GetNunchuckAccel(int index, float* gx, float* gy, float* gz);
 bool VR_GetIR(int index, double* irx, double* iry, double* irz);
 // called whenever the game reads the wiimote, to let us know which features they are reading
 void VR_UpdateWiimoteReportingMode(int index, u8 accel, u8 ir, u8 ext);
 
-bool VR_PairViveControllers();
+bool VR_PairOpenVRControllers();
 
 bool VR_GetLeftControllerPos(float* pos, float* thumbpos, Common::Matrix33* m);
 bool VR_GetRightControllerPos(float* pos, float* thumbpos, Common::Matrix33* m);

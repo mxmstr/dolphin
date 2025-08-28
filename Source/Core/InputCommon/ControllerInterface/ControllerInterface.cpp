@@ -37,6 +37,8 @@
 #include "InputCommon/ControllerInterface/SteamDeck/SteamDeck.h"
 #endif
 
+#include "InputCommon/ControllerInterface/OpenVR/OpenVR.h"
+
 ControllerInterface g_controller_interface;
 
 // We need to save which input channel we are in by thread, so we can access the correct input
@@ -85,6 +87,8 @@ void ControllerInterface::Initialize(const WindowSystemInfo& wsi)
 #ifdef CIFACE_USE_STEAMDECK
   m_input_backends.emplace_back(ciface::SteamDeck::CreateInputBackend(this));
 #endif
+
+  m_input_backends.emplace_back(ciface::OpenVR::CreateInputBackend(this));
 
   // Don't allow backends to add devices before the first RefreshDevices() as they will be cleaned
   // there. Or they'd end up waiting on the devices mutex if populated from another thread.

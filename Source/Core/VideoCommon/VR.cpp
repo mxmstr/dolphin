@@ -741,7 +741,7 @@ static bool s_vive_was_touched[2] = {};
 static float s_vive_initial_touch_x[2] = {};
 static float s_vive_initial_touch_y[2] = {};
 
-void ProcessViveTouchpad(int hand, bool touched, bool pressed, float x, float y, u32* specials,
+void ProcessOpenVRTouchpad(int hand, bool touched, bool pressed, float x, float y, u32* specials,
                          float analogs[])
 {
   *specials = 0;
@@ -758,15 +758,15 @@ void ProcessViveTouchpad(int hand, bool touched, bool pressed, float x, float y,
       s_vive_button_mode[hand] = 1;
       // dpad or classic controller diamond button layout
       if (x < -1.0f / 3.0f)
-        *specials |= VIVE_SPECIAL_DPAD_LEFT;
+        *specials |= OPENVR_SPECIAL_DPAD_LEFT;
       else if (x > 1.0f / 3.0f)
-        *specials |= VIVE_SPECIAL_DPAD_RIGHT;
+        *specials |= OPENVR_SPECIAL_DPAD_RIGHT;
       else if (-1.0f / 3.0f < y && y < 1.0f / 3.0f)
-        *specials |= VIVE_SPECIAL_DPAD_MIDDLE;
+        *specials |= OPENVR_SPECIAL_DPAD_MIDDLE;
       if (y < -1.0f / 3.0f)
-        *specials |= VIVE_SPECIAL_DPAD_DOWN;
+        *specials |= OPENVR_SPECIAL_DPAD_DOWN;
       else if (y > 1.0f / 3.0f)
-        *specials |= VIVE_SPECIAL_DPAD_UP;
+        *specials |= OPENVR_SPECIAL_DPAD_UP;
       // GameCube style buttons
       float angle = RADIANS_TO_DEGREES(atan2f(y, x));
       float dd = x * x + y * y;
@@ -785,41 +785,41 @@ void ProcessViveTouchpad(int hand, bool touched, bool pressed, float x, float y,
       // pressing just the A button
       if (dd < A_RADIUS * A_RADIUS)
       {
-        *specials |= VIVE_SPECIAL_GC_A;
+        *specials |= OPENVR_SPECIAL_GC_A;
       }
       else
       {
         // pressing the B button
         if (angle > B_MIN_ANGLE && angle < B_MAX_ANGLE)
         {
-          *specials |= VIVE_SPECIAL_GC_B;
+          *specials |= OPENVR_SPECIAL_GC_B;
           // pressing in between A and B counts as both
           if (dd < INNER_B_RADIUS * INNER_B_RADIUS)
-            *specials |= VIVE_SPECIAL_GC_A;
+            *specials |= OPENVR_SPECIAL_GC_A;
         }
         else
         {
           // pressing the X button (may also be pressing Y)
           if (angle >= X_MIN_ANGLE && angle < Y_MIN_ANGLE)
           {
-            *specials |= VIVE_SPECIAL_GC_X;
+            *specials |= OPENVR_SPECIAL_GC_X;
             // pressing in between A and X counts as both
             if (dd < INNER_XY_RADIUS * INNER_XY_RADIUS)
-              *specials |= VIVE_SPECIAL_GC_A;
+              *specials |= OPENVR_SPECIAL_GC_A;
           }
           // pressing the Y button (may also be pressing X)
           if (angle > X_MAX_ANGLE && angle <= Y_MAX_ANGLE)
           {
-            *specials |= VIVE_SPECIAL_GC_Y;
+            *specials |= OPENVR_SPECIAL_GC_Y;
             // pressing in between A and Y counts as both
             if (dd < INNER_XY_RADIUS * INNER_XY_RADIUS)
-              *specials |= VIVE_SPECIAL_GC_A;
+              *specials |= OPENVR_SPECIAL_GC_A;
           }
           // pressing the empty space below B and X
           else if (angle >= EMPTY_MIN_ANGLE && angle <= EMPTY_MAX_ANGLE &&
                    dd > INNER_B_RADIUS * INNER_B_RADIUS)
           {
-            *specials |= VIVE_SPECIAL_GC_EMPTY;
+            *specials |= OPENVR_SPECIAL_GC_EMPTY;
           }
         }
       }
@@ -827,16 +827,16 @@ void ProcessViveTouchpad(int hand, bool touched, bool pressed, float x, float y,
       if (y > -0.15)
       {
         if (x < 0.15)
-          *specials |= VIVE_SPECIAL_TOPLEFT;
+          *specials |= OPENVR_SPECIAL_TOPLEFT;
         if (x > -0.15)
-          *specials |= VIVE_SPECIAL_TOPRIGHT;
+          *specials |= OPENVR_SPECIAL_TOPRIGHT;
       }
       if (y < 0.15)
       {
         if (x < 0.15)
-          *specials |= VIVE_SPECIAL_BOTTOMLEFT;
+          *specials |= OPENVR_SPECIAL_BOTTOMLEFT;
         if (x > -0.15)
-          *specials |= VIVE_SPECIAL_BOTTOMRIGHT;
+          *specials |= OPENVR_SPECIAL_BOTTOMRIGHT;
       }
 
       // 6 buttons diagonally, for N64, sega, arcade
@@ -847,21 +847,21 @@ void ProcessViveTouchpad(int hand, bool touched, bool pressed, float x, float y,
       if (yd >= -0.1)
       {
         if (xd < -1 / 3.0f + 0.04f)
-          *specials |= VIVE_SPECIAL_SIX_X;
+          *specials |= OPENVR_SPECIAL_SIX_X;
         if (xd > -1 / 3.0f - 0.04f && xd < 1 / 3.0f + 0.04f)
-          *specials |= VIVE_SPECIAL_SIX_Y;
+          *specials |= OPENVR_SPECIAL_SIX_Y;
         if (xd > 1 / 3.0f - 0.04f)
-          *specials |= VIVE_SPECIAL_SIX_Z;
+          *specials |= OPENVR_SPECIAL_SIX_Z;
       }
       // bottom row
       if (yd <= 0.1)
       {
         if (xd < -1 / 3.0f + 0.04f)
-          *specials |= VIVE_SPECIAL_SIX_A;
+          *specials |= OPENVR_SPECIAL_SIX_A;
         if (xd > -1 / 3.0f - 0.04f && xd < 1 / 3.0f + 0.04f)
-          *specials |= VIVE_SPECIAL_SIX_B;
+          *specials |= OPENVR_SPECIAL_SIX_B;
         if (xd > 1 / 3.0f - 0.04f)
-          *specials |= VIVE_SPECIAL_SIX_C;
+          *specials |= OPENVR_SPECIAL_SIX_C;
       }
       // todo: various wiimote face button layouts
     }
@@ -890,7 +890,7 @@ void ProcessViveTouchpad(int hand, bool touched, bool pressed, float x, float y,
 }
 
 double last_good_tracking_time = 0;
-bool VR_GetViveButtons(u32* buttons, u32* touches, u64* specials, float triggers[], float axes[])
+bool VR_GetOpenVRButtons(u32* buttons, u32* touches, u64* specials, float triggers[], float axes[])
 {
   *buttons = 0;
   *touches = 0;
@@ -928,7 +928,7 @@ bool VR_GetViveButtons(u32* buttons, u32* touches, u64* specials, float triggers
       double t = Common::Timer::NowMs() / 1000.0;
       if (t - last_good_tracking_time > 1.0)
       {
-        VR_PairViveControllers();
+        VR_PairOpenVRControllers();
         last_good_tracking_time = t + 20;
       }
     }
@@ -957,7 +957,7 @@ bool VR_GetViveButtons(u32* buttons, u32* touches, u64* specials, float triggers
       axes[4] = states[0].rAxis[0].x; // Left X
       axes[5] = states[0].rAxis[0].y; // Left Y
       triggers[0] = states[0].rAxis[1].x; // Left Trigger
-      ProcessViveTouchpad(0, (states[0].ulButtonTouched & vr::ButtonMaskFromId(vr::k_EButton_SteamVR_Touchpad)) != 0,
+      ProcessOpenVRTouchpad(0, (states[0].ulButtonTouched & vr::ButtonMaskFromId(vr::k_EButton_SteamVR_Touchpad)) != 0,
                           (states[0].ulButtonPressed & vr::ButtonMaskFromId(vr::k_EButton_SteamVR_Touchpad)) != 0,
                           states[0].rAxis[0].x, states[0].rAxis[0].y, ((u32*)specials), &axes[0]);
     }
@@ -965,7 +965,7 @@ bool VR_GetViveButtons(u32* buttons, u32* touches, u64* specials, float triggers
       axes[6] = states[1].rAxis[0].x; // Right X
       axes[7] = states[1].rAxis[0].y; // Right Y
       triggers[1] = states[1].rAxis[1].x; // Right Trigger
-      ProcessViveTouchpad(1, (states[1].ulButtonTouched & vr::ButtonMaskFromId(vr::k_EButton_SteamVR_Touchpad)) != 0,
+      ProcessOpenVRTouchpad(1, (states[1].ulButtonTouched & vr::ButtonMaskFromId(vr::k_EButton_SteamVR_Touchpad)) != 0,
                           (states[1].ulButtonPressed & vr::ButtonMaskFromId(vr::k_EButton_SteamVR_Touchpad)) != 0,
                           states[1].rAxis[0].x, states[1].rAxis[0].y, ((u32*)specials) + 1, &axes[2]);
     }
@@ -975,7 +975,7 @@ bool VR_GetViveButtons(u32* buttons, u32* touches, u64* specials, float triggers
   return false;
 }
 
-bool VR_ViveHapticPulse(int hands, int microseconds)
+bool VR_OpenVRHapticPulse(int hands, int microseconds)
 {
 #if defined(HAVE_OPENVR)
   if (g_has_openvr && m_pHMD && hands)
@@ -1433,7 +1433,7 @@ ControllerStyle VR_GetHydraStyle(int hand)
   }
 }
 
-bool VR_PairViveControllers()
+bool VR_PairOpenVRControllers()
 {
 #ifdef _WIN32
   HWND SteamVRStatusWindow = FindWindowA("Qt5QWindowIcon", "SteamVR Status");
