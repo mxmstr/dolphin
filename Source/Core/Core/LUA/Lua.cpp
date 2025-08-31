@@ -31,8 +31,149 @@
 #include "Core/PowerPC/BreakPoints.h"
 #include "InputCommon/GCPadStatus.h"
 #include "VideoCommon/DebugSpriteManager.h"
+#include "VideoCommon/VR.h"
 //#include <DolphinQt/MainWindow.h>
 #include <VideoCommon/OnScreenDisplay.h>
+
+// Lua function: vr.get_poses()
+int VRGetControllerPoses(lua_State* L)
+{
+    float pos[3], thumbpos[2];
+    Common::Matrix33 m;
+
+    lua_newtable(L); // Create a table to hold both controller poses
+
+    // Left controller
+    if (VR_GetLeftControllerPos(pos, thumbpos, &m))
+    {
+        lua_pushstring(L, "left");
+        lua_newtable(L); // Create a table for the left controller
+
+        // Position
+        lua_pushstring(L, "pos");
+        lua_newtable(L);
+        lua_pushstring(L, "x");
+        lua_pushnumber(L, pos[0]);
+        lua_settable(L, -3);
+        lua_pushstring(L, "y");
+        lua_pushnumber(L, pos[1]);
+        lua_settable(L, -3);
+        lua_pushstring(L, "z");
+        lua_pushnumber(L, pos[2]);
+        lua_settable(L, -3);
+        lua_settable(L, -3);
+
+        // Rotation matrix
+        lua_pushstring(L, "matrix");
+        lua_newtable(L);
+        for (int i = 0; i < 3; ++i)
+        {
+            lua_pushinteger(L, i + 1);
+            lua_newtable(L);
+            for (int j = 0; j < 3; ++j)
+            {
+                lua_pushinteger(L, j + 1);
+                lua_pushnumber(L, m.data[i * 3 + j]);
+                lua_settable(L, -3);
+            }
+            lua_settable(L, -3);
+        }
+        lua_settable(L, -3);
+
+        lua_settable(L, -3); // Add left controller table to the main table
+    }
+
+    // Right controller
+    if (VR_GetRightControllerPos(pos, thumbpos, &m))
+    {
+        lua_pushstring(L, "right");
+        lua_newtable(L); // Create a table for the right controller
+
+        // Position
+        lua_pushstring(L, "pos");
+        lua_newtable(L);
+        lua_pushstring(L, "x");
+        lua_pushnumber(L, pos[0]);
+        lua_settable(L, -3);
+        lua_pushstring(L, "y");
+        lua_pushnumber(L, pos[1]);
+        lua_settable(L, -3);
+        lua_pushstring(L, "z");
+        lua_pushnumber(L, pos[2]);
+        lua_settable(L, -3);
+        lua_settable(L, -3);
+
+        // Rotation matrix
+        lua_pushstring(L, "matrix");
+        lua_newtable(L);
+        for (int i = 0; i < 3; ++i)
+        {
+            lua_pushinteger(L, i + 1);
+            lua_newtable(L);
+            for (int j = 0; j < 3; ++j)
+            {
+                lua_pushinteger(L, j + 1);
+                lua_pushnumber(L, m.data[i * 3 + j]);
+                lua_settable(L, -3);
+            }
+            lua_settable(L, -3);
+        }
+        lua_settable(L, -3);
+
+        lua_settable(L, -3); // Add right controller table to the main table
+    }
+
+    return 1;
+}
+
+// Lua function: vr.get_buttons()
+int VRGetControllerButtons(lua_State* L)
+{
+    u32 buttons, touches;
+    u64 specials;
+    float triggers[2], axes[8];
+
+    if (!VR_GetOpenVRButtons(&buttons, &touches, &specials, triggers, axes))
+    {
+        return 0;
+    }
+
+    lua_newtable(L); // Create a table to hold button states
+
+    lua_pushstring(L, "buttons");
+    lua_pushinteger(L, buttons);
+    lua_settable(L, -3);
+
+    lua_pushstring(L, "touches");
+    lua_pushinteger(L, touches);
+    lua_settable(L, -3);
+
+    lua_pushstring(L, "specials");
+    lua_pushinteger(L, specials);
+    lua_settable(L, -3);
+
+    lua_pushstring(L, "triggers");
+    lua_newtable(L);
+    for (int i = 0; i < 2; ++i)
+    {
+        lua_pushinteger(L, i + 1);
+        lua_pushnumber(L, triggers[i]);
+        lua_settable(L, -3);
+    }
+    lua_settable(L, -3);
+
+    lua_pushstring(L, "axes");
+    lua_newtable(L);
+    for (int i = 0; i < 8; ++i)
+    {
+        lua_pushinteger(L, i + 1);
+        lua_pushnumber(L, axes[i]);
+        lua_settable(L, -3);
+    }
+    lua_settable(L, -3);
+
+    return 1;
+}
 
 // Lua function: vr_debug.draw_sprite{ texture="path/to/image.png", x=0.5, y=0.5, width=0.1, height=0.1, rotation=0, color={r=1,g=1,b=1,a=1}, eye=0 }
 int VROverlayDrawSprite(lua_State* L)
@@ -1119,11 +1260,20 @@ void Lua::QueueMemoryEvent(u32 address, u64 value, u32 size, bool is_write)
 		lua_setfield(luaState, -2, "unregister");
 		lua_setglobal(luaState, "memory");
 
-		// Create the 'vr_debug' table
+		// Create the 'vr' table
+		lua_newtable(luaState);
+		lua_pushcfunction(luaState, VRGetControllerPoses);
+		lua_setfield(luaState, -2, "get_poses");
+		lua_pushcfunction(luaState, VRGetControllerButtons);
+		lua_setfield(luaState, -2, "get_buttons");
+
+		// Create the 'vr_debug' sub-table
 		lua_newtable(luaState);
 		lua_pushcfunction(luaState, VROverlayDrawSprite);
 		lua_setfield(luaState, -2, "draw_sprite");
-		lua_setglobal(luaState, "vr_debug");
+		lua_setfield(luaState, -2, "debug"); // vr.debug
+
+		lua_setglobal(luaState, "vr");
 	}
 
 	void Init()
