@@ -1,3 +1,7 @@
+This fork has been superseded by https://github.com/iChris4/dolphinXR, which has an actual team behind it.
+
+----------------------------------------------------------------------------------------
+
 # Dolphin VR Reloaded
 
 A WIP reimplementation of Carl Kenner's Dolphin VR for the latest Dolphin 2506a branch.
