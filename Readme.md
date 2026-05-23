@@ -1,4 +1,4 @@
-This fork has been superseded by https://github.com/iChris4/dolphinXR, which has an actual team behind it.
+This fork has been superseded by [Dolphin XR](https://github.com/iChris4/dolphinXR), which has an actual team behind it.
 
 ----------------------------------------------------------------------------------------
 
